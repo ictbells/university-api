@@ -1,0 +1,63 @@
+<?php
+
+namespace App\Support;
+
+class PermissionCatalog
+{
+    public static function all(): array
+    {
+        return [
+            ['key' => 'institution.manage', 'module' => 'institution', 'label' => 'Manage institution and office setup'],
+            ['key' => 'academic.campuses.manage', 'module' => 'academic', 'label' => 'Manage campuses'],
+            ['key' => 'academic.colleges.manage', 'module' => 'academic', 'label' => 'Manage colleges'],
+            ['key' => 'academic.departments.manage', 'module' => 'academic', 'label' => 'Manage departments'],
+            ['key' => 'academic.sessions.manage', 'module' => 'academic', 'label' => 'Manage academic sessions'],
+            ['key' => 'academic.levels.manage', 'module' => 'academic', 'label' => 'Manage academic levels'],
+            ['key' => 'academic.courses.manage', 'module' => 'academic', 'label' => 'Manage courses'],
+            ['key' => 'academic.programmes.manage', 'module' => 'academic', 'label' => 'Manage programmes'],
+            ['key' => 'academic.intakes.manage', 'module' => 'academic', 'label' => 'Manage application windows'],
+            ['key' => 'academic.olevel.manage', 'module' => 'academic', 'label' => "Manage O'level subjects"],
+            ['key' => 'students.view_own', 'module' => 'sis', 'label' => 'View own student record'],
+            ['key' => 'students.view_any', 'module' => 'sis', 'label' => 'View any student record'],
+            ['key' => 'students.manage', 'module' => 'sis', 'label' => 'Manage student records'],
+            ['key' => 'admissions.view', 'module' => 'admissions', 'label' => 'View applications'],
+            ['key' => 'admissions.apply', 'module' => 'admissions', 'label' => 'Start and complete an application'],
+            ['key' => 'admissions.screen', 'module' => 'admissions', 'label' => 'Screen applications'],
+            ['key' => 'admissions.verify', 'module' => 'admissions', 'label' => 'Verify applications'],
+            ['key' => 'admissions.shortlist', 'module' => 'admissions', 'label' => 'Shortlist applicants'],
+            ['key' => 'admissions.recommend', 'module' => 'admissions', 'label' => 'Recommend admission'],
+            ['key' => 'admissions.approve', 'module' => 'admissions', 'label' => 'Approve admission'],
+            ['key' => 'admissions.offer', 'module' => 'admissions', 'label' => 'Issue admission offer'],
+            ['key' => 'admissions.matriculate', 'module' => 'admissions', 'label' => 'Matriculate students'],
+            ['key' => 'registrations.view', 'module' => 'registrations', 'label' => 'View registrations'],
+            ['key' => 'academic.catalog.manage', 'module' => 'academic', 'label' => 'Manage programmes and courses (legacy)'],
+            ['key' => 'pg.view', 'module' => 'postgraduate', 'label' => 'View postgraduate records'],
+            ['key' => 'pg.manage', 'module' => 'postgraduate', 'label' => 'Manage postgraduate records'],
+            ['key' => 'finance.invoices.manage', 'module' => 'fees', 'label' => 'Manage invoices'],
+            ['key' => 'finance.payments.record', 'module' => 'payments', 'label' => 'Record payments'],
+            ['key' => 'wallet.topup', 'module' => 'wallet', 'label' => 'Fund wallets'],
+            ['key' => 'wallet.view_own', 'module' => 'wallet', 'label' => 'View own wallet'],
+            ['key' => 'wallet.view_any', 'module' => 'wallet', 'label' => 'View any wallet'],
+            ['key' => 'medical.view_own', 'module' => 'medical', 'label' => 'View own medical record'],
+            ['key' => 'medical.view_any', 'module' => 'medical', 'label' => 'View any medical record'],
+            ['key' => 'medical.manage', 'module' => 'medical', 'label' => 'Manage medical records'],
+            ['key' => 'medical.billing', 'module' => 'medical', 'label' => 'Create medical bills'],
+            ['key' => 'documents.view_own', 'module' => 'documents', 'label' => 'View own documents'],
+            ['key' => 'documents.issue', 'module' => 'documents', 'label' => 'Issue documents'],
+            ['key' => 'documents.manage', 'module' => 'documents', 'label' => 'Manage documents'],
+            ['key' => 'hostel.view', 'module' => 'hostel', 'label' => 'View hostels'],
+            ['key' => 'hostel.manage', 'module' => 'hostel', 'label' => 'Manage hostels'],
+            ['key' => 'hostel.allocate', 'module' => 'hostel', 'label' => 'Allocate hostel beds'],
+            ['key' => 'roles.manage', 'module' => 'users', 'label' => 'Manage roles and permission ticks'],
+            ['key' => 'users.manage', 'module' => 'users', 'label' => 'Manage users'],
+            ['key' => 'settings.manage', 'module' => 'admin', 'label' => 'Manage system settings'],
+            ['key' => 'resources.view', 'module' => 'admin', 'label' => 'View and download platform resources'],
+            ['key' => 'announcements.manage', 'module' => 'admin', 'label' => 'Manage announcements'],
+            ['key' => 'audit.view', 'module' => 'audit', 'label' => 'View audit trail'],
+            ['key' => 'notifications.manage', 'module' => 'notifications', 'label' => 'Send notifications'],
+            ['key' => 'reports.view', 'module' => 'reports', 'label' => 'View reports'],
+            ['key' => 'integrations.view', 'module' => 'integrations', 'label' => 'View integrations'],
+            ['key' => 'identity.verify_nin', 'module' => 'identity', 'label' => 'Re-verify NIN'],
+        ];
+    }
+}

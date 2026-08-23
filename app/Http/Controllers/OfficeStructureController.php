@@ -1,0 +1,219 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\OfficeDepartment;
+use App\Models\OfficeSubunit;
+use App\Models\OfficeUnit;
+use App\Services\AuditWriter;
+use App\Support\StaffNavCatalog;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+
+class OfficeStructureController extends Controller
+{
+    public function __construct(private AuditWriter $audit) {}
+
+    public function index()
+    {
+        return OfficeDepartment::query()
+            ->with(['units.subunits.navLinks', 'units.navLinks', 'navLinks'])
+            ->orderBy('name')
+            ->get()
+            ->map(fn (OfficeDepartment $dept) => $this->formatDepartment($dept));
+    }
+
+    public function navCatalog()
+    {
+        return StaffNavCatalog::all();
+    }
+
+    public function syncDepartmentNavLinks(Request $request, OfficeDepartment $officeDepartment)
+    {
+        return $this->syncNavLinks($request, $officeDepartment, 'office.department.nav_links', 'office_department', $officeDepartment->id);
+    }
+
+    public function syncUnitNavLinks(Request $request, OfficeUnit $officeUnit)
+    {
+        return $this->syncNavLinks($request, $officeUnit, 'office.unit.nav_links', 'office_unit', $officeUnit->id);
+    }
+
+    public function syncSubunitNavLinks(Request $request, OfficeSubunit $officeSubunit)
+    {
+        return $this->syncNavLinks($request, $officeSubunit, 'office.subunit.nav_links', 'office_subunit', $officeSubunit->id);
+    }
+
+    private function syncNavLinks(Request $request, $model, string $action, string $entityType, int $entityId)
+    {
+        $data = $request->validate([
+            'nav_keys' => 'array',
+            'nav_keys.*' => 'string',
+        ]);
+
+        $keys = collect($data['nav_keys'] ?? [])
+            ->filter(fn ($key) => StaffNavCatalog::isValidKey($key))
+            ->unique()
+            ->values()
+            ->all();
+
+        $before = $model->navKeys();
+        $model->syncNavKeys($keys);
+        $this->audit->record($action, 'Office navigation links updated', 'institution', $entityType, $entityId, $before, $keys);
+
+        return ['nav_keys' => $keys];
+    }
+
+    private function formatDepartment(OfficeDepartment $dept): array
+    {
+        return [
+            ...$dept->toArray(),
+            'nav_keys' => $dept->navKeys(),
+            'units' => $dept->units->map(fn (OfficeUnit $unit) => [
+                ...$unit->toArray(),
+                'nav_keys' => $unit->navKeys(),
+                'subunits' => $unit->subunits->map(fn (OfficeSubunit $sub) => [
+                    ...$sub->toArray(),
+                    'nav_keys' => $sub->navKeys(),
+                ])->values(),
+            ])->values(),
+        ];
+    }
+
+    public function storeDepartment(Request $request)
+    {
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'code' => 'nullable|string|max:50|unique:office_departments,code',
+            'description' => 'nullable|string',
+            'is_active' => 'boolean',
+        ]);
+
+        $department = OfficeDepartment::query()->create($data);
+        $this->audit->record('office.department.created', 'Office department created', 'institution', 'office_department', $department->id, null, $department);
+
+        return $department->load('units.subunits');
+    }
+
+    public function storeUnit(Request $request)
+    {
+        $data = $request->validate([
+            'office_department_id' => 'required|exists:office_departments,id',
+            'name' => 'required|string|max:255',
+            'code' => 'nullable|string|max:50',
+            'description' => 'nullable|string',
+            'is_active' => 'boolean',
+        ]);
+
+        $unit = OfficeUnit::query()->create($data);
+        $this->audit->record('office.unit.created', 'Office unit created', 'institution', 'office_unit', $unit->id, null, $unit);
+
+        return $unit->load('subunits');
+    }
+
+    public function storeSubunit(Request $request)
+    {
+        $data = $request->validate([
+            'office_unit_id' => 'required|exists:office_units,id',
+            'name' => 'required|string|max:255',
+            'code' => 'nullable|string|max:50',
+            'description' => 'nullable|string',
+            'is_active' => 'boolean',
+        ]);
+
+        $subunit = OfficeSubunit::query()->create($data);
+        $this->audit->record('office.subunit.created', 'Office subunit created', 'institution', 'office_subunit', $subunit->id, null, $subunit);
+
+        return $subunit;
+    }
+
+    public function updateDepartment(Request $request, OfficeDepartment $officeDepartment)
+    {
+        $data = $request->validate([
+            'name' => 'sometimes|required|string|max:255',
+            'code' => ['nullable', 'string', 'max:50', Rule::unique('office_departments', 'code')->ignore($officeDepartment->id)],
+            'description' => 'nullable|string',
+            'is_active' => 'boolean',
+        ]);
+
+        $before = $officeDepartment->toArray();
+        $officeDepartment->update($data);
+        $this->audit->record('office.department.updated', 'Office department updated', 'institution', 'office_department', $officeDepartment->id, $before, $officeDepartment);
+
+        return $officeDepartment->fresh()->load('units.subunits');
+    }
+
+    public function updateUnit(Request $request, OfficeUnit $officeUnit)
+    {
+        $data = $request->validate([
+            'office_department_id' => 'sometimes|required|exists:office_departments,id',
+            'name' => 'sometimes|required|string|max:255',
+            'code' => [
+                'nullable',
+                'string',
+                'max:50',
+                Rule::unique('office_units', 'code')
+                    ->where('office_department_id', $request->input('office_department_id', $officeUnit->office_department_id))
+                    ->ignore($officeUnit->id),
+            ],
+            'description' => 'nullable|string',
+            'is_active' => 'boolean',
+        ]);
+
+        $before = $officeUnit->toArray();
+        $officeUnit->update($data);
+        $this->audit->record('office.unit.updated', 'Office unit updated', 'institution', 'office_unit', $officeUnit->id, $before, $officeUnit);
+
+        return $officeUnit->fresh()->load('subunits');
+    }
+
+    public function updateSubunit(Request $request, OfficeSubunit $officeSubunit)
+    {
+        $data = $request->validate([
+            'office_unit_id' => 'sometimes|required|exists:office_units,id',
+            'name' => 'sometimes|required|string|max:255',
+            'code' => [
+                'nullable',
+                'string',
+                'max:50',
+                Rule::unique('office_subunits', 'code')
+                    ->where('office_unit_id', $request->input('office_unit_id', $officeSubunit->office_unit_id))
+                    ->ignore($officeSubunit->id),
+            ],
+            'description' => 'nullable|string',
+            'is_active' => 'boolean',
+        ]);
+
+        $before = $officeSubunit->toArray();
+        $officeSubunit->update($data);
+        $this->audit->record('office.subunit.updated', 'Office subunit updated', 'institution', 'office_subunit', $officeSubunit->id, $before, $officeSubunit);
+
+        return $officeSubunit->fresh();
+    }
+
+    public function destroyDepartment(OfficeDepartment $officeDepartment)
+    {
+        $before = $officeDepartment->load('units.subunits');
+        $officeDepartment->delete();
+        $this->audit->record('office.department.deleted', 'Office department deleted', 'institution', 'office_department', $before->id, $before, null);
+
+        return response()->json(['message' => 'Department deleted.']);
+    }
+
+    public function destroyUnit(OfficeUnit $officeUnit)
+    {
+        $before = $officeUnit->load('subunits');
+        $officeUnit->delete();
+        $this->audit->record('office.unit.deleted', 'Office unit deleted', 'institution', 'office_unit', $before->id, $before, null);
+
+        return response()->json(['message' => 'Unit deleted.']);
+    }
+
+    public function destroySubunit(OfficeSubunit $officeSubunit)
+    {
+        $before = $officeSubunit->toArray();
+        $officeSubunit->delete();
+        $this->audit->record('office.subunit.deleted', 'Office subunit deleted', 'institution', 'office_subunit', $before['id'], $before, null);
+
+        return response()->json(['message' => 'Subunit deleted.']);
+    }
+}
