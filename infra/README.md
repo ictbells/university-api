@@ -69,6 +69,33 @@ Terraform and API deploy both use **`development`**. Credential flow:
 
 The Terraform principal also needs **S3 access** to remote state bucket **`unibadanmfb-tf-state`** (object key `bells-sis/terraform.tfstate`): `s3:ListBucket` on the bucket, and `s3:GetObject` / `s3:PutObject` / `s3:DeleteObject` on `bells-sis/*`.
 
+#### IAM permissions for Terraform (`unibadan` or admin role)
+
+This stack uses many services. If apply fails with `AccessDeniedException`, attach missing actions to the user/role running Terraform. **CloudFront SPA certs use ACM in `us-east-1`** (separate from EC2 in the same region).
+
+Minimum **ACM** (fix for `acm:RequestCertificate`):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "AcmForCloudFrontSpa",
+    "Effect": "Allow",
+    "Action": [
+      "acm:RequestCertificate",
+      "acm:DescribeCertificate",
+      "acm:DeleteCertificate",
+      "acm:AddTagsToCertificate",
+      "acm:ListTagsForCertificate",
+      "acm:GetCertificate"
+    ],
+    "Resource": "arn:aws:acm:us-east-1:299665806483:certificate/*"
+  }]
+}
+```
+
+You will also need (at minimum) **Route 53** (hosted zone + cert validation records), **CloudFront**, **EC2**, **EIP**, **S3**, **IAM**, **Secrets Manager**, **RDS security group rules** (modify existing SG), and **SSM**-related IAM. Easiest path: attach **`PowerUserAccess`** plus **`IAMFullAccess`** for bootstrap, or a dedicated `bells-sis-terraform` policy reviewed by your AWS admin.
+
 **OIDC role trust** (if using `AWS_ROLE_ARN` for Terraform):
 
 ```json
@@ -132,6 +159,8 @@ Terraform marks EC2 **created** when AWS reports state **`running`** (usually **
 4. If state is already **running** but Terraform still waits, note the instance id and refresh/cancel the stuck apply (rare provider/API glitch).
 
 Mitigations: try another subnet/AZ, or change **`instance_type`** in tfvars, or retry apply later. Bootstrap logs (`/var/log/bells-sis-user-data.log`) only matter **after** Terraform finishes EC2 create.
+
+**`cloud-init status: error` / launcher fails on `awscli`:** Ubuntu 24.04 Noble has no `apt install awscli`. Bootstrap templates install **AWS CLI v2** from AWS. Re-run **`terraform apply`** (updates the S3 bootstrap script; replace the instance or run bootstrap manually on the box).
 
 Configure **`production`** separately for VPS when ready — it does not depend on Terraform.
 

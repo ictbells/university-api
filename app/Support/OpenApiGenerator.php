@@ -67,6 +67,17 @@ class OpenApiGenerator
             'summary' => 'Upload candidate spreadsheet',
             'description' => 'Import JAMB candidate rows from Excel/CSV. Requires `admissions.import`. Multipart fields: `file`, `academic_year`.',
         ],
+        'get_/api/applicants/import-template' => [
+            'summary' => 'Download applicant import template',
+            'description' => 'Excel template for a single applicant category (`entry_mode`). Requires `admissions.import`.',
+            'parameters' => [
+                ['name' => 'entry_mode', 'in' => 'query', 'required' => true, 'schema' => ['type' => 'string', 'enum' => ['utme', 'de', 'jupeb', 'transfer', 'pg']]],
+            ],
+        ],
+        'post_/api/applicants/import' => [
+            'summary' => 'Import applicants from spreadsheet',
+            'description' => 'Create applicant accounts and applications from Excel/CSV. Requires `admissions.import`. Multipart fields: `file`, `intake_id`, `entry_mode`, `verify_nin`, `send_credentials`. Large files and NIN verification are queued.',
+        ],
     ];
 
     public function generate(): array
@@ -214,6 +225,7 @@ class OpenApiGenerator
             str_starts_with($uri, 'api/applications') => 'Applications',
             str_starts_with($uri, 'api/candidate-data'),
             str_starts_with($uri, 'api/candidate-list') => 'Candidate data',
+            str_starts_with($uri, 'api/applicants') => 'Applications',
             str_starts_with($uri, 'api/registrations') => 'Registrations',
             str_starts_with($uri, 'api/students') => 'Students',
             str_starts_with($uri, 'api/academic'),

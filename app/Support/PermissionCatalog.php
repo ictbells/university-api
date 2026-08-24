@@ -39,7 +39,7 @@ class PermissionCatalog
             ['key' => 'admissions.pg.proposal', 'module' => 'admissions', 'label' => 'Review postgraduate proposals'],
             ['key' => 'admissions.pg.supervisor', 'module' => 'admissions', 'label' => 'Confirm postgraduate supervisors'],
             ['key' => 'admissions.pg.panel', 'module' => 'admissions', 'label' => 'Record postgraduate panel decisions'],
-            ['key' => 'admissions.import', 'module' => 'admissions', 'label' => 'Import candidate data'],
+            ['key' => 'admissions.import', 'module' => 'admissions', 'label' => 'Import candidate and applicant data'],
             ['key' => 'registrations.view', 'module' => 'registrations', 'label' => 'View registrations'],
             ['key' => 'academic.catalog.manage', 'module' => 'academic', 'label' => 'Manage programmes and courses (legacy)'],
             ['key' => 'pg.view', 'module' => 'postgraduate', 'label' => 'View postgraduate records'],

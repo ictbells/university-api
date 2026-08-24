@@ -10,11 +10,17 @@ BOOTSTRAP_MD5="${bootstrap_script_md5}"
 
 echo "bells-sis launcher start $(date -u +%Y-%m-%dT%H:%M:%SZ) md5=$BOOTSTRAP_MD5"
 
-# cloud-init may not have awscli yet on Ubuntu — install minimally if needed.
+# Ubuntu 24.04 Noble has no apt awscli package — install AWS CLI v2 if missing.
 if ! command -v aws >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -y
-  apt-get install -y awscli || apt-get install -y awscli curl unzip
+  apt-get install -y curl unzip ca-certificates
+  tmpdir="$(mktemp -d)"
+  arch="$(uname -m)"
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$${arch}.zip" -o "$tmpdir/awscliv2.zip"
+  unzip -q "$tmpdir/awscliv2.zip" -d "$tmpdir"
+  "$tmpdir/aws/install" --update
+  rm -rf "$tmpdir"
 fi
 
 for i in $(seq 1 90); do

@@ -30,6 +30,7 @@ class StaffNavCatalog
             ['key' => 'registration-extensions', 'section' => 'Academic', 'label' => 'Registration extensions', 'perm' => 'academic.extensions.review'],
             ['key' => 'intakes', 'section' => 'Academic', 'label' => 'Application windows', 'perm' => 'academic.intakes.manage'],
             ['key' => 'candidate-data', 'section' => 'Academic', 'label' => 'Candidate data', 'perm' => 'admissions.import'],
+            ['key' => 'import-applicants', 'section' => 'Academic', 'label' => 'Import applicants', 'perm' => 'admissions.import'],
             ['key' => 'olevel', 'section' => 'Academic', 'label' => "O'level", 'perm' => 'academic.olevel.manage'],
             ['key' => 'pg', 'section' => 'Academic', 'label' => 'PG research', 'perm' => 'pg.view'],
             ['key' => 'finance', 'section' => 'Services', 'label' => 'Fees & payments', 'perm' => 'finance.invoices.manage'],

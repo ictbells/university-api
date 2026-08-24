@@ -3,6 +3,7 @@
 use App\Http\Controllers\AcademicController;
 use App\Http\Controllers\AcademicSetupController;
 use App\Http\Controllers\AnnouncementController;
+use App\Http\Controllers\ApplicantImportController;
 use App\Http\Controllers\ApplicationController;
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\AuthController;
@@ -86,6 +87,17 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/candidate-data', [CandidateDataController::class, 'index'])
         ->middleware('permission:admissions.import');
     Route::post('/candidate-data/upload', [CandidateDataController::class, 'upload'])
+        ->middleware('permission:admissions.import');
+
+    Route::get('/applicants/import-options', [ApplicantImportController::class, 'options'])
+        ->middleware('permission:admissions.import');
+    Route::get('/applicants/import-template', [ApplicantImportController::class, 'template'])
+        ->middleware('permission:admissions.import');
+    Route::post('/applicants/import', [ApplicantImportController::class, 'import'])
+        ->middleware('permission:admissions.import');
+    Route::get('/applicants/import/{importId}', [ApplicantImportController::class, 'status'])
+        ->middleware('permission:admissions.import');
+    Route::get('/applicants/import/{importId}/errors', [ApplicantImportController::class, 'errors'])
         ->middleware('permission:admissions.import');
 
     Route::get('/programs', [AcademicController::class, 'programs']);
