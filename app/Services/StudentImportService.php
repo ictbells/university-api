@@ -46,7 +46,7 @@ class StudentImportService
                 '',
                 '1. Import invoices and wallet history first (keyed by matric_number). Those rows stay pending until this step creates the student.',
                 '2. Keep the header row on the Students sheet. One row per student. Do not paste data into Instructions or lookup sheets.',
-                '3. Copy programme_code from the Programmes sheet (code column). It must match a programme that accepts this entry mode.',
+                '3. Copy programme_id from the Programmes sheet (id column). It must match a programme that accepts this entry mode.',
                 '4. Copy current_level from the Levels sheet (code column). Use 100, 200, 300, 400, or 500 (or 1–5, stored as 100–500).',
                 '5. Lookup sheets (Campuses, Colleges, Departments, Programmes, Levels) are for reference. Import reads only the Students sheet.',
                 '6. Leave password blank to generate a new password. Tick Email portal passwords on upload to send it.',
@@ -228,7 +228,7 @@ class StudentImportService
 
         $this->assertNotDuplicate($email, $nin, $jamb, $oldNumber, $matric);
 
-        $program = $this->resolveProgram($data['programme_code'], $entryMode);
+        $program = $this->resolveProgram($data['programme_id'], $entryMode);
         $level = $this->normalizeLevel($data['current_level'], $entryMode);
 
         $plainPassword = trim((string) ($data['password'] ?? ''));
@@ -378,21 +378,19 @@ class StudentImportService
         $step->save();
     }
 
-    private function resolveProgram(string $code, string $entryMode): Program
+    private function resolveProgram(string $value, string $entryMode): Program
     {
-        $code = trim($code);
-        $program = Program::query()
-            ->whereRaw('UPPER(code) = ?', [strtoupper($code)])
-            ->first();
+        $id = SpreadsheetImport::parseId($value, 'programme_id');
+        $program = Program::query()->find($id);
         if (! $program) {
-            throw new RuntimeException("Unknown programme code: {$code}.");
+            throw new RuntimeException("Unknown programme id: {$id}.");
         }
         if (! $program->is_active) {
-            throw new RuntimeException("Programme {$code} is not active.");
+            throw new RuntimeException("Programme {$id} is not active.");
         }
         $modes = $program->entry_modes ?? [];
         if ($modes !== [] && ! in_array($entryMode, $modes, true)) {
-            throw new RuntimeException("Programme {$code} does not accept {$entryMode} students.");
+            throw new RuntimeException("Programme {$id} does not accept {$entryMode} students.");
         }
 
         return $program;

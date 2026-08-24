@@ -11,13 +11,16 @@ use App\Models\HostelRoom;
 use App\Models\Student;
 use App\Services\AuditWriter;
 use App\Services\HostelAllocationExportService;
+use App\Services\HostelRoomImportService;
 use App\Services\HostelRoomService;
 use App\Services\HostelService;
 use App\Services\InvoiceService;
 use App\Services\Notifier;
 use App\Services\OfficeApprovalService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class HostelController extends Controller
 {
@@ -28,6 +31,7 @@ class HostelController extends Controller
         private Notifier $notifier,
         private HostelService $hostels,
         private HostelRoomService $rooms,
+        private HostelRoomImportService $roomImporter,
     ) {}
 
     public function overview()
@@ -298,6 +302,28 @@ class HostelController extends Controller
             ->orderBy('number')
             ->get()
             ->map(fn (HostelRoom $room) => $this->rooms->formatRoom($room, false));
+    }
+
+    public function importRoomsTemplate(): StreamedResponse
+    {
+        return $this->roomImporter->template();
+    }
+
+    public function importRooms(Request $request): JsonResponse|array
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:xlsx,xls,csv|max:10240',
+        ]);
+
+        try {
+            $result = $this->roomImporter->import($request->file('file'));
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        $this->audit->record('hostel.room.imported', 'Hostel rooms imported', 'hostel', null, null, null, $result);
+
+        return $result;
     }
 
     public function storeBlock(Request $request, Hostel $hostel)

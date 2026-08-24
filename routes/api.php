@@ -481,6 +481,8 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::patch('/hostel-blocks/{hostelBlock}', [HostelController::class, 'updateBlock']);
         Route::delete('/hostel-blocks/{hostelBlock}', [HostelController::class, 'destroyBlock']);
         Route::post('/hostel-blocks/{hostelBlock}/rooms', [HostelController::class, 'storeRoom']);
+        Route::get('/hostel-rooms/import-template', [HostelController::class, 'importRoomsTemplate']);
+        Route::post('/hostel-rooms/import', [HostelController::class, 'importRooms']);
         Route::patch('/hostel-rooms/{hostelRoom}', [HostelController::class, 'updateRoom']);
         Route::delete('/hostel-rooms/{hostelRoom}', [HostelController::class, 'destroyRoom']);
         Route::post('/hostel-rooms/{hostelRoom}/reserve', [HostelController::class, 'reserveRoom']);

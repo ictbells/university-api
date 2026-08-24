@@ -50,7 +50,7 @@ class ApplicantImportService
                 '',
                 '1. Keep the header row on the Applicants sheet. Do not rename columns. Do not paste data into Instructions or lookup sheets.',
                 '2. Fill one row per applicant. Leave password blank to generate a new password and email it.',
-                '3. Copy first_choice_programme_code from the Programmes sheet (code column). It must match a programme already set up for this entry mode.',
+                '3. Copy first_choice_programme_id from the Programmes sheet (id column). It must match a programme already set up for this entry mode.',
                 '4. Copy O-level subject names from the O-level subjects sheet. The application window (intake) is chosen on the import page, not in this file.',
                 '5. Lookup sheets (Campuses, Colleges, Departments, Programmes, Levels, O-level subjects) are for reference. Import reads only the Applicants sheet.',
                 '6. Documents are not imported from Excel. Applicants upload remaining files after they sign in.',
@@ -248,9 +248,9 @@ class ApplicantImportService
 
         $this->assertNotDuplicate($email, $nin, $jamb, $oldNumber, $intake->id);
 
-        $firstProgram = $this->resolveProgram($data['first_choice_programme_code'], $entryMode);
-        $secondProgram = filled($data['second_choice_programme_code'] ?? null)
-            ? $this->resolveProgram($data['second_choice_programme_code'], $entryMode)
+        $firstProgram = $this->resolveProgram($data['first_choice_programme_id'], $entryMode);
+        $secondProgram = filled($data['second_choice_programme_id'] ?? null)
+            ? $this->resolveProgram($data['second_choice_programme_id'], $entryMode)
             : null;
 
         $plainPassword = trim((string) ($data['password'] ?? ''));
@@ -591,21 +591,19 @@ class ApplicantImportService
         return true;
     }
 
-    private function resolveProgram(string $code, string $entryMode): Program
+    private function resolveProgram(string $value, string $entryMode): Program
     {
-        $code = trim($code);
-        $program = Program::query()
-            ->whereRaw('UPPER(code) = ?', [strtoupper($code)])
-            ->first();
+        $id = SpreadsheetImport::parseId($value, 'programme_id');
+        $program = Program::query()->find($id);
         if (! $program) {
-            throw new RuntimeException("Unknown programme code: {$code}.");
+            throw new RuntimeException("Unknown programme id: {$id}.");
         }
         if (! $program->is_active) {
-            throw new RuntimeException("Programme {$code} is not active.");
+            throw new RuntimeException("Programme {$id} is not active.");
         }
         $modes = $program->entry_modes ?? [];
         if ($modes !== [] && ! in_array($entryMode, $modes, true)) {
-            throw new RuntimeException("Programme {$code} does not accept {$entryMode} applicants.");
+            throw new RuntimeException("Programme {$id} does not accept {$entryMode} applicants.");
         }
 
         return $program;

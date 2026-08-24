@@ -9,6 +9,7 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class SpreadsheetImport
@@ -141,6 +142,25 @@ class SpreadsheetImport
         $time = strtotime($value);
 
         return $time ? date('Y-m-d H:i:s', $time) : null;
+    }
+
+    public static function parseId(string $value, string $field): int
+    {
+        $value = trim($value);
+        if (preg_match('/^(\d+)(?:\.0+)?$/', $value, $matches) !== 1) {
+            throw new RuntimeException("{$field} must be a numeric id from the lookup sheet.");
+        }
+
+        return (int) $matches[1];
+    }
+
+    public static function parseOptionalId(?string $value, string $field): ?int
+    {
+        if (trim((string) $value) === '') {
+            return null;
+        }
+
+        return self::parseId((string) $value, $field);
     }
 
     /**

@@ -273,7 +273,9 @@ class ApplicantImportTest extends TestCase
     private function spreadsheet(array $overrides): UploadedFile
     {
         $columns = ApplicantImportColumns::forMode('utme');
-        $row = array_merge(ApplicantImportColumns::sample('utme'), $overrides);
+        $row = array_merge(ApplicantImportColumns::sample('utme'), [
+            'first_choice_programme_id' => (string) $this->program->id,
+        ], $overrides);
         $spreadsheet = new Spreadsheet;
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Applicants');

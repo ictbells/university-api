@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.5  
+**Version:** 1.7  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -356,17 +356,17 @@ Course registration, unit limits, and registration extensions are under **Academ
 
 Use **Template / Choose file / Import** on Colleges, Departments, Programmes, Courses, and O'level. Import **creates** new rows only: matching records are **skipped** (not updated). Single-row Add/Edit still goes through office approval; bulk import writes directly.
 
-Import order: **Colleges → Departments → Programmes → Courses**. O'level is independent. Campuses must already exist (there is no campus import). Download the template and copy parent **codes** from the lookup sheets; do not paste data into those sheets.
+Import order: **Colleges → Departments → Programmes → Courses**. O'level is independent. Campuses must already exist (there is no campus import). Download the template and copy parent **ids** from the lookup sheets; do not paste data into those sheets.
 
 | Page | Required columns | Duplicate skip |
 |------|------------------|----------------|
-| Colleges | `name`, `campus_code` | Same `code`, or same name + campus if code is blank |
-| Departments | `name`, `college_code` | Same `code`, or same name + college if code is blank |
-| Programmes | `name`, `department_code`, `award_type`, `study_level`, `duration_years`, `entry_modes` | Same `code`, or same name + department if code is blank |
-| Courses | `code`, `title`, `department_code` | Same course `code` (no update, no extra programme attach) |
+| Colleges | `name`, `campus_id` | Same `code`, or same name + campus if code is blank |
+| Departments | `name`, `college_id` | Same `code`, or same name + college if code is blank |
+| Programmes | `name`, `department_id`, `award_type`, `study_level`, `duration_years`, `entry_modes` | Same `code`, or same name + department if code is blank |
+| Courses | `code`, `title`, `department_id` | Same course `code` (no update, no extra programme attach) |
 | O'level | `name` | Same `code` if present, otherwise same name |
 
-Unknown parent codes fail that row only. Course `course_type` is `general`, `faculty`, or `departmental`. Programme `entry_modes` is comma-separated (`utme,de`). Optional course columns: `units`, `course_type`, `programme_code`, `level_code`.
+Unknown parent ids fail that row only. Course `course_type` is `general`, `faculty`, or `departmental`. Programme `entry_modes` is comma-separated (`utme,de`). Optional course columns: `units`, `course_type`, `programme_id`, `level_id`.
 
 #### Close session (level promotion)
 
@@ -417,15 +417,15 @@ Upload JAMB candidate spreadsheets **before** new applicants register. Students 
 Use this when moving people from another admissions portal into this system.
 
 1. Select the **application window** (intake) and **category** (UTME, Direct Entry, JUPEB, Transfer, or Postgraduate). The window's entry mode must match the category.
-2. Download the **template** for that category and fill one row per applicant on the **Applicants** sheet. Do not rename columns. Extra sheets (**Campuses**, **Colleges**, **Departments**, **Programmes**, **Levels**, **O-level subjects**) are lookup lists — copy the programme **code** onto the Applicants sheet; do not paste rows into those sheets. The application window is selected on the page, not in the file.
+2. Download the **template** for that category and fill one row per applicant on the **Applicants** sheet. Do not rename columns. Extra sheets (**Campuses**, **Colleges**, **Departments**, **Programmes**, **Levels**, **O-level subjects**) are lookup lists — copy the programme **id** onto the Applicants sheet; do not paste rows into those sheets. The application window is selected on the page, not in the file.
 3. Optionally tick **Verify NIN during upload (Prembly is called for every row)**. Failed NINs are skipped and no account is created. Leave this off to store NIN without live verification; the applicant can verify later in the form.
 4. Optionally tick **Email portal passwords** (default on). If the spreadsheet `password` column is filled, that plaintext is hashed and stored and is not emailed unless this box is checked. If the column is blank, a new password is generated and emailed when the box is on.
 5. Upload `.xlsx`, `.xls`, or `.csv`. The job is queued when NIN verification is on **or** the file has 40 or more data rows (unless the queue driver is `sync`). Wait for the result summary.
 6. Download **failed rows** if any rows were skipped.
 
-**Required columns (all categories):** email, phone, nin, first_name, last_name, first_choice_programme_code. UTME and Direct Entry also require `jamb_registration`.
+**Required columns (all categories):** email, phone, nin, first_name, last_name, first_choice_programme_id. UTME and Direct Entry also require `jamb_registration`.
 
-**Programme codes** must already exist for that entry mode (copy from the Programmes lookup sheet). **Documents are not imported** from Excel; applicants upload remaining files after they sign in.
+**Programme ids** must already exist for that entry mode (copy from the Programmes lookup sheet **id** column). **Documents are not imported** from Excel; applicants upload remaining files after they sign in.
 
 Complete rows land at stage **`submitted`** (application fee is skipped) so staff can process admission immediately. Incomplete rows stay in the form so the applicant can finish after login.
 
@@ -480,11 +480,16 @@ Use these when moving continuing students from another portal. **Do not** invent
 
 1. **Fees & payments → Import invoices.** Spreadsheet keyed by `matric_number`. One row is one invoice. Extra rows with the same `invoice_number` add extra payments. Tuition requires `installment_percent` (25/50/75/100). `paid_amount` records money received on the invoice. If the student does not exist yet, rows stay **pending** until Import students runs.
 2. **Fees & payments → Import wallet history.** One row is one credit or debit. Replay is in `occurred_at` order. Wallet credit does **not** count as tuition paid. If a debit would take the wallet below zero, that row and remaining rows for the same matric are skipped.
-3. **Academic → Enrolment → Import students.** Select an application window and category. Download the template and copy `programme_code` / `current_level` from the **Programmes** and **Levels** lookup sheets (Campuses, Colleges, and Departments are also included). Required: email, phone, nin, first_name, last_name, programme_code, matric_number, current_level. Creates a user (student role), a historical application at stage `matriculated`, and a student record with the **supplied** matric (not an auto-generated `BUT/{year}/M/{####}`). Then posts pending invoices and wallet rows for that matric.
+3. **Academic → Enrolment → Import students.** Select an application window and category. Download the template and copy `programme_id` from the **Programmes** lookup **id** column and `current_level` from **Levels**. Required: email, phone, nin, first_name, last_name, programme_id, matric_number, current_level. Creates a user (student role), a historical application at stage `matriculated`, and a student record with the **supplied** matric (not an auto-generated `BUT/{year}/M/{####}`). Then posts pending invoices and wallet rows for that matric.
 
 If an old payment was wallet-funded, record `paid_amount` on the invoice sheet **and** a matching **debit** on the wallet sheet. These imports do not call Paystack and do not settle invoices from the wallet automatically.
 - **Clinic** — Queue, student charts, encounters, prescriptions, sick notes, NHIS-aware billing (`medical.view_any` / `medical.manage` / `medical.billing`)
-- **Hostel** — Hostel allocation (`hostel.view`)
+- **Hostel** — Hostels, blocks, rooms, level windows, queue, and allocations (`hostel.view`; manage rooms with `hostel.manage`; allocate with `hostel.allocate`)
+
+#### Hostel room bulk import
+
+On **Services → Hostel → Rooms**, download the **template**, fill the **Rooms** sheet, and import. Hostels and blocks must already exist. Import **creates** rooms only: the same room number in the same block is **skipped**. Beds are created from `capacity`. Copy `hostel_id` and `block_id` from the lookup **id** columns (the block must belong to that hostel). Required columns: `hostel_id`, `block_id`, `number`, `capacity`. Optional: `gender` (`male`/`female`), `is_active`. Single-row Add still goes through office approval; bulk import writes directly.
+
 - **Documents** — Issue documents (`documents.issue`)
 
 ### 8.8 Administration
@@ -538,7 +543,7 @@ Use the audit trail for compliance reviews and incident investigation.
 
 1. Open **Academic → Application Setup → Import applicants**.
 2. Choose category and matching application window.
-3. Download the template; fill from the old-portal export on the Applicants sheet. Copy programme codes from the Programmes lookup sheet. Leave `password` blank unless the old portal provided a reusable plaintext password (never paste a password hash).
+3. Download the template; fill from the old-portal export on the Applicants sheet. Copy programme **ids** from the Programmes lookup sheet. Leave `password` blank unless the old portal provided a reusable plaintext password (never paste a password hash).
 4. Leave **Verify NIN** off unless Prembly should run during the upload.
 5. Upload the file and review created / skipped / emailed counts.
 6. Download failed rows, correct them, and re-upload only those rows.
@@ -594,7 +599,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | Imported student cannot sign in | Used email or JAMB after matriculation | Sign in with the supplied **matric number** |
 | Imported student not on Registrations | Tuition invoices below 25% paid | Import invoices with tuition `paid_amount` / `installment_percent`; wallet credit alone does not qualify |
 | Applicant cannot sign in with email | Student portal does not accept email as login | Use application number, JAMB registration, or matric number |
-| Import skipped a row | Duplicate email/NIN/JAMB, missing required field, unknown programme code, or NIN verify failed | Download failed rows; fix and re-upload |
+| Import skipped a row | Duplicate email/NIN/JAMB, missing required field, unknown programme id, or NIN verify failed | Download failed rows; fix and re-upload |
 | NIN import created no user | Verify NIN was on and Prembly rejected the NIN | Correct NIN or import with verification off |
 | Action stays pending after approve | Reviewer is not the designated head, or unit-head step still required | Confirm HOD/unit-head assignment; Super Admin can decide any open request |
 | Subunit staff cannot submit | Parent unit has subunits but no unit head | Assign a unit head on Department Setup |
@@ -617,6 +622,8 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.3 | Aug 2026 | Platform team | Office HOD/unit-head assignment, Approvals inbox, 202 pending-approval behaviour, gated module mutations |
 | 1.4 | Aug 2026 | Platform team | Continuing-student import (supplied matric), invoice and wallet history import keyed by matric, registrations still require ≥25% tuition paid |
 | 1.5 | Aug 2026 | Platform team | Catalogue bulk spreadsheet import for colleges, departments, programmes, O'level, and courses; matching rows skipped; import order Colleges → Departments → Programmes → Courses |
+| 1.6 | Aug 2026 | Platform team | Hostel room bulk spreadsheet import (template + skip-duplicates; hostels and blocks must already exist) |
+| 1.7 | Aug 2026 | Platform team | Bulk uploads key parents by lookup id (campus_id, college_id, department_id, programme_id, level_id, hostel_id, block_id) |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

@@ -40,7 +40,7 @@ class CatalogImportTest extends TestCase
     public function test_college_import_creates_unknown_campus_fails_and_duplicate_code_is_skipped(): void
     {
         Sanctum::actingAs($this->staffUser());
-        Campus::query()->create(['name' => 'Main', 'code' => 'MAIN', 'is_active' => true]);
+        $campus = Campus::query()->create(['name' => 'Main', 'code' => 'MAIN', 'is_active' => true]);
 
         $response = $this->get('/api/academic/faculties/import-template')
             ->assertOk();
@@ -51,9 +51,9 @@ class CatalogImportTest extends TestCase
 
         $this->post('/api/academic/faculties/import', [
             'file' => $this->spreadsheetRows('Colleges', CatalogImportColumns::all('colleges'), [
-                ['name' => 'College of Science', 'code' => 'COLNAS', 'campus_code' => 'MAIN'],
-                ['name' => 'College of Arts', 'code' => 'COLNAS', 'campus_code' => 'MAIN'],
-                ['name' => 'Ghost College', 'code' => 'GHOST', 'campus_code' => 'NOPE'],
+                ['name' => 'College of Science', 'code' => 'COLNAS', 'campus_id' => (string) $campus->id],
+                ['name' => 'College of Arts', 'code' => 'COLNAS', 'campus_id' => (string) $campus->id],
+                ['name' => 'Ghost College', 'code' => 'GHOST', 'campus_id' => '99999'],
             ]),
         ], ['Accept' => 'application/json'])->assertOk()
             ->assertJsonPath('created', 1)
@@ -69,12 +69,12 @@ class CatalogImportTest extends TestCase
     {
         Sanctum::actingAs($this->staffUser());
         $campus = Campus::query()->create(['name' => 'Main', 'code' => 'MAIN', 'is_active' => true]);
-        Faculty::query()->create(['campus_id' => $campus->id, 'name' => 'College of Science', 'code' => 'COLNAS']);
+        $college = Faculty::query()->create(['campus_id' => $campus->id, 'name' => 'College of Science', 'code' => 'COLNAS']);
 
         $this->post('/api/academic/departments/import', [
             'file' => $this->spreadsheetRows('Departments', CatalogImportColumns::all('departments'), [
-                ['name' => 'Computer Science', 'code' => 'CSC', 'college_code' => 'COLNAS'],
-                ['name' => 'Physics', 'code' => 'PHY', 'college_code' => 'MISSING'],
+                ['name' => 'Computer Science', 'code' => 'CSC', 'college_id' => (string) $college->id],
+                ['name' => 'Physics', 'code' => 'PHY', 'college_id' => '99999'],
             ]),
         ], ['Accept' => 'application/json'])->assertOk()
             ->assertJsonPath('created', 1)
@@ -87,14 +87,14 @@ class CatalogImportTest extends TestCase
     public function test_programme_import_creates_with_entry_modes_and_unknown_department_fails(): void
     {
         Sanctum::actingAs($this->staffUser());
-        $this->seedAcademicTree();
+        $tree = $this->seedAcademicTree();
 
         $this->post('/api/academic/programs/import', [
             'file' => $this->spreadsheetRows('Programmes', CatalogImportColumns::all('programmes'), [
                 [
                     'name' => 'B.Sc Computer Science',
                     'code' => 'BSC-CS',
-                    'department_code' => 'CSC',
+                    'department_id' => (string) $tree['department']->id,
                     'award_type' => 'B.Sc',
                     'study_level' => 'undergraduate',
                     'duration_years' => '4',
@@ -104,7 +104,7 @@ class CatalogImportTest extends TestCase
                 [
                     'name' => 'B.Sc Physics',
                     'code' => 'BSC-PHY',
-                    'department_code' => 'MISSING',
+                    'department_id' => '99999',
                     'award_type' => 'B.Sc',
                     'study_level' => 'undergraduate',
                     'duration_years' => '4',
@@ -170,18 +170,18 @@ class CatalogImportTest extends TestCase
                     'title' => 'Changed title',
                     'units' => '4',
                     'course_type' => 'general',
-                    'department_code' => 'CSC',
-                    'programme_code' => 'BSC-CS',
-                    'level_code' => '',
+                    'department_id' => (string) $tree['department']->id,
+                    'programme_id' => (string) $program->id,
+                    'level_id' => '',
                 ],
                 [
                     'code' => 'CSC 102',
                     'title' => 'Programming I',
                     'units' => '3',
                     'course_type' => 'departmental',
-                    'department_code' => 'CSC',
-                    'programme_code' => 'BSC-CS',
-                    'level_code' => '',
+                    'department_id' => (string) $tree['department']->id,
+                    'programme_id' => (string) $program->id,
+                    'level_id' => '',
                 ],
             ]),
         ], ['Accept' => 'application/json'])->assertOk()

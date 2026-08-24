@@ -110,17 +110,17 @@ PY
 
 write_env() {
   { set +x; } 2>/dev/null
-  local app_json app_user app_pass app_key app_pass_q app_key_q
+  local app_json app_user app_pass app_key app_pass_q
   app_json="$(sm_get "$APP_SECRET_NAME")"
   app_user="$(echo "$app_json" | jq -r '.username')"
   app_pass="$(echo "$app_json" | jq -r '.password')"
-  app_key="$(sm_get "$APP_KEY_SECRET_NAME")"
+  app_key="$(sm_get "$APP_KEY_SECRET_NAME" | tr -d '\r')"
+  app_key="${app_key%"${app_key##*[![:space:]]}"}"
   app_pass_q="$(printf '%s' "$app_pass" | quote_env_stdin)"
-  app_key_q="$(printf '%s' "$app_key" | quote_env_stdin)"
   cat >/var/www/api/.env <<EOF
 APP_NAME="Bells University of Technology"
 APP_ENV=production
-APP_KEY=$app_key_q
+APP_KEY="pending"
 APP_DEBUG=false
 APP_URL=$APP_URL
 FRONTEND_URL=$FRONTEND_URL
@@ -139,6 +139,7 @@ DB_PASSWORD=$app_pass_q
 AWS_DEFAULT_REGION=$REGION
 AWS_RDS_APP_SECRET=$APP_SECRET_NAME
 AWS_RDS_MASTER_SECRET=$MASTER_SECRET_NAME
+AWS_APP_KEY_SECRET=$APP_KEY_SECRET_NAME
 
 SESSION_DRIVER=cookie
 SESSION_LIFETIME=120
@@ -163,6 +164,40 @@ PREMBLY_API_KEY=
 PREMBLY_APP_ID=
 PREMBLY_BASE_URL=https://api.prembly.com
 EOF
+  APP_KEY_RAW="$app_key" python3 - <<'PY'
+import json
+import os
+import pathlib
+
+raw = os.environ.get("APP_KEY_RAW", "").strip()
+if raw.startswith("{") and raw.endswith("}"):
+    try:
+        obj = json.loads(raw)
+        raw = str(next((obj[k] for k in ("APP_KEY", "app_key", "key") if obj.get(k)), raw)).strip()
+    except json.JSONDecodeError:
+        pass
+if not raw or raw == "None":
+    raise SystemExit("APP_KEY secret is empty")
+escaped = (
+    raw.replace("\\", "\\\\")
+    .replace('"', '\\"')
+    .replace("$", "\\$")
+    .replace("\n", "\\n")
+)
+path = pathlib.Path("/var/www/api/.env")
+lines = []
+found = False
+for line in path.read_text(encoding="utf-8").splitlines():
+    if line.startswith("APP_KEY="):
+        lines.append(f'APP_KEY="{escaped}"')
+        found = True
+    else:
+        lines.append(line)
+if not found:
+    lines.append(f'APP_KEY="{escaped}"')
+path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+  unset APP_KEY_RAW app_key
   chown www-data:www-data /var/www/api/.env
   chmod 640 /var/www/api/.env
   set -x
@@ -266,7 +301,10 @@ if ! command -v composer >/dev/null 2>&1; then
 fi
 
 ensure_schema || true
-write_env || true
+if ! write_env; then
+  echo "FATAL: could not write /var/www/api/.env (RDS or APP_KEY secret)." >&2
+  exit 1
+fi
 
 # Supervisor: queue worker + scheduler (replaces cron schedule:run)
 mkdir -p /var/log/bells-sis

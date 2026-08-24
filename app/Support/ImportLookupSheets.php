@@ -6,6 +6,8 @@ use App\Models\AcademicLevel;
 use App\Models\Campus;
 use App\Models\Department;
 use App\Models\Faculty;
+use App\Models\Hostel;
+use App\Models\HostelBlock;
 use App\Models\OlevelSubject;
 use App\Models\Program;
 
@@ -192,5 +194,47 @@ class ImportLookupSheets
             ->all();
 
         return ['title' => 'O-level subjects', 'headers' => $headers, 'rows' => $rows];
+    }
+
+    /**
+     * @return array{title: string, headers: list<string>, rows: list<list<mixed>>}
+     */
+    public static function hostels(): array
+    {
+        $headers = ['id', 'name', 'gender', 'category', 'is_active'];
+        $rows = Hostel::query()
+            ->orderBy('name')
+            ->get(['id', 'name', 'gender', 'category', 'is_active'])
+            ->map(fn (Hostel $hostel) => [
+                $hostel->id,
+                (string) $hostel->name,
+                (string) ($hostel->gender ?? ''),
+                (string) ($hostel->category ?? ''),
+                $hostel->is_active ? 'yes' : 'no',
+            ])
+            ->all();
+
+        return ['title' => 'Hostels', 'headers' => $headers, 'rows' => $rows];
+    }
+
+    /**
+     * @return array{title: string, headers: list<string>, rows: list<list<mixed>>}
+     */
+    public static function hostelBlocks(): array
+    {
+        $headers = ['id', 'name', 'hostel_id', 'hostel_name'];
+        $rows = HostelBlock::query()
+            ->with('hostel:id,name')
+            ->orderBy('name')
+            ->get(['id', 'name', 'hostel_id'])
+            ->map(fn (HostelBlock $block) => [
+                $block->id,
+                (string) $block->name,
+                $block->hostel_id,
+                (string) ($block->hostel?->name ?? ''),
+            ])
+            ->all();
+
+        return ['title' => 'Blocks', 'headers' => $headers, 'rows' => $rows];
     }
 }

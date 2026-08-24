@@ -24,12 +24,12 @@ class CatalogImportColumns
     public static function all(string $type): array
     {
         return match ($type) {
-            'colleges' => ['name', 'code', 'campus_code'],
-            'departments' => ['name', 'code', 'college_code'],
+            'colleges' => ['name', 'code', 'campus_id'],
+            'departments' => ['name', 'code', 'college_id'],
             'programmes' => [
                 'name',
                 'code',
-                'department_code',
+                'department_id',
                 'award_type',
                 'study_level',
                 'duration_years',
@@ -37,7 +37,7 @@ class CatalogImportColumns
                 'is_research_degree',
             ],
             'olevel' => ['name', 'code', 'is_active'],
-            'courses' => ['code', 'title', 'units', 'course_type', 'department_code', 'programme_code', 'level_code'],
+            'courses' => ['code', 'title', 'units', 'course_type', 'department_id', 'programme_id', 'level_id'],
             default => throw new \InvalidArgumentException('Unknown catalogue import type.'),
         };
     }
@@ -48,11 +48,11 @@ class CatalogImportColumns
     public static function required(string $type): array
     {
         return match ($type) {
-            'colleges' => ['name', 'campus_code'],
-            'departments' => ['name', 'college_code'],
-            'programmes' => ['name', 'department_code', 'award_type', 'study_level', 'duration_years', 'entry_modes'],
+            'colleges' => ['name', 'campus_id'],
+            'departments' => ['name', 'college_id'],
+            'programmes' => ['name', 'department_id', 'award_type', 'study_level', 'duration_years', 'entry_modes'],
             'olevel' => ['name'],
-            'courses' => ['code', 'title', 'department_code'],
+            'courses' => ['code', 'title', 'department_id'],
             default => throw new \InvalidArgumentException('Unknown catalogue import type.'),
         };
     }
@@ -68,17 +68,17 @@ class CatalogImportColumns
             'colleges' => array_merge($row, [
                 'name' => 'College of Natural and Applied Sciences',
                 'code' => 'COLNAS',
-                'campus_code' => 'MAIN',
+                'campus_id' => '1',
             ]),
             'departments' => array_merge($row, [
                 'name' => 'Computer Science',
                 'code' => 'CSC',
-                'college_code' => 'COLNAS',
+                'college_id' => '1',
             ]),
             'programmes' => array_merge($row, [
                 'name' => 'B.Sc Computer Science',
                 'code' => 'BSC-CS',
-                'department_code' => 'CSC',
+                'department_id' => '1',
                 'award_type' => 'B.Sc',
                 'study_level' => 'undergraduate',
                 'duration_years' => '4',
@@ -95,9 +95,9 @@ class CatalogImportColumns
                 'title' => 'Introduction to Computing',
                 'units' => '3',
                 'course_type' => 'departmental',
-                'department_code' => 'CSC',
-                'programme_code' => 'BSC-CS',
-                'level_code' => '100',
+                'department_id' => '1',
+                'programme_id' => '1',
+                'level_id' => '1',
             ]),
             default => $row,
         };
@@ -110,6 +110,7 @@ class CatalogImportColumns
     {
         $order = 'Import order: Colleges → Departments → Programmes → Courses. O’level is independent. Campuses must already exist.';
         $skip = 'Matching rows are skipped (same code, or same name under the same parent if code is blank). Existing records are not updated.';
+        $ids = 'Copy parent ids from the lookup sheet id column. Do not paste data into lookup sheets.';
 
         return match ($type) {
             'colleges' => [
@@ -117,25 +118,26 @@ class CatalogImportColumns
                 '',
                 $order,
                 $skip,
-                'Required: name, campus_code. Optional: code.',
-                'Use the Campuses lookup sheet for campus_code values.',
+                'Required: name, campus_id. Optional: code.',
+                $ids,
             ],
             'departments' => [
                 'Import departments',
                 '',
                 $order,
                 $skip,
-                'Required: name, college_code. Optional: code.',
-                'Use the Colleges lookup sheet for college_code values.',
+                'Required: name, college_id. Optional: code.',
+                $ids,
             ],
             'programmes' => [
                 'Import programmes',
                 '',
                 $order,
                 $skip,
-                'Required: name, department_code, award_type, study_level, duration_years, entry_modes.',
+                'Required: name, department_id, award_type, study_level, duration_years, entry_modes.',
                 'study_level: undergraduate or postgraduate. entry_modes: comma-separated utme, de, jupeb, transfer, pg.',
                 'Optional: code, is_research_degree (yes/no). Workflow is assigned from the programme defaults.',
+                $ids,
             ],
             'olevel' => [
                 'Import O’level subjects',
@@ -148,9 +150,10 @@ class CatalogImportColumns
                 '',
                 $order,
                 $skip,
-                'Required: code, title, department_code.',
-                'Optional: units (default 3), course_type (general, faculty, departmental), programme_code, level_code.',
-                'Blank programme_code on a new general course attaches all active programmes.',
+                'Required: code, title, department_id.',
+                'Optional: units (default 3), course_type (general, faculty, departmental), programme_id, level_id.',
+                'Blank programme_id on a new general course attaches all active programmes.',
+                $ids,
             ],
             default => [$order, $skip],
         };

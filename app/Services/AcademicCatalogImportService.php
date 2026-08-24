@@ -121,10 +121,7 @@ class AcademicCatalogImportService
      */
     private function importCollege(array $data): void
     {
-        $campus = $this->findByCode(Campus::query(), $data['campus_code']);
-        if (! $campus) {
-            throw new RuntimeException('Unknown campus_code.');
-        }
+        $campus = $this->findById(Campus::query(), $data['campus_id'], 'campus_id');
         $code = $this->normalizeCode($data['code'] ?? '');
         $name = trim($data['name']);
         if ($code !== '' && $this->findByCode(Faculty::query(), $code)) {
@@ -149,10 +146,7 @@ class AcademicCatalogImportService
      */
     private function importDepartment(array $data): void
     {
-        $college = $this->findByCode(Faculty::query(), $data['college_code']);
-        if (! $college) {
-            throw new RuntimeException('Unknown college_code.');
-        }
+        $college = $this->findById(Faculty::query(), $data['college_id'], 'college_id');
         $code = $this->normalizeCode($data['code'] ?? '');
         $name = trim($data['name']);
         if ($code !== '' && $this->findByCode(Department::query(), $code)) {
@@ -177,10 +171,7 @@ class AcademicCatalogImportService
      */
     private function importProgramme(array $data): void
     {
-        $department = $this->findByCode(Department::query(), $data['department_code']);
-        if (! $department) {
-            throw new RuntimeException('Unknown department_code.');
-        }
+        $department = $this->findById(Department::query(), $data['department_id'], 'department_id');
         $code = $this->normalizeCode($data['code'] ?? '');
         $name = trim($data['name']);
         if ($code !== '' && $this->findByCode(Program::query(), $code)) {
@@ -265,31 +256,19 @@ class AcademicCatalogImportService
         if ($units < 1) {
             $units = 3;
         }
-        $department = $this->findByCode(Department::query(), $data['department_code']);
-        if (! $department) {
-            throw new RuntimeException('Unknown department_code.');
+        $department = $this->findById(Department::query(), $data['department_id'], 'department_id');
+
+        $programmeId = SpreadsheetImport::parseOptionalId($data['programme_id'] ?? '', 'programme_id');
+        $levelId = SpreadsheetImport::parseOptionalId($data['level_id'] ?? '', 'level_id');
+        if ($levelId !== null) {
+            $this->findById(AcademicLevel::query(), (string) $levelId, 'level_id');
         }
 
-        $programmeCode = trim((string) ($data['programme_code'] ?? ''));
-        $levelCode = trim((string) ($data['level_code'] ?? ''));
-        $levelId = null;
-        if ($levelCode !== '') {
-            $level = $this->findByCode(AcademicLevel::query(), $levelCode);
-            if (! $level) {
-                throw new RuntimeException('Unknown level_code.');
-            }
-            $levelId = $level->id;
-        }
-
-        $programs = $programmeCode === '' && $type === 'general'
+        $programs = $programmeId === null && $type === 'general'
             ? Program::query()->where('is_active', true)->get()
-            : ($programmeCode !== ''
-                ? Program::query()->whereRaw('UPPER(REPLACE(COALESCE(code, ""), " ", "")) = ?', [$this->normalizeCode($programmeCode)])->get()
+            : ($programmeId !== null
+                ? collect([$this->findById(Program::query(), (string) $programmeId, 'programme_id')])
                 : collect());
-
-        if ($programmeCode !== '' && $programs->isEmpty()) {
-            throw new RuntimeException('Unknown programme_code.');
-        }
 
         $course = Course::query()->create([
             'department_id' => $department->id,
@@ -330,6 +309,16 @@ class AcademicCatalogImportService
         }
 
         return array_values(array_unique($modes));
+    }
+
+    private function findById($query, string $value, string $field): mixed
+    {
+        $model = $query->find(SpreadsheetImport::parseId($value, $field));
+        if (! $model) {
+            throw new RuntimeException("Unknown {$field}.");
+        }
+
+        return $model;
     }
 
     private function findByCode($query, string $code): mixed

@@ -39,7 +39,7 @@ class StudentImportColumns
             'sponsor_phone',
             'sponsor_email',
             'sponsor_address',
-            'programme_code',
+            'programme_id',
             'matric_number',
             'current_level',
             'student_number',
@@ -59,7 +59,7 @@ class StudentImportColumns
             'nin',
             'first_name',
             'last_name',
-            'programme_code',
+            'programme_id',
             'matric_number',
             'current_level',
         ];
@@ -80,7 +80,7 @@ class StudentImportColumns
         $row['date_of_birth'] = '2004-03-18';
         $row['gender'] = 'Female';
         $row['country'] = 'Nigeria';
-        $row['programme_code'] = 'BSC-CS';
+        $row['programme_id'] = '1';
         $row['matric_number'] = 'BUT/2019/M/0001';
         $row['current_level'] = '200';
         $row['jamb_registration'] = '12345678AB';

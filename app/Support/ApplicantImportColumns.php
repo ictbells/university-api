@@ -70,8 +70,8 @@ class ApplicantImportColumns
             'sponsor_phone',
             'sponsor_email',
             'sponsor_address',
-            'first_choice_programme_code',
-            'second_choice_programme_code',
+            'first_choice_programme_id',
+            'second_choice_programme_id',
             'old_application_number',
         ], $olevel);
     }
@@ -173,7 +173,7 @@ class ApplicantImportColumns
      */
     public static function required(string $entryMode): array
     {
-        $required = ['email', 'phone', 'nin', 'first_name', 'last_name', 'first_choice_programme_code'];
+        $required = ['email', 'phone', 'nin', 'first_name', 'last_name', 'first_choice_programme_id'];
         if (in_array($entryMode, AdmissionEntryRules::JAMB_ENTRY_MODES, true)) {
             $required[] = 'jamb_registration';
         }
@@ -194,7 +194,7 @@ class ApplicantImportColumns
         $row['date_of_birth'] = '2004-03-18';
         $row['gender'] = 'Female';
         $row['country'] = 'Nigeria';
-        $row['first_choice_programme_code'] = 'BSC-CS';
+        $row['first_choice_programme_id'] = '1';
         $row['sitting1_exam_type'] = 'WAEC';
         $row['sitting1_exam_year'] = '2021';
         $row['sitting1_exam_number'] = '1234567890';
@@ -245,7 +245,7 @@ class ApplicantImportColumns
             $row['approval_reference'] = 'TR-001';
         }
         if ($entryMode === 'pg') {
-            $row['first_choice_programme_code'] = 'MSC-CS';
+            $row['first_choice_programme_id'] = '1';
             $row['prior_degree_title'] = 'B.Sc Computer Science';
             $row['prior_institution'] = 'Bells University of Technology';
             $row['prior_field_of_study'] = 'Computer Science';

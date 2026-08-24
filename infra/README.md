@@ -277,6 +277,25 @@ sudo grep -E '^DB_(USERNAME|PASSWORD)=' /var/www/api/.env
 # DB_PASSWORD must be wrapped in double quotes
 ```
 
+### `Unsupported cipher or incorrect key length` (APP_KEY)
+
+Laravel `AES-256-CBC` needs a **32-byte** key. This error means `APP_KEY` is set but the wrong length — not missing (missing throws `No application encryption key has been specified`).
+
+Usual causes:
+
+- `base64:` prefixed onto a 32-character raw string (decodes to 24 bytes)
+- the 44-character `key:generate` payload stored **without** `base64:`
+- `php artisan optimize` cached `bootstrap/cache/config.php` while `.env` was still wrong
+
+Re-run **Deploy API**. Release now pulls `test/bells-sis/app-key`, quotes `APP_KEY`, normalizes the common mistakes above, deletes cached config, then `optimize`. Do not run `key:generate --force` unless you intend to invalidate encrypted session cookies and `portal_credential_cipher`.
+
+To confirm without printing the key:
+
+```bash
+sudo python3 /var/www/api/scripts/patch-dotenv.py /var/www/api/.env --check-app-key
+# expect: APP_KEY ok (32 bytes for AES-256-CBC).
+```
+
 ### `SQLSTATE[HY000]: General error: 1419` (audit_logs trigger / SUPER)
 
 Shared RDS (`prod-bankease`) has binary logging on. The app user cannot have SUPER, so `CREATE TRIGGER` fails unless the instance parameter `log_bin_trust_function_creators=1`.

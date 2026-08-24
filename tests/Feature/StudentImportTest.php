@@ -135,6 +135,7 @@ class StudentImportTest extends TestCase
 
         $this->post('/api/students/import', [
             'file' => $this->spreadsheet('Students', StudentImportColumns::all(), array_merge(StudentImportColumns::sample(), [
+                'programme_id' => (string) $this->program->id,
                 'email' => 'ada.student@example.com',
                 'password' => 'OldPortal1!',
             ])),
@@ -182,6 +183,7 @@ class StudentImportTest extends TestCase
 
         $this->post('/api/students/import', [
             'file' => $this->spreadsheet('Students', StudentImportColumns::all(), array_merge(StudentImportColumns::sample(), [
+                'programme_id' => (string) $this->program->id,
                 'email' => 'wallet.student@example.com',
                 'nin' => '12345678911',
                 'password' => 'OldPortal1!',
@@ -228,6 +230,7 @@ class StudentImportTest extends TestCase
         Mail::fake();
         Sanctum::actingAs($this->staffUser(['students.import'], ['import-students']));
         $payload = array_merge(StudentImportColumns::sample(), [
+            'programme_id' => (string) $this->program->id,
             'email' => 'dup.student@example.com',
             'nin' => '12345678921',
         ]);
