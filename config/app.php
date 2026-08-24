@@ -56,7 +56,7 @@ return [
 
     'frontend_url' => env('FRONTEND_URL', 'http://localhost:5173'),
 
-    'student_url' => env('STUDENT_URL', 'http://localhost:5174'),
+    'student_url' => env('STUDENT_URL', 'http://localhost:5174/student'),
 
     /*
     |--------------------------------------------------------------------------

@@ -15,8 +15,23 @@ class AcademicController extends Controller
     public function programs(Request $request)
     {
         $query = Program::query()->with('department.faculty')->where('is_active', true);
-        if ($request->filled('entry_mode')) {
-            $query->whereJsonContains('entry_modes', $request->entry_mode);
+
+        $modes = [];
+        if ($request->filled('entry_modes')) {
+            $modes = is_array($request->entry_modes)
+                ? $request->entry_modes
+                : array_filter(array_map('trim', explode(',', (string) $request->entry_modes)));
+        } elseif ($request->filled('entry_mode')) {
+            $modes = [(string) $request->entry_mode];
+        }
+
+        if ($modes !== []) {
+            $query->where(function ($builder) use ($modes) {
+                foreach ($modes as $index => $mode) {
+                    $method = $index === 0 ? 'whereJsonContains' : 'orWhereJsonContains';
+                    $builder->{$method}('entry_modes', $mode);
+                }
+            });
         }
 
         return $query->orderBy('name')->get();
@@ -33,6 +48,7 @@ class AcademicController extends Controller
             'entry_modes' => 'required|array|min:1',
             'entry_modes.*' => 'in:utme,de,jupeb,transfer,pg',
             'duration_years' => 'required|integer|min:1|max:10',
+            'tuition_amount' => 'nullable|numeric|min:0',
             'course_ids' => 'nullable|array',
             'course_ids.*' => 'exists:courses,id',
         ]);
@@ -59,6 +75,7 @@ class AcademicController extends Controller
             'entry_modes' => 'sometimes|array|min:1',
             'entry_modes.*' => 'in:utme,de,jupeb,transfer,pg',
             'duration_years' => 'sometimes|integer|min:1|max:10',
+            'tuition_amount' => 'nullable|numeric|min:0',
             'is_active' => 'boolean',
             'course_ids' => 'nullable|array',
             'course_ids.*' => 'exists:courses,id',

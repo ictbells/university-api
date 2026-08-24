@@ -8,37 +8,60 @@ use App\Models\HostelBed;
 use App\Models\HostelBlock;
 use App\Models\HostelRoom;
 use App\Models\Student;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class HostelRoomService
 {
-    public function formatRoom(HostelRoom $room): array
+    public function formatRoom(HostelRoom $room, bool $includeBeds = false): array
     {
-        $room->loadMissing(['block.hostel', 'beds']);
+        $room->loadMissing(['block.hostel']);
 
-        $beds = $room->beds;
-        $occupied = $beds->where('status', 'occupied')->count();
-        $available = $beds->where('status', 'available')->count();
-        $effectiveGender = $this->roomEffectiveGender($room);
+        $occupied = (int) ($room->occupied_beds ?? 0);
+        $available = (int) ($room->available_beds ?? 0);
+        $bedCount = (int) ($room->bed_count ?? 0);
 
-        return [
-            ...$room->toArray(),
+        if ($includeBeds || ($room->occupied_beds === null && $room->relationLoaded('beds'))) {
+            $room->loadMissing('beds');
+            $beds = $room->beds;
+            $occupied = $beds->where('status', 'occupied')->count();
+            $available = $beds->where('status', 'available')->count();
+            $bedCount = $beds->count();
+        }
+
+        $effectiveGender = $room->gender ? strtolower((string) $room->gender) : null;
+
+        $payload = [
+            'id' => $room->id,
+            'hostel_block_id' => $room->hostel_block_id,
+            'number' => $room->number,
+            'capacity' => $room->capacity,
+            'gender' => $room->gender,
+            'is_active' => (bool) $room->is_active,
+            'is_reserved' => (bool) $room->is_reserved,
+            'reserve_note' => $room->reserve_note,
             'hostel_id' => $room->block?->hostel_id,
             'hostel_name' => $room->block?->hostel?->name,
             'hostel_gender' => $room->block?->hostel?->gender,
             'hostel_category' => $room->block?->hostel?->category,
             'block_name' => $room->block?->name,
-            'bed_count' => $beds->count(),
+            'bed_count' => $bedCount,
             'occupied_beds' => $occupied,
             'available_beds' => $available,
             'effective_gender' => $effectiveGender,
             'gender_label' => $effectiveGender ? ucfirst($effectiveGender) : 'Unassigned',
-            'beds' => $beds->map(fn (HostelBed $bed) => [
+        ];
+
+        if ($includeBeds) {
+            $room->loadMissing('beds');
+            $payload['beds'] = $room->beds->map(fn (HostelBed $bed) => [
                 'id' => $bed->id,
                 'label' => $bed->label,
                 'status' => $bed->status,
-            ])->values(),
-        ];
+            ])->values();
+        }
+
+        return $payload;
     }
 
     public function syncBedsToCapacity(HostelRoom $room): HostelRoom
@@ -78,7 +101,7 @@ class HostelRoomService
 
         if ($beds->count() > $capacity) {
             $removable = $room->beds()
-                ->whereIn('status', ['available', 'reserved', 'disabled'])
+                ->whereIn('status', ['available', 'disabled'])
                 ->orderByDesc('label')
                 ->get();
 
@@ -112,8 +135,13 @@ class HostelRoomService
     public function applyRoomAvailability(HostelRoom $room): void
     {
         $targetStatus = $this->bedStatusForRoom($room);
+        $pendingBedIds = HostelAllocation::query()
+            ->where('status', 'pending')
+            ->whereHas('bed', fn ($query) => $query->where('hostel_room_id', $room->id))
+            ->pluck('hostel_bed_id');
+
         foreach ($room->beds as $bed) {
-            if ($bed->status === 'occupied') {
+            if ($bed->status === 'occupied' || $pendingBedIds->contains($bed->id)) {
                 continue;
             }
             $bed->update(['status' => $targetStatus]);
@@ -126,10 +154,15 @@ class HostelRoomService
             return strtolower((string) $room->gender);
         }
 
+        $room->loadMissing('beds');
+        if ($room->beds->whereIn('status', ['occupied', 'reserved'])->isEmpty()) {
+            return null;
+        }
+
         $occupantGender = HostelAllocation::query()
-            ->where('status', 'allocated')
+            ->whereIn('status', ['allocated', 'pending'])
             ->whereHas('bed', fn ($query) => $query->where('hostel_room_id', $room->id))
-            ->with('student')
+            ->with('student:id,gender')
             ->get()
             ->pluck('student.gender')
             ->filter()
@@ -174,7 +207,7 @@ class HostelRoomService
         }
 
         $hasOccupants = HostelAllocation::query()
-            ->where('status', 'allocated')
+            ->whereIn('status', ['allocated', 'pending'])
             ->whereHas('bed', fn ($query) => $query->where('hostel_room_id', $room->id))
             ->exists();
 
@@ -188,6 +221,90 @@ class HostelRoomService
         return $hostel->blocks()->create([
             'name' => $data['name'],
         ]);
+    }
+
+    public function updateBlock(HostelBlock $block, array $data): HostelBlock
+    {
+        $block->update(['name' => $data['name']]);
+
+        return $block->fresh(['rooms.beds', 'hostel']);
+    }
+
+    public function occupiedBedCountForRoom(HostelRoom $room): int
+    {
+        return $room->beds()->where('status', 'occupied')->count();
+    }
+
+    public function occupiedBedCountForBlock(HostelBlock $block): int
+    {
+        return HostelBed::query()
+            ->where('status', 'occupied')
+            ->whereHas('room', fn ($query) => $query->where('hostel_block_id', $block->id))
+            ->count();
+    }
+
+    public function occupiedBedCountForHostel(Hostel $hostel): int
+    {
+        return HostelBed::query()
+            ->where('status', 'occupied')
+            ->whereHas('room.block', fn ($query) => $query->where('hostel_id', $hostel->id))
+            ->count();
+    }
+
+    public function deleteRoom(HostelRoom $room): void
+    {
+        $this->assertDeletable($this->occupiedBedCountForRoom($room), 'room');
+
+        DB::transaction(function () use ($room) {
+            foreach ($room->beds()->get() as $bed) {
+                $bed->delete();
+            }
+            $room->delete();
+        });
+    }
+
+    public function deleteBlock(HostelBlock $block): void
+    {
+        $this->assertDeletable($this->occupiedBedCountForBlock($block), 'block');
+
+        DB::transaction(function () use ($block) {
+            $block->load('rooms.beds');
+            foreach ($block->rooms as $room) {
+                foreach ($room->beds as $bed) {
+                    $bed->delete();
+                }
+                $room->delete();
+            }
+            $block->delete();
+        });
+    }
+
+    public function deleteHostel(Hostel $hostel): void
+    {
+        $this->assertDeletable($this->occupiedBedCountForHostel($hostel), 'hostel');
+
+        DB::transaction(function () use ($hostel) {
+            $hostel->load('blocks.rooms.beds');
+            foreach ($hostel->blocks as $block) {
+                foreach ($block->rooms as $room) {
+                    foreach ($room->beds as $bed) {
+                        $bed->delete();
+                    }
+                    $room->delete();
+                }
+                $block->delete();
+            }
+            $hostel->delete();
+        });
+    }
+
+    private function assertDeletable(int $occupiedBeds, string $entity): void
+    {
+        if ($occupiedBeds > 0) {
+            throw ValidationException::withMessages([
+                $entity => "Cannot delete this {$entity} while {$occupiedBeds} bed(s) are occupied. Vacate allocations first.",
+            ]);
+        }
     }
 
     public function storeRoom(HostelBlock $block, array $data): HostelRoom

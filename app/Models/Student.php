@@ -2,8 +2,6 @@
 
 namespace App\Models;
 
-use App\Models\BaseModel;
-
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -19,7 +17,7 @@ class Student extends BaseModel
     protected function casts(): array
     {
         return [
-            'date_of_birth' => 'date',
+            'date_of_birth' => 'date:Y-m-d',
             'nin_locked' => 'boolean',
         ];
     }
@@ -47,6 +45,16 @@ class Student extends BaseModel
     public function enrollments(): HasMany
     {
         return $this->hasMany(Enrollment::class);
+    }
+
+    public function unitGraces(): HasMany
+    {
+        return $this->hasMany(UnitGrace::class);
+    }
+
+    public function registrationExtensions(): HasMany
+    {
+        return $this->hasMany(RegistrationExtension::class);
     }
 
     public function medicalProfile(): HasOne

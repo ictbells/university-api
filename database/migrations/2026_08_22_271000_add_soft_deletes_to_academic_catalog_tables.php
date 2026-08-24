@@ -9,8 +9,12 @@ return new class extends Migration
     public function up(): void
     {
         foreach (['academic_levels', 'olevel_subjects'] as $table) {
-            Schema::table($table, function (Blueprint $table) {
-                $table->softDeletes();
+            if (! Schema::hasTable($table) || Schema::hasColumn($table, 'deleted_at')) {
+                continue;
+            }
+
+            Schema::table($table, function (Blueprint $blueprint) {
+                $blueprint->softDeletes();
             });
         }
     }

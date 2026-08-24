@@ -1,5 +1,11 @@
 <?php
 
+use App\Http\Middleware\AssignRequestId;
+use App\Http\Middleware\EnsureAcademicResource;
+use App\Http\Middleware\EnsurePermission;
+use App\Http\Middleware\EnsurePortalNav;
+use App\Http\Middleware\EnsureStaffSecurity;
+use App\Http\Middleware\EnsureStudent;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -22,12 +28,13 @@ return Application::configure(basePath: dirname(__DIR__))
             'api/two-factor/*',
             'api/payments/paystack/webhook',
         ]);
-        $middleware->append(\App\Http\Middleware\AssignRequestId::class);
+        $middleware->append(AssignRequestId::class);
         $middleware->alias([
-            'permission' => \App\Http\Middleware\EnsurePermission::class,
-            'academic.resource' => \App\Http\Middleware\EnsureAcademicResource::class,
-            'student' => \App\Http\Middleware\EnsureStudent::class,
-            'staff.security' => \App\Http\Middleware\EnsureStaffSecurity::class,
+            'permission' => EnsurePermission::class,
+            'academic.resource' => EnsureAcademicResource::class,
+            'portal.nav' => EnsurePortalNav::class,
+            'student' => EnsureStudent::class,
+            'staff.security' => EnsureStaffSecurity::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

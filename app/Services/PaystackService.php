@@ -6,6 +6,7 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\User;
 use App\Models\WebhookLog;
+use App\Support\FeeSchedule;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -15,15 +16,18 @@ class PaystackService
     public function __construct(
         private InvoiceService $invoices,
         private WalletService $wallets,
-        private StudentCreationService $students,
+        private ApplicationAdmissionService $admissions,
         private AuditWriter $audit,
         private Notifier $notifier,
     ) {}
 
-    public function initializeInvoice(User $user, Invoice $invoice): array
+    public function initializeInvoice(User $user, Invoice $invoice, ?string $callbackUrl = null): array
     {
-        if (in_array($invoice->category, ['application_fee', 'acceptance_fee'], true) && $invoice->wallet_allowed) {
-            throw new RuntimeException('This fee cannot use the wallet.');
+        if (! $invoice->isPayable()) {
+            abort(422, 'This invoice cannot be paid.');
+        }
+        if (! FeeSchedule::onlinePaymentAllowed($invoice->category)) {
+            abort(422, 'This invoice must be paid from the campus wallet. Only application and acceptance fees can be paid online.');
         }
         $reference = 'PSK-'.Str::upper(Str::random(12));
         $payment = Payment::query()->create([
@@ -39,6 +43,10 @@ class PaystackService
 
         $secret = config('services.paystack.secret');
         if (! $secret) {
+            if (! config('services.paystack.allow_demo_fulfill')) {
+                throw new RuntimeException('Online payments are not configured. Please pay at the admissions office.');
+            }
+
             return [
                 'authorization_url' => null,
                 'access_code' => 'demo',
@@ -52,7 +60,7 @@ class PaystackService
             'email' => $user->email,
             'amount' => (int) round(((float) $invoice->balance) * 100),
             'reference' => $reference,
-            'callback_url' => config('app.frontend_url').'/payments/callback',
+            'callback_url' => $callbackUrl ?: $this->callbackUrl('staff'),
             'metadata' => ['invoice_id' => $invoice->id, 'purpose' => $invoice->category],
         ]);
         if (! $response->successful()) {
@@ -66,7 +74,7 @@ class PaystackService
         ];
     }
 
-    public function initializeWalletTopup(User $user, float $amount): array
+    public function initializeWalletTopup(User $user, float $amount, string $portal = 'student'): array
     {
         if (! $user->student?->wallet) {
             throw new RuntimeException('Wallet is only available after student creation.');
@@ -97,9 +105,12 @@ class PaystackService
             'email' => $user->email,
             'amount' => (int) round($amount * 100),
             'reference' => $reference,
-            'callback_url' => config('app.frontend_url').'/payments/callback',
-            'metadata' => ['purpose' => 'wallet_topup'],
+            'callback_url' => $this->callbackUrl($portal === 'staff' ? 'staff' : 'student'),
+            'metadata' => ['purpose' => 'wallet_topup', 'portal' => $portal],
         ]);
+        if (! $response->successful()) {
+            throw new RuntimeException($response->json('message') ?: 'Paystack initialize failed.');
+        }
 
         return [
             ...$response->json('data'),
@@ -121,6 +132,8 @@ class PaystackService
             if (! $response->json('status') || ($response->json('data.status') !== 'success')) {
                 throw new RuntimeException('Payment has not been confirmed by Paystack.');
             }
+        } elseif (! config('services.paystack.allow_demo_fulfill')) {
+            throw new RuntimeException('Online payments are not configured. Please pay at the admissions office.');
         }
 
         return $this->fulfill($payment);
@@ -141,7 +154,7 @@ class PaystackService
             $this->invoices->applyPayment($invoice, (float) $payment->amount);
             $this->audit->record('payment.paystack', 'Paystack payment for '.$invoice->number, 'payments', 'invoice', $invoice->id, null, $invoice->fresh());
             $this->notifier->send($payment->user, 'payment', 'Payment received', 'Receipt '.$payment->receipt_no, 'payments', $payment->id);
-            $this->afterInvoicePaid($invoice->fresh());
+            $this->admissions->handleInvoicePaid($invoice->fresh());
         } elseif ($payment->purpose === 'wallet_topup') {
             $wallet = $payment->user->student?->wallet;
             if ($wallet) {
@@ -150,6 +163,15 @@ class PaystackService
         }
 
         return $payment->fresh();
+    }
+
+    private function callbackUrl(string $portal): string
+    {
+        $base = $portal === 'staff'
+            ? config('app.frontend_url')
+            : config('app.student_url');
+
+        return rtrim((string) $base, '/').'/payments/callback';
     }
 
     public function handleWebhook(array $payload, ?string $signature): void
@@ -170,24 +192,6 @@ class PaystackService
         $reference = data_get($payload, 'data.reference');
         if ($reference) {
             $this->verify($reference);
-        }
-    }
-
-    private function afterInvoicePaid(Invoice $invoice): void
-    {
-        if ($invoice->category === 'application_fee' && $invoice->application_id) {
-            $app = $invoice->application()->first() ?? \App\Models\Application::query()->find($invoice->application_id);
-            if ($app && in_array($app->stage, ['started', 'awaiting_application_fee'], true)) {
-                $app->update(['stage' => 'fee_paid', 'current_step' => 'biodata']);
-                $this->notifier->send($app->user, 'application_fee', 'Application fee received', 'You can now complete your application form.', 'admissions', $app->id);
-            }
-        }
-        if ($invoice->category === 'acceptance_fee' && $invoice->application_id) {
-            $app = \App\Models\Application::query()->find($invoice->application_id);
-            if ($app && ! $app->student_id) {
-                $app->update(['stage' => 'acceptance_paid']);
-                $this->students->createFromApplication($app->fresh());
-            }
         }
     }
 }

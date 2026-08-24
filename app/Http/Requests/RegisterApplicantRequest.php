@@ -17,9 +17,6 @@ class RegisterApplicantRequest extends FormRequest
         if ($this->has('email')) {
             $this->merge(['email' => $this->cleanEmail((string) $this->input('email'))]);
         }
-        if ($this->has('jamb_registration')) {
-            $this->merge(['jamb_registration' => strtoupper(str_replace(' ', '', (string) $this->input('jamb_registration')))]);
-        }
         if ($this->has('nin')) {
             $this->merge(['nin' => preg_replace('/\D/', '', (string) $this->input('nin'))]);
         }
@@ -30,7 +27,6 @@ class RegisterApplicantRequest extends FormRequest
         return [
             'nin' => 'required|string|size:11',
             'email' => 'required|string|email:rfc,dns|max:255|unique:users,email',
-            'jamb_registration' => 'required|string|max:20|unique:users,jamb_registration',
             'phone' => 'required|string|max:30',
             'password' => PasswordRules::rules(),
         ];
@@ -38,9 +34,7 @@ class RegisterApplicantRequest extends FormRequest
 
     public function messages(): array
     {
-        return array_merge(PasswordRules::messages(), [
-            'jamb_registration.unique' => 'This JAMB registration number is already registered.',
-        ]);
+        return PasswordRules::messages();
     }
 
     private function cleanEmail(string $email): string

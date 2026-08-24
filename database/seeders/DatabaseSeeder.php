@@ -3,11 +3,15 @@
 namespace Database\Seeders;
 
 use App\Models\AcademicLevel;
+use App\Models\AcademicSession;
 use App\Models\AcademicTerm;
 use App\Models\Announcement;
 use App\Models\Application;
 use App\Models\AppNotification;
 use App\Models\Campus;
+use App\Models\CandidateData;
+use App\Models\ClinicVisit;
+use App\Models\ClinicVisitItem;
 use App\Models\Course;
 use App\Models\CourseOffering;
 use App\Models\Department;
@@ -18,23 +22,29 @@ use App\Models\Grade;
 use App\Models\Hostel;
 use App\Models\HostelAllocation;
 use App\Models\HostelLevelWindow;
-use App\Models\IntegrationEndpoint;
+use App\Models\Immunization;
 use App\Models\Intake;
+use App\Models\IntegrationEndpoint;
+use App\Models\MedicalProfile;
 use App\Models\OfficeDepartment;
 use App\Models\OfficeSubunit;
 use App\Models\OfficeUnit;
 use App\Models\OlevelSubject;
 use App\Models\Permission;
+use App\Models\Prescription;
 use App\Models\Program;
 use App\Models\Role;
 use App\Models\Setting;
+use App\Models\SickNote;
 use App\Models\Staff;
 use App\Models\User;
+use App\Services\ClinicBillingService;
 use App\Services\InvoiceService;
 use App\Services\StudentCreationService;
+use App\Support\ApplicationReference;
+use App\Support\ClinicSettings;
 use App\Support\PermissionCatalog;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\Hash;
 
 class DatabaseSeeder extends Seeder
 {
@@ -56,6 +66,7 @@ class DatabaseSeeder extends Seeder
                     'academic.programmes.manage',
                     'academic.intakes.manage',
                     'academic.olevel.manage',
+                    'admissions.import',
                     'registrations.view',
                 ])
                 ->pluck('id')],
@@ -106,11 +117,55 @@ class DatabaseSeeder extends Seeder
             'duration_years' => 2,
         ]);
 
-        $term = AcademicTerm::query()->firstOrCreate(
-            ['session_label' => '2025/2026', 'name' => 'Harmattan 2025/2026'],
-            ['starts_on' => '2025-09-01', 'ends_on' => '2026-01-31', 'is_current' => true]
+        $session = AcademicSession::query()->firstOrCreate(
+            ['label' => '2025/2026'],
+            ['starts_on' => '2025-09-01', 'ends_on' => '2026-08-31']
         );
+        AcademicTerm::query()->update(['is_current' => false]);
+        $term = AcademicTerm::query()->updateOrCreate(
+            ['academic_session_id' => $session->id, 'name' => 'First'],
+            [
+                'session_label' => '2025/2026',
+                'starts_on' => '2025-09-01',
+                'ends_on' => '2026-01-31',
+                'is_current' => true,
+                'auto_schedule' => true,
+                'normal_registration_closes_at' => '2025-09-24 06:53:00',
+                'late_registration_closes_at' => '2025-09-24 06:53:00',
+            ]
+        );
+        AcademicTerm::query()->updateOrCreate(
+            ['academic_session_id' => $session->id, 'name' => 'Second'],
+            [
+                'session_label' => '2025/2026',
+                'starts_on' => '2026-02-01',
+                'ends_on' => '2026-06-30',
+                'is_current' => false,
+                'auto_schedule' => true,
+            ]
+        );
+        $term->update(['is_current' => true]);
         Setting::setValue('current_term_id', $term->id);
+
+        CandidateData::query()->updateOrCreate(
+            ['rg_num' => '20269999ZZ', 'academic_year' => '2025/2026'],
+            [
+                'rg_candname' => 'Demo Candidate',
+                'rg_sex' => 'Female',
+                'state_name' => 'Ogun',
+                'rg_aggr' => 245,
+                'co_name' => 'B.Eng Computer Engineering',
+                'lga_name' => 'Ado-Odo/Ota',
+                'subject1' => 'Mathematics',
+                'rg_sub1scor' => 72,
+                'subject2' => 'Physics',
+                'rg_sub2scor' => 68,
+                'subject3' => 'Chemistry',
+                'rg_sub3scor' => 65,
+                'eng_score' => 70,
+                'subj' => 'Biology',
+            ],
+        );
 
         foreach (
             [
@@ -163,17 +218,29 @@ class DatabaseSeeder extends Seeder
         foreach (['utme', 'de', 'jupeb', 'transfer', 'pg'] as $mode) {
             Intake::query()->firstOrCreate(
                 ['entry_mode' => $mode, 'academic_term_id' => $term->id],
-                ['name' => strtoupper($mode).' 2025/2026', 'is_open' => true]
-            );
-            FeeItem::query()->firstOrCreate(
-                ['category' => 'application_fee', 'entry_mode' => $mode],
-                ['name' => strtoupper($mode).' Application Fee', 'amount' => $mode === 'pg' ? 25000 : 15000, 'wallet_allowed' => false]
+                [
+                    'name' => strtoupper($mode).' 2025/2026',
+                    'is_open' => true,
+                    'application_fee_amount' => $mode === 'pg' ? 25000 : 15000,
+                    'acceptance_fee_amount' => $mode === 'pg' ? 75000 : 50000,
+                ]
             );
         }
         FeeItem::query()->firstOrCreate(['category' => 'acceptance_fee'], ['name' => 'Acceptance Fee', 'amount' => 50000, 'wallet_allowed' => false]);
-        FeeItem::query()->firstOrCreate(['category' => 'tuition'], ['name' => 'Tuition', 'amount' => 450000, 'wallet_allowed' => true]);
+        FeeItem::query()->firstOrCreate(
+            ['category' => 'tuition'],
+            ['name' => 'Tuition', 'amount' => 450000, 'wallet_allowed' => true, 'is_required' => true, 'display_order' => 1]
+        );
+        FeeItem::query()->firstOrCreate(
+            ['category' => 'library'],
+            ['name' => 'Library fee', 'amount' => 10000, 'wallet_allowed' => true, 'is_required' => true, 'display_order' => 2]
+        );
+        FeeItem::query()->firstOrCreate(
+            ['category' => 'medical'],
+            ['name' => 'Medical / clinic', 'amount' => 5000, 'wallet_allowed' => true, 'is_required' => true, 'display_order' => 3]
+        );
         FeeItem::query()->firstOrCreate(['category' => 'hostel'], ['name' => 'Hostel Fee', 'amount' => 120000, 'wallet_allowed' => true]);
-        FeeItem::query()->firstOrCreate(['category' => 'medical'], ['name' => 'Clinic charge', 'amount' => 5000, 'wallet_allowed' => true]);
+        FeeItem::query()->firstOrCreate(['category' => 'sundry'], ['name' => 'Sundry fee', 'amount' => 10000, 'wallet_allowed' => true]);
 
         $course = Course::query()->firstOrCreate(['code' => 'CPE 201'], ['department_id' => $cse->id, 'title' => 'Digital Systems', 'units' => 3]);
         $bsc->courses()->syncWithoutDetaching([$course->id]);
@@ -203,6 +270,7 @@ class DatabaseSeeder extends Seeder
         $make('admissions@bellsuniversity.edu.ng', 'Admissions Officer', 'admissions', true, '08030000003');
         $make('finance@bellsuniversity.edu.ng', 'Finance Officer', 'finance', true, '08030000004');
         $make('medical@bellsuniversity.edu.ng', 'Clinic Officer', 'medical', true, '08030000005');
+        $medicalOfficer = User::query()->where('email', 'medical@bellsuniversity.edu.ng')->first();
         $faculty = $make('faculty@bellsuniversity.edu.ng', 'Dr. Faculty Member', 'faculty', true, '08030000006');
         $make('pg@bellsuniversity.edu.ng', 'PG Coordinator', 'pg-coordinator', true, '08030000007');
         $make('hostel@bellsuniversity.edu.ng', 'Hostel Officer', 'hostel-officer', true, '08030000008');
@@ -262,8 +330,54 @@ class DatabaseSeeder extends Seeder
                 'last_name' => 'Okoye',
                 'date_of_birth' => '2004-03-18',
                 'gender' => 'Female',
+                'nin_locked' => true,
+            ],
+        ]);
+        $studentApp->steps()->where('step_key', 'personal_details')->update([
+            'status' => 'complete',
+            'payload' => [
+                'marital_status' => 'Single',
+                'religion' => 'Christianity',
+                'country' => 'Nigeria',
+                'state' => 'Ogun',
+                'lga' => 'Ado-Odo/Ota',
+            ],
+        ]);
+        $studentApp->steps()->where('step_key', 'health_information')->update([
+            'status' => 'complete',
+            'payload' => [
+                'blood_group' => 'O+',
+                'genotype' => 'AA',
+                'has_medical_condition' => false,
+                'medical_condition_details' => null,
+            ],
+        ]);
+        $studentApp->steps()->where('step_key', 'next_of_kin')->update([
+            'status' => 'complete',
+            'payload' => [
                 'next_of_kin' => 'Ngozi Okoye',
+                'next_of_kin_relationship' => 'Mother',
                 'next_of_kin_phone' => '08020000000',
+                'next_of_kin_email' => 'ngozi.okoye@example.com',
+                'next_of_kin_address' => 'Ota, Ogun State',
+            ],
+        ]);
+        $studentApp->steps()->where('step_key', 'sponsor')->update([
+            'status' => 'complete',
+            'payload' => [
+                'sponsor_name' => 'Chukwuma Okoye',
+                'sponsor_relationship' => 'Father',
+                'sponsor_phone' => '08030000000',
+                'sponsor_email' => 'chukwuma.okoye@example.com',
+                'sponsor_address' => 'Ota, Ogun State',
+            ],
+        ]);
+        $studentApp->steps()->where('step_key', 'application_form')->update([
+            'status' => 'complete',
+            'payload' => [
+                'phone' => '08010000000',
+                'address' => 'Bells University Staff Quarters, Ota',
+                'declaration' => true,
             ],
         ]);
         $studentApp->update(['stage' => 'acceptance_paid']);
@@ -276,6 +390,111 @@ class DatabaseSeeder extends Seeder
         $tuition = FeeItem::query()->where('category', 'tuition')->first();
         $tuitionInvoice = $invoices->createForFee($studentUser, $tuition, $studentApp->id, $student->id);
         $tuitionInvoice->update(['status' => 'paid', 'balance' => 0]);
+
+        ClinicSettings::update([
+            'nhis_enabled' => true,
+            'nhis_default_coverage_percent' => 90,
+            'nhis_auto_cover_lines' => true,
+        ]);
+
+        $medicalStaffId = $medicalOfficer?->staff?->id;
+        $profile = MedicalProfile::query()->firstOrCreate(['student_id' => $student->id]);
+        $profile->update([
+            'blood_type' => $profile->blood_type ?: 'O+',
+            'genotype' => $profile->genotype ?: 'AA',
+            'nhis_enrolled' => true,
+            'nhis_number' => 'NHIS-SEED-001',
+            'nhis_provider' => 'BHCPF / Demo HMO',
+            'nhis_coverage_percent' => null,
+            'nhis_valid_until' => now()->addYear()->toDateString(),
+        ]);
+        Immunization::query()->firstOrCreate(
+            ['student_id' => $student->id, 'vaccine' => 'COVID-19 (booster)'],
+            ['given_on' => now()->subMonths(4)->toDateString()]
+        );
+
+        $waitingVisit = ClinicVisit::query()->firstOrCreate(
+            [
+                'student_id' => $student->id,
+                'visited_on' => now()->toDateString(),
+                'status' => 'waiting',
+            ],
+            [
+                'staff_id' => $medicalStaffId,
+                'visit_type' => 'walk_in',
+                'complaint' => 'Mild headache',
+                'notes_internal' => true,
+            ]
+        );
+
+        $completedVisit = ClinicVisit::query()->firstOrCreate(
+            [
+                'student_id' => $student->id,
+                'visited_on' => now()->subDays(2)->toDateString(),
+                'status' => 'completed',
+            ],
+            [
+                'staff_id' => $medicalStaffId,
+                'visit_type' => 'walk_in',
+                'complaint' => 'Sore throat',
+                'diagnosis' => 'Pharyngitis',
+                'notes' => 'Advised rest and fluids',
+                'temperature' => 37.2,
+                'pulse' => 78,
+                'notes_internal' => true,
+                'disposition' => 'Discharged',
+            ]
+        );
+        if ($completedVisit->items()->count() === 0) {
+            ClinicVisitItem::query()->create([
+                'clinic_visit_id' => $completedVisit->id,
+                'description' => 'Consultation',
+                'quantity' => 1,
+                'unit_amount' => 5000,
+                'line_total' => 5000,
+                'nhis_covered' => true,
+            ]);
+            ClinicVisitItem::query()->create([
+                'clinic_visit_id' => $completedVisit->id,
+                'description' => 'Medication (amoxicillin)',
+                'quantity' => 1,
+                'unit_amount' => 2500,
+                'line_total' => 2500,
+                'nhis_covered' => true,
+            ]);
+        }
+        if (! $completedVisit->bill) {
+            app(ClinicBillingService::class)->finalize($completedVisit->fresh('items'));
+        }
+        Prescription::query()->firstOrCreate(
+            [
+                'clinic_visit_id' => $completedVisit->id,
+                'medication' => 'Amoxicillin 500mg',
+            ],
+            [
+                'student_id' => $student->id,
+                'staff_id' => $medicalStaffId,
+                'dosage' => '1 capsule',
+                'frequency' => '3 times daily',
+                'duration' => '5 days',
+                'dispensed_at' => now()->subDays(2),
+            ]
+        );
+        SickNote::query()->firstOrCreate(
+            [
+                'clinic_visit_id' => $completedVisit->id,
+                'student_id' => $student->id,
+            ],
+            [
+                'staff_id' => $medicalStaffId,
+                'issued_on' => now()->subDays(2)->toDateString(),
+                'valid_from' => now()->subDays(2)->toDateString(),
+                'valid_to' => now()->subDay()->toDateString(),
+                'reason' => 'Upper respiratory infection — excused from lectures',
+                'restrictions' => 'Rest; avoid strenuous activity',
+            ]
+        );
+        unset($waitingVisit);
 
         $pgUser = User::query()->firstOrCreate(
             ['email' => 'pgstudent@bellsuniversity.edu.ng'],
@@ -331,7 +550,7 @@ class DatabaseSeeder extends Seeder
         Announcement::query()->create([
             'title' => 'Welcome to the 2025/2026 session',
             'body' => 'Complete outstanding fees and register your courses.',
-            'audience' => 'all',
+            'audience' => 'students',
             'published_at' => now(),
         ]);
         AppNotification::query()->create([
@@ -365,18 +584,20 @@ class DatabaseSeeder extends Seeder
             return $existing->fresh(['applicationFeeInvoice', 'steps']);
         }
         $intake = Intake::query()->where('entry_mode', $mode)->first();
+        abort_unless($intake, 422, 'No application window for this entry mode.');
         $app = Application::query()->create([
+            'application_number' => ApplicationReference::generate(),
             'user_id' => $user->id,
             'intake_id' => $intake->id,
             'program_id' => $program->id,
             'entry_mode' => $mode,
+            'jamb_registration' => $user->jamb_registration,
             'stage' => 'awaiting_application_fee',
         ]);
         foreach (Application::FORM_STEPS as $step) {
             $app->steps()->create(['step_key' => $step, 'status' => 'pending', 'payload' => []]);
         }
-        $fee = FeeItem::query()->where('category', 'application_fee')->where('entry_mode', $mode)->first();
-        $invoice = $invoices->createForFee($user, $fee, $app->id);
+        $invoice = $invoices->createApplicationFeeInvoice($user, $intake, $app->id);
         $app->update(['application_fee_invoice_id' => $invoice->id]);
 
         return $app->fresh(['applicationFeeInvoice']);

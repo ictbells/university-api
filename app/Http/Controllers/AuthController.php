@@ -3,13 +3,17 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\RegisterApplicantRequest;
+use App\Models\AcademicTerm;
 use App\Models\Role;
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\AuditWriter;
+use App\Services\PremblyService;
 use App\Services\StaffNavResolver;
 use App\Services\StaffOfficePlacement;
 use App\Services\StaffSecurityService;
 use App\Services\TwoFactorChallengeService;
+use App\Support\ApplicantPassport;
 use App\Support\PasswordRules;
 use App\Support\StudentPortalAuth;
 use Illuminate\Http\JsonResponse;
@@ -18,31 +22,65 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class AuthController extends Controller
 {
+    private ?AcademicTerm $resolvedCurrentTerm = null;
+
+    private bool $currentTermResolved = false;
+
     public function __construct(
         private AuditWriter $audit,
         private StaffNavResolver $navResolver,
         private StaffOfficePlacement $placement,
         private StaffSecurityService $security,
         private TwoFactorChallengeService $twoFactor,
+        private PremblyService $prembly,
     ) {}
+
+    public function previewNin(Request $request): JsonResponse
+    {
+        $data = $request->validate(['nin' => 'required|string']);
+        $nin = $this->prembly->normalizeNin($data['nin']);
+        $this->prembly->assertNinAvailable($nin);
+        try {
+            $mapped = $this->prembly->lookupIdentity($nin);
+        } catch (RuntimeException $e) {
+            throw ValidationException::withMessages(['nin' => $e->getMessage()]);
+        }
+
+        return response()->json([
+            'nin' => $nin,
+            'first_name' => $mapped['first_name'],
+            'middle_name' => $mapped['middle_name'],
+            'last_name' => $mapped['last_name'],
+            'date_of_birth' => $mapped['date_of_birth'],
+            'gender' => $mapped['gender'],
+        ]);
+    }
 
     public function register(RegisterApplicantRequest $request): JsonResponse
     {
         $data = $request->validated();
         $applicantRole = Role::query()->where('slug', 'applicant')->where('is_active', true)->firstOrFail();
+        try {
+            $mapped = $this->prembly->lookupIdentity($data['nin']);
+        } catch (RuntimeException $e) {
+            throw ValidationException::withMessages(['nin' => $e->getMessage()]);
+        }
+        $this->prembly->assertNinAvailable($data['nin']);
 
         $user = User::query()->create([
-            'name' => trim($data['first_name'].' '.$data['last_name']),
+            'name' => $this->prembly->displayName($mapped),
             'email' => $data['email'],
             'phone' => $data['phone'],
-            'jamb_registration' => $data['jamb_registration'],
             'password' => $data['password'],
             'status' => 'active',
         ]);
         $user->roles()->sync([$applicantRole->id]);
+        $this->prembly->verify($user, null, $data['nin']);
 
         Auth::guard('web')->login($user);
         if ($request->hasSession()) {
@@ -164,6 +202,11 @@ class AuthController extends Controller
         return $this->payload($request->user());
     }
 
+    public function myPassport(Request $request): BinaryFileResponse
+    {
+        return ApplicantPassport::fileResponseForUser($request->user());
+    }
+
     public function updateProfile(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -248,11 +291,25 @@ class AuthController extends Controller
 
     private function payload(User $user, ?string $token = null, ?string $message = null): JsonResponse
     {
-        $user->load(['roles.permissions', 'student', 'staff', 'latestApplication.applicationFeeInvoice', 'latestApplication.acceptanceFeeInvoice']);
+        $user->load([
+            'roles.permissions',
+            'student.program.department.faculty.campus',
+            'student.application:id,entry_mode',
+            'staff',
+            'latestApplication.applicationFeeInvoice',
+            'latestApplication.acceptanceFeeInvoice',
+            'latestApplication.intake.term',
+            'latestNinVerification',
+        ]);
         $nav = $this->navResolver->resolve($user);
         $staff = $user->staff;
         if ($staff) {
             $staff->setAttribute('office_placement', $this->placement->label($staff));
+        }
+
+        $ninRecord = $user->latestNinVerification;
+        if ($ninRecord) {
+            $ninRecord = $this->prembly->ensurePhotoPersisted($user, $ninRecord);
         }
 
         return response()->json([
@@ -283,14 +340,73 @@ class AuthController extends Controller
                         ]),
                 ]),
             ...$user->portalAccess(),
+            'nin_identity' => $this->prembly->identityPayload($ninRecord),
             'nav_unrestricted' => $nav['unrestricted'],
             'nav_link_keys' => $nav['keys'],
             'security' => $this->security->policyPayload($user),
             'token' => $token,
             'university' => [
-                'name' => \App\Models\Setting::getValue('university_name', 'Bells University of Technology'),
-                'motto' => \App\Models\Setting::getValue('university_motto', 'Chords of Knowledge'),
+                'name' => Setting::getValue('university_name', 'Bells University of Technology'),
+                'motto' => Setting::getValue('university_motto', 'Chords of Knowledge'),
             ],
+            'current_session' => $this->currentSessionLabel($user),
+            'current_semester' => $this->currentSemesterName(),
+            'current_term' => $this->currentTermPayload($user),
         ]);
+    }
+
+    private function currentTerm(): ?AcademicTerm
+    {
+        if (! $this->currentTermResolved) {
+            $this->resolvedCurrentTerm = AcademicTerm::query()->with('session')->where('is_current', true)->first();
+            $this->currentTermResolved = true;
+        }
+
+        return $this->resolvedCurrentTerm;
+    }
+
+    private function currentSessionLabel(User $user): ?string
+    {
+        $current = $this->currentTerm();
+
+        return $current?->session?->label
+            ?: $current?->session_label
+            ?: Setting::getValue('current_session_label')
+            ?: $user->latestApplication?->intake?->term?->session_label;
+    }
+
+    private function currentSemesterName(): ?string
+    {
+        return $this->currentTerm()?->name;
+    }
+
+    private function currentTermPayload(User $user): ?array
+    {
+        $term = $this->currentTerm();
+        if (! $term) {
+            $label = $this->currentSessionLabel($user);
+            $semester = $this->currentSemesterName();
+            if (! $label && ! $semester) {
+                return null;
+            }
+
+            return [
+                'id' => null,
+                'name' => $semester,
+                'session_label' => $label,
+                'registration_status' => 'Closed',
+                'normal_registration_closes_at' => null,
+                'late_registration_closes_at' => null,
+            ];
+        }
+
+        return [
+            'id' => $term->id,
+            'name' => $term->name,
+            'session_label' => $term->session?->label ?: $term->session_label,
+            'registration_status' => $term->registrationStatus(),
+            'normal_registration_closes_at' => optional($term->normal_registration_closes_at)?->toIso8601String(),
+            'late_registration_closes_at' => optional($term->late_registration_closes_at)?->toIso8601String(),
+        ];
     }
 }

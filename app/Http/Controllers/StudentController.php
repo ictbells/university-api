@@ -19,7 +19,31 @@ class StudentController extends Controller
             return $student->load(['program', 'wallet', 'user']);
         }
 
-        return Student::query()->with(['program', 'user', 'wallet'])->latest()->paginate(25);
+        $perPage = min(100, max(10, (int) $request->input('per_page', 25)));
+        $query = Student::query()
+            ->with(['program:id,name,code', 'user:id,name,email'])
+            ->latest();
+
+        if ($request->filled('matric')) {
+            $key = strtoupper(preg_replace('/\s+/', '', trim((string) $request->input('matric'))) ?: '');
+            $query->where(function ($builder) use ($key) {
+                $builder->whereRaw('UPPER(REPLACE(COALESCE(matric_number, ""), " ", "")) = ?', [$key])
+                    ->orWhereRaw('UPPER(REPLACE(COALESCE(student_number, ""), " ", "")) = ?', [$key]);
+            });
+        } elseif ($request->filled('search')) {
+            $term = '%'.str_replace(['%', '_'], ['\\%', '\\_'], trim((string) $request->input('search'))).'%';
+            $query->where(function ($builder) use ($term) {
+                $builder->where('first_name', 'like', $term)
+                    ->orWhere('last_name', 'like', $term)
+                    ->orWhere('matric_number', 'like', $term)
+                    ->orWhere('student_number', 'like', $term)
+                    ->orWhereHas('user', function ($users) use ($term) {
+                        $users->where('email', 'like', $term)->orWhere('name', 'like', $term);
+                    });
+            });
+        }
+
+        return $query->paginate($perPage);
     }
 
     public function show(Request $request, Student $student)

@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\Application;
 use App\Models\Student;
 use App\Models\User;
 use Illuminate\Validation\ValidationException;
@@ -18,6 +19,11 @@ class StudentPortalAuth
         return str_contains($login, '/') || str_starts_with($login, 'BUT');
     }
 
+    public static function looksLikeApplicationNumber(string $login): bool
+    {
+        return str_starts_with($login, 'APP/');
+    }
+
     /**
      * @throws ValidationException
      */
@@ -26,6 +32,21 @@ class StudentPortalAuth
         $key = self::normalizeLogin($login);
         if ($key === '') {
             return null;
+        }
+
+        if (filter_var(trim($login), FILTER_VALIDATE_EMAIL)) {
+            throw ValidationException::withMessages([
+                'login' => 'Sign in with your application number, JAMB number, or matric number. Email is only used for password reset and notifications.',
+            ]);
+        }
+
+        if (self::looksLikeApplicationNumber($key)) {
+            $application = Application::query()
+                ->where('application_number', $key)
+                ->with('user.student')
+                ->first();
+
+            return $application?->user;
         }
 
         if (self::looksLikeMatric($key)) {

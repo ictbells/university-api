@@ -9,7 +9,25 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Enrollment extends BaseModel
 {
-    protected $fillable = ['student_id', 'course_offering_id', 'status'];
+    protected $fillable = [
+        'student_id',
+        'course_offering_id',
+        'status',
+        'registered_at',
+        'dropped_at',
+        'registered_by',
+        'drop_reason',
+        'is_carry_over',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'registered_at' => 'datetime',
+            'dropped_at' => 'datetime',
+            'is_carry_over' => 'boolean',
+        ];
+    }
 
     public function student(): BelongsTo
     {
@@ -24,5 +42,15 @@ class Enrollment extends BaseModel
     public function grade(): HasOne
     {
         return $this->hasOne(Grade::class);
+    }
+
+    public function registeredBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'registered_by');
+    }
+
+    public function scopeEnrolled($query)
+    {
+        return $query->where('status', 'enrolled');
     }
 }

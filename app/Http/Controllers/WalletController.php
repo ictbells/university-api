@@ -17,22 +17,51 @@ class WalletController extends Controller
         $student = $this->resolveStudent($request);
         abort_unless($student?->wallet, 404, 'Wallet is created after acceptance fee and student creation.');
 
-        return $student->wallet->load(['transactions' => fn ($q) => $q->latest(), 'credentials']);
+        $wallet = $student->wallet;
+        $wallet->load([
+            'transactions' => fn ($q) => $q->latest('id')->limit(25),
+        ]);
+
+        return [
+            'id' => $wallet->id,
+            'balance' => $wallet->balance,
+            'transactions' => $wallet->transactions,
+        ];
     }
 
     public function payInvoice(Request $request, Invoice $invoice)
     {
-        $student = $this->resolveStudent($request);
+        abort_unless(
+            $invoice->user_id === $request->user()->id,
+            403,
+            'Staff cannot pay invoices. Students pay from the student portal.'
+        );
+
+        $student = Student::query()
+            ->with('wallet')
+            ->where('user_id', $request->user()->id)
+            ->first();
         abort_unless($student, 403);
 
-        return $this->wallets->payInvoice($student, $invoice);
+        try {
+            return $this->wallets->payInvoice($student, $invoice);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
     }
 
     public function topup(Request $request)
     {
-        $data = $request->validate(['amount' => 'required|numeric|min:100']);
+        $data = $request->validate([
+            'amount' => 'required|numeric|min:100',
+            'portal' => 'nullable|in:student,staff',
+        ]);
 
-        return $this->paystack->initializeWalletTopup($request->user(), (float) $data['amount']);
+        return $this->paystack->initializeWalletTopup(
+            $request->user(),
+            (float) $data['amount'],
+            $data['portal'] ?? 'student',
+        );
     }
 
     private function resolveStudent(Request $request): ?Student
@@ -41,6 +70,9 @@ class WalletController extends Controller
             return Student::query()->with('wallet')->findOrFail($request->student_id);
         }
 
-        return $request->user()->student?->load('wallet');
+        return Student::query()
+            ->with('wallet')
+            ->where('user_id', $request->user()->id)
+            ->first();
     }
 }

@@ -29,6 +29,10 @@
             "description": "Authentication, session, profile, and two-factor flows."
         },
         {
+            "name": "Candidate data",
+            "description": "JAMB candidate list upload and lookup used before applicant signup."
+        },
+        {
             "name": "Communications",
             "description": "Announcements and notifications."
         },
@@ -53,10 +57,6 @@
             "description": "External integration status."
         },
         {
-            "name": "Medical",
-            "description": "Student medical records and clinic visits."
-        },
-        {
             "name": "Postgraduate",
             "description": "Postgraduate records."
         },
@@ -70,7 +70,7 @@
         },
         {
             "name": "Reports",
-            "description": "Summary reporting."
+            "description": "Gated custom reporting: allowlisted datasets, saved definitions, and tabular export."
         },
         {
             "name": "Resources",
@@ -723,6 +723,174 @@
                 ]
             }
         },
+        "/api/academic/sessions": {
+            "get": {
+                "operationId": "getAcademicSetupSessions",
+                "summary": "Get Sessions",
+                "tags": [
+                    "Academic"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `academic resource access (sessions,intakes)`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "operationId": "postInstitutionStoreSession",
+                "summary": "Create Store Session",
+                "tags": [
+                    "Academic"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `academic resource access (sessions)`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/academic/sessions/{session}": {
+            "patch": {
+                "operationId": "patchInstitutionUpdateSession",
+                "summary": "Update Update Session",
+                "tags": [
+                    "Academic"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `academic resource access (sessions)`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "deleteInstitutionDestroySession",
+                "summary": "Delete Destroy Session",
+                "tags": [
+                    "Academic"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `academic resource access (sessions)`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/academic/setup": {
             "get": {
                 "operationId": "getAcademicSetupIndex",
@@ -919,6 +1087,186 @@
                 }
             }
         },
+        "/api/announcements/{announcement}": {
+            "patch": {
+                "operationId": "patchAnnouncementUpdate",
+                "summary": "Update Update",
+                "tags": [
+                    "Communications"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `announcements.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "deleteAnnouncementDestroy",
+                "summary": "Delete Destroy",
+                "tags": [
+                    "Communications"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `announcements.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/announcements/{announcement}/publish": {
+            "post": {
+                "operationId": "postAnnouncementPublish",
+                "summary": "Create Publish",
+                "tags": [
+                    "Communications"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `announcements.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/announcements/{announcement}/unpublish": {
+            "post": {
+                "operationId": "postAnnouncementUnpublish",
+                "summary": "Create Unpublish",
+                "tags": [
+                    "Communications"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `announcements.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/applications": {
             "get": {
                 "operationId": "getApplicationIndex",
@@ -1028,6 +1376,82 @@
                 }
             }
         },
+        "/api/applications/export": {
+            "get": {
+                "operationId": "getApplicationExport",
+                "summary": "Get Export",
+                "tags": [
+                    "Applications"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `admissions.view`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/applications/sessions": {
+            "get": {
+                "operationId": "getApplicationSessions",
+                "summary": "Get Sessions",
+                "tags": [
+                    "Applications"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `admissions.view`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/applications/{application}": {
             "get": {
                 "operationId": "getApplicationShow",
@@ -1063,6 +1487,53 @@
                         "bearerAuth": []
                     }
                 ]
+            }
+        },
+        "/api/applications/{application}/acceptance-fee": {
+            "patch": {
+                "operationId": "patchApplicationUpdateAcceptanceFee",
+                "summary": "Update Update Acceptance Fee",
+                "tags": [
+                    "Applications"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
             }
         },
         "/api/applications/{application}/documents": {
@@ -1112,6 +1583,80 @@
                 }
             }
         },
+        "/api/applications/{application}/documents/{document}/file": {
+            "get": {
+                "operationId": "getApplicationStreamDocument",
+                "summary": "Get Stream Document",
+                "tags": [
+                    "Applications"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/applications/{application}/form-print": {
+            "get": {
+                "operationId": "getApplicationFormPrint",
+                "summary": "Get Form Print",
+                "tags": [
+                    "Applications"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/applications/{application}/nin": {
             "post": {
                 "operationId": "postApplicationVerifyNin",
@@ -1157,6 +1702,43 @@
                         }
                     }
                 }
+            }
+        },
+        "/api/applications/{application}/offer-letter": {
+            "get": {
+                "operationId": "getApplicationOfferLetter",
+                "summary": "Get Offer Letter",
+                "tags": [
+                    "Applications"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
             }
         },
         "/api/applications/{application}/steps": {
@@ -1508,12 +2090,12 @@
                 ]
             }
         },
-        "/api/clinic-visits": {
-            "post": {
-                "operationId": "postMedicalVisit",
-                "summary": "Create Visit",
+        "/api/candidate-data": {
+            "get": {
+                "operationId": "getCandidateDataIndex",
+                "summary": "Get Index",
                 "tags": [
-                    "Medical"
+                    "Candidate data"
                 ],
                 "responses": {
                     "200": {
@@ -1538,7 +2120,971 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `medical.manage`.",
+                "description": "Requires permission: `admissions.import`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/candidate-data/sessions": {
+            "get": {
+                "operationId": "getCandidateDataSessions",
+                "summary": "Get Sessions",
+                "tags": [
+                    "Candidate data"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `admissions.import`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/candidate-data/upload": {
+            "post": {
+                "operationId": "postCandidateDataUpload",
+                "summary": "Upload candidate spreadsheet",
+                "tags": [
+                    "Candidate data"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Import JAMB candidate rows from Excel/CSV. Requires `admissions.import`. Multipart fields: `file`, `academic_year`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/candidate-data/{jambRegistration}": {
+            "get": {
+                "operationId": "getCandidateDataLookup",
+                "summary": "Lookup candidate by JAMB number",
+                "tags": [
+                    "Candidate data"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Public lookup used during applicant signup. Returns candidate row and suggested name/UTME prefill payload.",
+                "parameters": [
+                    {
+                        "name": "jambRegistration",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "academic_year",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Optional session filter."
+                    }
+                ]
+            }
+        },
+        "/api/candidate-list/required": {
+            "get": {
+                "operationId": "getApicandidateListrequired",
+                "summary": "GET api/candidate-list/required",
+                "tags": [
+                    "Candidate data"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
+            }
+        },
+        "/api/clinic/appointments": {
+            "get": {
+                "operationId": "getClinicAppointments",
+                "summary": "Get Appointments",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/clinic/appointments/{visit}/approve": {
+            "post": {
+                "operationId": "postClinicApproveAppointment",
+                "summary": "Create Approve Appointment",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/clinic/appointments/{visit}/reject": {
+            "post": {
+                "operationId": "postClinicRejectAppointment",
+                "summary": "Create Reject Appointment",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/clinic/bills": {
+            "get": {
+                "operationId": "getClinicBills",
+                "summary": "Get Bills",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/clinic/prescriptions/{prescription}/dispense": {
+            "patch": {
+                "operationId": "patchClinicDispensePrescription",
+                "summary": "Update Dispense Prescription",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/clinic/queue": {
+            "get": {
+                "operationId": "getClinicQueue",
+                "summary": "Get Queue",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "operationId": "postClinicCheckIn",
+                "summary": "Create Check In",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/clinic/settings": {
+            "get": {
+                "operationId": "getClinicSettings",
+                "summary": "Get Settings",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "put": {
+                "operationId": "putClinicUpdateSettings",
+                "summary": "Replace Update Settings",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/clinic/sick-notes/{sickNote}/print": {
+            "get": {
+                "operationId": "getClinicPrintSickNote",
+                "summary": "Get Print Sick Note",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/clinic/visit-items/{item}": {
+            "patch": {
+                "operationId": "patchClinicUpdateItem",
+                "summary": "Update Update Item",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "deleteClinicDeleteItem",
+                "summary": "Delete Delete Item",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/clinic/visits/{visit}": {
+            "get": {
+                "operationId": "getClinicShowVisit",
+                "summary": "Get Show Visit",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "patch": {
+                "operationId": "patchClinicUpdateVisit",
+                "summary": "Update Update Visit",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/clinic/visits/{visit}/finalize-bill": {
+            "post": {
+                "operationId": "postClinicFinalizeBill",
+                "summary": "Create Finalize Bill",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/clinic/visits/{visit}/items": {
+            "post": {
+                "operationId": "postClinicAddItem",
+                "summary": "Create Add Item",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/clinic/visits/{visit}/prescriptions": {
+            "post": {
+                "operationId": "postClinicAddPrescription",
+                "summary": "Create Add Prescription",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/clinic/visits/{visit}/preview-split": {
+            "get": {
+                "operationId": "getClinicPreviewSplit",
+                "summary": "Get Preview Split",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/clinic/visits/{visit}/sick-notes": {
+            "post": {
+                "operationId": "postClinicAddSickNote",
+                "summary": "Create Add Sick Note",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
                 "security": [
                     {
                         "bearerAuth": []
@@ -2050,6 +3596,242 @@
                 }
             }
         },
+        "/api/fees/meta": {
+            "get": {
+                "operationId": "getFinanceFeeMeta",
+                "summary": "Get Fee Meta",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/fees/{fee}": {
+            "patch": {
+                "operationId": "patchFinanceUpdateFee",
+                "summary": "Update Update Fee",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "deleteFinanceDestroyFee",
+                "summary": "Delete Destroy Fee",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/finance/student-roster": {
+            "get": {
+                "operationId": "getFinanceStudentRoster",
+                "summary": "Get Student Roster",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/finance/student-roster/export": {
+            "get": {
+                "operationId": "getFinanceExportStudentRoster",
+                "summary": "Get Export Student Roster",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/finance/student-status": {
+            "get": {
+                "operationId": "getFinanceStudentStatus",
+                "summary": "Get Student Status",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/forgot-password": {
             "post": {
                 "operationId": "postAuthForgot",
@@ -2224,6 +4006,140 @@
                 }
             }
         },
+        "/api/hostel-allocations/export": {
+            "get": {
+                "operationId": "getHostelExportAllocations",
+                "summary": "Get Export Allocations",
+                "tags": [
+                    "Hostel"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `hostel.view`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/hostel-allocations/{allocation}/approve": {
+            "post": {
+                "operationId": "postHostelApprove",
+                "summary": "Create Approve",
+                "tags": [
+                    "Hostel"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `hostel.allocate`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/hostel-allocations/{allocation}/reject": {
+            "post": {
+                "operationId": "postHostelReject",
+                "summary": "Create Reject",
+                "tags": [
+                    "Hostel"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `hostel.allocate`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/hostel-allocations/{allocation}/vacate": {
             "post": {
                 "operationId": "postHostelVacate",
@@ -2270,6 +4186,128 @@
                         }
                     }
                 }
+            }
+        },
+        "/api/hostel-beds": {
+            "get": {
+                "operationId": "getHostelAvailableBeds",
+                "summary": "Get Available Beds",
+                "tags": [
+                    "Hostel"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `hostel.view`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/hostel-blocks/{hostelBlock}": {
+            "patch": {
+                "operationId": "patchHostelUpdateBlock",
+                "summary": "Update Update Block",
+                "tags": [
+                    "Hostel"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `hostel.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "deleteHostelDestroyBlock",
+                "summary": "Delete Destroy Block",
+                "tags": [
+                    "Hostel"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `hostel.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
             }
         },
         "/api/hostel-blocks/{hostelBlock}/rooms": {
@@ -2350,7 +4388,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `hostel.manage`.",
+                "description": "Requires permission: `hostel.view`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -2526,6 +4564,42 @@
                         }
                     }
                 }
+            },
+            "delete": {
+                "operationId": "deleteHostelDestroyRoom",
+                "summary": "Delete Destroy Room",
+                "tags": [
+                    "Hostel"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `hostel.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
             }
         },
         "/api/hostel-rooms/{hostelRoom}/disable": {
@@ -2886,6 +4960,42 @@
                         }
                     }
                 }
+            },
+            "delete": {
+                "operationId": "deleteHostelDestroy",
+                "summary": "Delete Destroy",
+                "tags": [
+                    "Hostel"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `hostel.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
             }
         },
         "/api/hostels/{hostel}/blocks": {
@@ -3304,6 +5414,352 @@
                 }
             }
         },
+        "/api/invoices/export": {
+            "get": {
+                "operationId": "getFinanceExportInvoices",
+                "summary": "Get Export Invoices",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/invoices/tuition-installment": {
+            "post": {
+                "operationId": "postFinanceCreateTuitionInstallment",
+                "summary": "Create Create Tuition Installment",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/invoices/{invoice}/disable": {
+            "post": {
+                "operationId": "postFinanceDisableInvoice",
+                "summary": "Create Disable Invoice",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/invoices/{invoice}/enable": {
+            "post": {
+                "operationId": "postFinanceEnableInvoice",
+                "summary": "Create Enable Invoice",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/invoices/{invoice}/rebates": {
+            "post": {
+                "operationId": "postRebateApply",
+                "summary": "Create Apply",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/invoices/{invoice}/rebates/{rebate}/reverse": {
+            "post": {
+                "operationId": "postRebateReverse",
+                "summary": "Create Reverse",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/invoices/{invoice}/receipt": {
+            "get": {
+                "operationId": "getFinanceReceipt",
+                "summary": "Get Receipt",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/lgas": {
+            "get": {
+                "operationId": "getLocationLgas",
+                "summary": "Get Lgas",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
+            }
+        },
         "/api/login": {
             "post": {
                 "operationId": "postAuthLogin",
@@ -3475,6 +5931,258 @@
                 }
             }
         },
+        "/api/me/clinic": {
+            "get": {
+                "operationId": "getClinicMe",
+                "summary": "Get Me",
+                "tags": [
+                    "Auth"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/me/clinic/appointments": {
+            "post": {
+                "operationId": "postClinicBookAppointment",
+                "summary": "Create Book Appointment",
+                "tags": [
+                    "Auth"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/me/clinic/appointments/{visit}/cancel": {
+            "post": {
+                "operationId": "postClinicCancelAppointment",
+                "summary": "Create Cancel Appointment",
+                "tags": [
+                    "Auth"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/me/hostel": {
+            "get": {
+                "operationId": "getHostelMe",
+                "summary": "Get Me",
+                "tags": [
+                    "Auth"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/me/hostel/select": {
+            "post": {
+                "operationId": "postHostelSelect",
+                "summary": "Create Select",
+                "tags": [
+                    "Auth"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/medical/immunizations/{immunization}": {
+            "delete": {
+                "operationId": "deleteMedicalDeleteImmunization",
+                "summary": "Delete Delete Immunization",
+                "tags": [
+                    "Auth"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/medical/{student}": {
             "get": {
                 "operationId": "getMedicalProfile",
@@ -3604,6 +6312,85 @@
                 }
             }
         },
+        "/api/my-programme-fees": {
+            "get": {
+                "operationId": "getFinanceMyProgrammeFeeSchedule",
+                "summary": "Get My Programme Fee Schedule",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/nin/preview": {
+            "post": {
+                "operationId": "postAuthPreviewNin",
+                "summary": "Create Preview Nin",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/notifications": {
             "get": {
                 "operationId": "getNotificationIndex",
@@ -3685,6 +6472,90 @@
                         }
                     }
                 }
+            }
+        },
+        "/api/notifications/read-all": {
+            "post": {
+                "operationId": "postNotificationMarkAllRead",
+                "summary": "Create Mark All Read",
+                "tags": [
+                    "Communications"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/notifications/unread-count": {
+            "get": {
+                "operationId": "getNotificationUnreadCount",
+                "summary": "Get Unread Count",
+                "tags": [
+                    "Communications"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
             }
         },
         "/api/notifications/{notification}/read": {
@@ -4685,6 +7556,43 @@
                 }
             }
         },
+        "/api/payments/{payment}/receipt": {
+            "get": {
+                "operationId": "getFinancePaymentReceipt",
+                "summary": "Get Payment Receipt",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/permissions": {
             "get": {
                 "operationId": "getRolePermissions",
@@ -4807,6 +7715,260 @@
                         }
                     }
                 }
+            }
+        },
+        "/api/programme-fees": {
+            "get": {
+                "operationId": "getProgrammeFeeIndex",
+                "summary": "Get Index",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "operationId": "postProgrammeFeeStore",
+                "summary": "Create Store",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/programme-fees/bulk": {
+            "post": {
+                "operationId": "postProgrammeFeeBulkStore",
+                "summary": "Create Bulk Store",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/programme-fees/program/{program}": {
+            "get": {
+                "operationId": "getProgrammeFeeByProgram",
+                "summary": "Get By Program",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/programme-fees/{programmeFee}": {
+            "patch": {
+                "operationId": "patchProgrammeFeeUpdate",
+                "summary": "Update Update",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "deleteProgrammeFeeDestroy",
+                "summary": "Delete Destroy",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
             }
         },
         "/api/programs": {
@@ -4971,6 +8133,174 @@
                 ]
             }
         },
+        "/api/rebate-types": {
+            "get": {
+                "operationId": "getRebateTypes",
+                "summary": "Get Types",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "operationId": "postRebateStoreType",
+                "summary": "Create Store Type",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/rebate-types/{rebateType}": {
+            "patch": {
+                "operationId": "patchRebateUpdateType",
+                "summary": "Update Update Type",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "deleteRebateDestroyType",
+                "summary": "Delete Destroy Type",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/register": {
             "post": {
                 "operationId": "postAuthRegister",
@@ -5065,6 +8395,420 @@
                             "type": "string"
                         },
                         "description": "Comma-separated entry modes (undergraduate: `utme,de,transfer`; JUPEB: `jupeb`; postgraduate: `pg`)."
+                    }
+                ]
+            }
+        },
+        "/api/registrations/export": {
+            "get": {
+                "operationId": "getRegistrationExport",
+                "summary": "Get Export",
+                "tags": [
+                    "Registrations"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `registrations.view`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/registrations/sessions": {
+            "get": {
+                "operationId": "getRegistrationSessions",
+                "summary": "Get Sessions",
+                "tags": [
+                    "Registrations"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `registrations.view`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/reports/datasets": {
+            "get": {
+                "operationId": "getReportDatasets",
+                "summary": "Get Datasets",
+                "tags": [
+                    "Reports"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `reports.view`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/reports/export": {
+            "post": {
+                "operationId": "postReportExport",
+                "summary": "Create Export",
+                "tags": [
+                    "Reports"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `reports.view`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/reports/run": {
+            "post": {
+                "operationId": "postReportRun",
+                "summary": "Create Run",
+                "tags": [
+                    "Reports"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `reports.view`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/reports/saved": {
+            "get": {
+                "operationId": "getReportIndexSaved",
+                "summary": "Get Index Saved",
+                "tags": [
+                    "Reports"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `reports.view`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "operationId": "postReportStoreSaved",
+                "summary": "Create Store Saved",
+                "tags": [
+                    "Reports"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `reports.view`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/reports/saved/{savedReport}": {
+            "get": {
+                "operationId": "getReportShowSaved",
+                "summary": "Get Show Saved",
+                "tags": [
+                    "Reports"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `reports.view`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "patch": {
+                "operationId": "patchReportUpdateSaved",
+                "summary": "Update Update Saved",
+                "tags": [
+                    "Reports"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `reports.view`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "deleteReportDestroySaved",
+                "summary": "Delete Destroy Saved",
+                "tags": [
+                    "Reports"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `reports.view`.",
+                "security": [
+                    {
+                        "bearerAuth": []
                     }
                 ]
             }
@@ -5639,6 +9383,38 @@
                 ]
             }
         },
+        "/api/states": {
+            "get": {
+                "operationId": "getLocationStates",
+                "summary": "Get States",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
+            }
+        },
         "/api/students": {
             "get": {
                 "operationId": "getStudentIndex",
@@ -5883,6 +9659,43 @@
                     }
                 },
                 "description": "Requires permission: `academic resource access (sessions)`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/transactions": {
+            "get": {
+                "operationId": "getFinanceHistory",
+                "summary": "Get History",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
                 "security": [
                     {
                         "bearerAuth": []

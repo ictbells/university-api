@@ -2,8 +2,6 @@
 
 namespace App\Models;
 
-use App\Models\BaseModel;
-
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class HostelAllocation extends BaseModel
@@ -17,7 +15,7 @@ class HostelAllocation extends BaseModel
 
     public function bed(): BelongsTo
     {
-        return $this->belongsTo(HostelBed::class, 'hostel_bed_id');
+        return $this->belongsTo(HostelBed::class, 'hostel_bed_id')->withTrashed();
     }
 
     public function academicTerm(): BelongsTo

@@ -2,8 +2,6 @@
 
 namespace App\Models;
 
-use App\Models\BaseModel;
-
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -13,7 +11,7 @@ class HostelBlock extends BaseModel
 
     public function hostel(): BelongsTo
     {
-        return $this->belongsTo(Hostel::class);
+        return $this->belongsTo(Hostel::class)->withTrashed();
     }
 
     public function rooms(): HasMany

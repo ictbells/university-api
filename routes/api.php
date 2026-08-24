@@ -6,16 +6,21 @@ use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\ApplicationController;
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CandidateDataController;
+use App\Http\Controllers\ClinicController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\FinanceController;
 use App\Http\Controllers\HostelController;
 use App\Http\Controllers\InstitutionController;
 use App\Http\Controllers\IntegrationController;
+use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MedicalController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OfficeStructureController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PgController;
+use App\Http\Controllers\ProgrammeFeeController;
+use App\Http\Controllers\RebateController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\ResourceController;
@@ -25,8 +30,10 @@ use App\Http\Controllers\StudentController;
 use App\Http\Controllers\TwoFactorController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WalletController;
+use App\Support\CandidateEligibility;
 use Illuminate\Support\Facades\Route;
 
+Route::post('/nin/preview', [AuthController::class, 'previewNin']);
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/forgot-password', [AuthController::class, 'forgot']);
@@ -40,26 +47,56 @@ Route::get('/intakes', [AcademicSetupController::class, 'openIntakes']);
 Route::get('/programs', [AcademicController::class, 'programs']);
 Route::get('/academic-levels', [AcademicSetupController::class, 'levels']);
 Route::get('/olevel-subjects', [AcademicSetupController::class, 'olevelSubjects']);
+Route::get('/states', [LocationController::class, 'states']);
+Route::get('/lgas', [LocationController::class, 'lgas']);
+Route::get('/candidate-list/required', function () {
+    return response()->json(['required' => CandidateEligibility::enforcementEnabled()]);
+});
+Route::get('/candidate-data/{jambRegistration}', [CandidateDataController::class, 'lookup']);
 
 Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
+    Route::get('/me/passport', [AuthController::class, 'myPassport']);
     Route::patch('/me', [AuthController::class, 'updateProfile']);
     Route::post('/logout', [AuthController::class, 'logout']);
 
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::post('/notifications/{notification}/read', [NotificationController::class, 'markRead']);
     Route::get('/announcements', [AnnouncementController::class, 'index']);
 
+    Route::get('/candidate-data/sessions', [CandidateDataController::class, 'sessions'])
+        ->middleware('permission:admissions.import');
+    Route::get('/candidate-data', [CandidateDataController::class, 'index'])
+        ->middleware('permission:admissions.import');
+    Route::post('/candidate-data/upload', [CandidateDataController::class, 'upload'])
+        ->middleware('permission:admissions.import');
+
     Route::get('/applications', [ApplicationController::class, 'index']);
+    Route::get('/applications/export', [ApplicationController::class, 'export'])
+        ->middleware('permission:admissions.view');
+    Route::get('/applications/sessions', [ApplicationController::class, 'sessions'])
+        ->middleware('permission:admissions.view');
     Route::post('/applications', [ApplicationController::class, 'start']);
     Route::get('/applications/{application}', [ApplicationController::class, 'show']);
+    Route::patch('/applications/{application}', [ApplicationController::class, 'staffUpdate']);
+    Route::get('/applications/{application}/form-print', [ApplicationController::class, 'formPrint']);
+    Route::get('/applications/{application}/offer-letter', [ApplicationController::class, 'offerLetter']);
     Route::post('/applications/{application}/steps', [ApplicationController::class, 'saveStep']);
     Route::post('/applications/{application}/submit', [ApplicationController::class, 'submit']);
     Route::post('/applications/{application}/documents', [ApplicationController::class, 'uploadDocument']);
+    Route::get('/applications/{application}/documents/{document}/file', [ApplicationController::class, 'streamDocument']);
+    Route::get('/applications/{application}/passport', [ApplicationController::class, 'streamPassport']);
     Route::post('/applications/{application}/nin', [ApplicationController::class, 'verifyNin']);
     Route::post('/applications/{application}/transition', [ApplicationController::class, 'transition']);
+    Route::patch('/applications/{application}/acceptance-fee', [ApplicationController::class, 'updateAcceptanceFee']);
 
     Route::get('/registrations', [RegistrationController::class, 'index'])
+        ->middleware('permission:registrations.view');
+    Route::get('/registrations/export', [RegistrationController::class, 'export'])
+        ->middleware('permission:registrations.view');
+    Route::get('/registrations/sessions', [RegistrationController::class, 'sessions'])
         ->middleware('permission:registrations.view');
 
     Route::get('/students', [StudentController::class, 'index']);
@@ -71,10 +108,16 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::post('/wallet/topup', [WalletController::class, 'topup']);
 
     Route::get('/invoices', [FinanceController::class, 'invoices']);
+    Route::get('/invoices/export', [FinanceController::class, 'exportInvoices'])
+        ->middleware('permission:finance.invoices.manage');
+    Route::get('/invoices/{invoice}/receipt', [FinanceController::class, 'receipt']);
+    Route::get('/transactions', [FinanceController::class, 'history']);
+    Route::get('/my-programme-fees', [FinanceController::class, 'myProgrammeFeeSchedule']);
     Route::get('/fees', [FinanceController::class, 'fees']);
     Route::get('/payments', [PaymentController::class, 'index']);
     Route::post('/payments/paystack/initialize', [PaymentController::class, 'initialize']);
     Route::get('/payments/paystack/verify/{reference}', [PaymentController::class, 'verify']);
+    Route::get('/payments/{payment}/receipt', [FinanceController::class, 'paymentReceipt']);
 
     Route::get('/academic/courses', [AcademicController::class, 'courses'])
         ->middleware('academic.resource:courses,programmes');
@@ -160,7 +203,12 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     });
     Route::get('/academic/terms', [AcademicSetupController::class, 'terms'])
         ->middleware('academic.resource:sessions,intakes');
+    Route::get('/academic/sessions', [AcademicSetupController::class, 'sessions'])
+        ->middleware('academic.resource:sessions,intakes');
     Route::middleware('academic.resource:sessions')->group(function () {
+        Route::post('/academic/sessions', [InstitutionController::class, 'storeSession']);
+        Route::patch('/academic/sessions/{session}', [InstitutionController::class, 'updateSession']);
+        Route::delete('/academic/sessions/{session}', [InstitutionController::class, 'destroySession']);
         Route::post('/terms', [InstitutionController::class, 'storeTerm']);
         Route::patch('/terms/{term}', [InstitutionController::class, 'updateTerm']);
         Route::delete('/terms/{term}', [InstitutionController::class, 'destroyTerm']);
@@ -200,35 +248,89 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     });
 
     Route::middleware('permission:finance.invoices.manage')->group(function () {
+        Route::get('/fees/meta', [FinanceController::class, 'feeMeta']);
         Route::post('/fees', [FinanceController::class, 'storeFee']);
+        Route::patch('/fees/{fee}', [FinanceController::class, 'updateFee']);
+        Route::delete('/fees/{fee}', [FinanceController::class, 'destroyFee']);
+        Route::get('/programme-fees', [ProgrammeFeeController::class, 'index']);
+        Route::get('/programme-fees/program/{program}', [ProgrammeFeeController::class, 'byProgram']);
+        Route::post('/programme-fees/bulk', [ProgrammeFeeController::class, 'bulkStore']);
+        Route::post('/programme-fees', [ProgrammeFeeController::class, 'store']);
+        Route::patch('/programme-fees/{programmeFee}', [ProgrammeFeeController::class, 'update']);
+        Route::delete('/programme-fees/{programmeFee}', [ProgrammeFeeController::class, 'destroy']);
         Route::post('/invoices', [FinanceController::class, 'generate']);
+        Route::get('/finance/student-status', [FinanceController::class, 'studentStatus']);
+        Route::get('/finance/student-roster', [FinanceController::class, 'studentRoster']);
+        Route::get('/finance/student-roster/export', [FinanceController::class, 'exportStudentRoster']);
+        Route::post('/invoices/{invoice}/disable', [FinanceController::class, 'disableInvoice']);
+        Route::post('/invoices/{invoice}/enable', [FinanceController::class, 'enableInvoice']);
+        Route::get('/rebate-types', [RebateController::class, 'types']);
+        Route::post('/rebate-types', [RebateController::class, 'storeType']);
+        Route::patch('/rebate-types/{rebateType}', [RebateController::class, 'updateType']);
+        Route::delete('/rebate-types/{rebateType}', [RebateController::class, 'destroyType']);
+        Route::post('/invoices/{invoice}/rebates', [RebateController::class, 'apply']);
+        Route::post('/invoices/{invoice}/rebates/{rebate}/reverse', [RebateController::class, 'reverse']);
     });
+    Route::post('/invoices/tuition-installment', [FinanceController::class, 'createTuitionInstallment']);
     Route::post('/payments/record', [PaymentController::class, 'record'])->middleware('permission:finance.payments.record');
+
+    Route::get('/me/clinic', [ClinicController::class, 'me']);
+    Route::post('/me/clinic/appointments', [ClinicController::class, 'bookAppointment']);
+    Route::post('/me/clinic/appointments/{visit}/cancel', [ClinicController::class, 'cancelAppointment']);
+    Route::get('/me/hostel', [HostelController::class, 'me']);
+    Route::post('/me/hostel/select', [HostelController::class, 'select']);
+    Route::get('/clinic/settings', [ClinicController::class, 'settings']);
+    Route::put('/clinic/settings', [ClinicController::class, 'updateSettings']);
+    Route::get('/clinic/queue', [ClinicController::class, 'queue']);
+    Route::post('/clinic/queue', [ClinicController::class, 'checkIn']);
+    Route::get('/clinic/appointments', [ClinicController::class, 'appointments']);
+    Route::post('/clinic/appointments/{visit}/approve', [ClinicController::class, 'approveAppointment']);
+    Route::post('/clinic/appointments/{visit}/reject', [ClinicController::class, 'rejectAppointment']);
+    Route::get('/clinic/bills', [ClinicController::class, 'bills']);
+    Route::get('/clinic/visits/{visit}', [ClinicController::class, 'showVisit']);
+    Route::patch('/clinic/visits/{visit}', [ClinicController::class, 'updateVisit']);
+    Route::post('/clinic/visits/{visit}/items', [ClinicController::class, 'addItem']);
+    Route::patch('/clinic/visit-items/{item}', [ClinicController::class, 'updateItem']);
+    Route::delete('/clinic/visit-items/{item}', [ClinicController::class, 'deleteItem']);
+    Route::post('/clinic/visits/{visit}/finalize-bill', [ClinicController::class, 'finalizeBill']);
+    Route::get('/clinic/visits/{visit}/preview-split', [ClinicController::class, 'previewSplit']);
+    Route::post('/clinic/visits/{visit}/prescriptions', [ClinicController::class, 'addPrescription']);
+    Route::patch('/clinic/prescriptions/{prescription}/dispense', [ClinicController::class, 'dispensePrescription']);
+    Route::post('/clinic/visits/{visit}/sick-notes', [ClinicController::class, 'addSickNote']);
+    Route::get('/clinic/sick-notes/{sickNote}/print', [ClinicController::class, 'printSickNote']);
 
     Route::get('/medical/{student}', [MedicalController::class, 'profile']);
     Route::put('/medical/{student}', [MedicalController::class, 'updateProfile']);
     Route::post('/medical/{student}/immunizations', [MedicalController::class, 'addImmunization']);
-    Route::post('/clinic-visits', [MedicalController::class, 'visit'])->middleware('permission:medical.manage');
+    Route::delete('/medical/immunizations/{immunization}', [MedicalController::class, 'deleteImmunization']);
 
     Route::get('/hostel-rooms', [HostelController::class, 'rooms'])->middleware('permission:hostel.view');
+    Route::get('/hostel-beds', [HostelController::class, 'availableBeds'])->middleware('permission:hostel.view');
+    Route::get('/hostel-level-windows', [HostelController::class, 'levelWindows'])->middleware('permission:hostel.view');
     Route::middleware('permission:hostel.manage')->group(function () {
         Route::post('/hostels', [HostelController::class, 'store']);
         Route::patch('/hostels/{hostel}', [HostelController::class, 'update']);
-        Route::get('/hostel-level-windows', [HostelController::class, 'levelWindows']);
+        Route::delete('/hostels/{hostel}', [HostelController::class, 'destroy']);
         Route::put('/hostel-level-windows', [HostelController::class, 'syncLevelWindows']);
         Route::post('/hostels/{hostel}/blocks', [HostelController::class, 'storeBlock']);
+        Route::patch('/hostel-blocks/{hostelBlock}', [HostelController::class, 'updateBlock']);
+        Route::delete('/hostel-blocks/{hostelBlock}', [HostelController::class, 'destroyBlock']);
         Route::post('/hostel-blocks/{hostelBlock}/rooms', [HostelController::class, 'storeRoom']);
         Route::patch('/hostel-rooms/{hostelRoom}', [HostelController::class, 'updateRoom']);
+        Route::delete('/hostel-rooms/{hostelRoom}', [HostelController::class, 'destroyRoom']);
         Route::post('/hostel-rooms/{hostelRoom}/reserve', [HostelController::class, 'reserveRoom']);
         Route::post('/hostel-rooms/{hostelRoom}/release', [HostelController::class, 'releaseRoom']);
         Route::post('/hostel-rooms/{hostelRoom}/disable', [HostelController::class, 'disableRoom']);
         Route::post('/hostel-rooms/{hostelRoom}/enable', [HostelController::class, 'enableRoom']);
     });
     Route::get('/hostel-allocations', [HostelController::class, 'allocations'])->middleware('permission:hostel.view');
+    Route::get('/hostel-allocations/export', [HostelController::class, 'exportAllocations'])->middleware('permission:hostel.view');
     Route::get('/hostel-queue', [HostelController::class, 'queue'])->middleware('permission:hostel.view');
     Route::post('/hostel-allocations', [HostelController::class, 'allocate'])->middleware('permission:hostel.allocate');
     Route::post('/hostel-allocations/auto', [HostelController::class, 'autoAllocate'])->middleware('permission:hostel.allocate');
     Route::post('/hostel-allocations/{allocation}/vacate', [HostelController::class, 'vacate'])->middleware('permission:hostel.allocate');
+    Route::post('/hostel-allocations/{allocation}/approve', [HostelController::class, 'approve'])->middleware('permission:hostel.allocate');
+    Route::post('/hostel-allocations/{allocation}/reject', [HostelController::class, 'reject'])->middleware('permission:hostel.allocate');
 
     Route::post('/documents', [DocumentController::class, 'issue'])->middleware('permission:documents.issue');
 
@@ -236,11 +338,28 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::patch('/pg-records/{pgRecord}', [PgController::class, 'update'])->middleware('permission:pg.manage');
 
     Route::post('/announcements', [AnnouncementController::class, 'store'])->middleware('permission:announcements.manage');
+    Route::patch('/announcements/{announcement}', [AnnouncementController::class, 'update'])->middleware('permission:announcements.manage');
+    Route::post('/announcements/{announcement}/publish', [AnnouncementController::class, 'publish'])->middleware('permission:announcements.manage');
+    Route::post('/announcements/{announcement}/unpublish', [AnnouncementController::class, 'unpublish'])->middleware('permission:announcements.manage');
+    Route::delete('/announcements/{announcement}', [AnnouncementController::class, 'destroy'])->middleware('permission:announcements.manage');
     Route::post('/notifications', [NotificationController::class, 'send'])->middleware('permission:notifications.manage');
 
     Route::get('/audit-logs', [AuditController::class, 'index'])->middleware('permission:audit.view');
+    Route::get('/audit-logs/export', [AuditController::class, 'export'])->middleware('permission:audit.view');
     Route::get('/audit-logs/{auditLog}', [AuditController::class, 'show'])->middleware('permission:audit.view');
 
-    Route::get('/reports/summary', [ReportController::class, 'summary'])->middleware('permission:reports.view');
+    Route::middleware(['permission:reports.view', 'portal.nav:reports'])->group(function () {
+        Route::get('/reports/summary', [ReportController::class, 'summary']);
+        Route::get('/reports/datasets', [ReportController::class, 'datasets']);
+        Route::post('/reports/run', [ReportController::class, 'run']);
+        Route::post('/reports/export', [ReportController::class, 'export']);
+        Route::get('/reports/saved', [ReportController::class, 'indexSaved']);
+        Route::get('/reports/saved/{savedReport}', [ReportController::class, 'showSaved']);
+        Route::middleware('permission:reports.manage')->group(function () {
+            Route::post('/reports/saved', [ReportController::class, 'storeSaved']);
+            Route::patch('/reports/saved/{savedReport}', [ReportController::class, 'updateSaved']);
+            Route::delete('/reports/saved/{savedReport}', [ReportController::class, 'destroySaved']);
+        });
+    });
     Route::get('/integrations', [IntegrationController::class, 'index'])->middleware('permission:integrations.view');
 });

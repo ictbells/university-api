@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Invoice;
 use App\Models\Student;
 use App\Models\Wallet;
+use App\Support\FeeSchedule;
 use Illuminate\Support\Str;
 use RuntimeException;
 
@@ -51,7 +52,10 @@ class WalletService
 
     public function payInvoice(Student $student, Invoice $invoice): Invoice
     {
-        if (! $invoice->wallet_allowed || in_array($invoice->category, ['application_fee', 'acceptance_fee'], true)) {
+        if (! $invoice->isPayable()) {
+            throw new RuntimeException('This invoice cannot be paid.');
+        }
+        if (FeeSchedule::walletBlocked($invoice->category)) {
             throw new RuntimeException('This invoice cannot be paid from the wallet.');
         }
         if ($invoice->user_id !== $student->user_id) {

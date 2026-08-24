@@ -29,6 +29,7 @@ class PermissionCatalog
             ['key' => 'admissions.approve', 'module' => 'admissions', 'label' => 'Approve admission'],
             ['key' => 'admissions.offer', 'module' => 'admissions', 'label' => 'Issue admission offer'],
             ['key' => 'admissions.matriculate', 'module' => 'admissions', 'label' => 'Matriculate students'],
+            ['key' => 'admissions.import', 'module' => 'admissions', 'label' => 'Import candidate data'],
             ['key' => 'registrations.view', 'module' => 'registrations', 'label' => 'View registrations'],
             ['key' => 'academic.catalog.manage', 'module' => 'academic', 'label' => 'Manage programmes and courses (legacy)'],
             ['key' => 'pg.view', 'module' => 'postgraduate', 'label' => 'View postgraduate records'],
@@ -56,6 +57,7 @@ class PermissionCatalog
             ['key' => 'audit.view', 'module' => 'audit', 'label' => 'View audit trail'],
             ['key' => 'notifications.manage', 'module' => 'notifications', 'label' => 'Send notifications'],
             ['key' => 'reports.view', 'module' => 'reports', 'label' => 'View reports'],
+            ['key' => 'reports.manage', 'module' => 'reports', 'label' => 'Create and share custom reports'],
             ['key' => 'integrations.view', 'module' => 'integrations', 'label' => 'View integrations'],
             ['key' => 'identity.verify_nin', 'module' => 'identity', 'label' => 'Re-verify NIN'],
         ];

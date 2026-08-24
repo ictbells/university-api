@@ -10,7 +10,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Course extends BaseModel
 {
-    protected $fillable = ['department_id', 'code', 'title', 'units'];
+    public const TYPES = ['general', 'faculty', 'departmental'];
+
+    protected $fillable = ['department_id', 'code', 'title', 'units', 'course_type'];
 
     public function department(): BelongsTo
     {
@@ -19,7 +21,9 @@ class Course extends BaseModel
 
     public function programs(): BelongsToMany
     {
-        return $this->belongsToMany(Program::class, 'program_course')->withTimestamps();
+        return $this->belongsToMany(Program::class, 'program_course')
+            ->withPivot(['academic_level_id', 'bucket'])
+            ->withTimestamps();
     }
 
     public function offerings(): HasMany

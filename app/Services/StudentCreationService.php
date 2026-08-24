@@ -11,7 +11,6 @@ use App\Models\Setting;
 use App\Models\Student;
 use App\Models\Wallet;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 class StudentCreationService
 {
@@ -21,7 +20,7 @@ class StudentCreationService
     {
         return DB::transaction(function () use ($application) {
             $application->load(['user', 'program', 'steps']);
-            $biodata = $application->steps()->where('step_key', 'biodata')->first()?->payload ?? [];
+            $biodata = $application->mergedProfilePayload();
             $contact = $application->steps()->where('step_key', 'application_form')->first()?->payload ?? [];
             $count = Student::query()->count() + 1;
             $year = now()->format('Y');
@@ -36,12 +35,25 @@ class StudentCreationService
                 'last_name' => $biodata['last_name'] ?? '',
                 'date_of_birth' => $biodata['date_of_birth'] ?? null,
                 'gender' => $biodata['gender'] ?? null,
+                'marital_status' => $biodata['marital_status'] ?? null,
+                'religion' => $biodata['religion'] ?? null,
+                'country' => $biodata['country'] ?? null,
+                'state' => $biodata['state'] ?? null,
+                'lga' => $biodata['lga'] ?? null,
                 'nin' => $biodata['nin'] ?? null,
                 'photo_path' => $biodata['photo_path'] ?? null,
                 'phone' => $contact['phone'] ?? $biodata['phone'] ?? null,
                 'address' => $contact['address'] ?? $biodata['address'] ?? null,
                 'next_of_kin' => $biodata['next_of_kin'] ?? null,
                 'next_of_kin_phone' => $biodata['next_of_kin_phone'] ?? null,
+                'next_of_kin_relationship' => $biodata['next_of_kin_relationship'] ?? null,
+                'next_of_kin_email' => $biodata['next_of_kin_email'] ?? null,
+                'next_of_kin_address' => $biodata['next_of_kin_address'] ?? null,
+                'sponsor_name' => $biodata['sponsor_name'] ?? null,
+                'sponsor_relationship' => $biodata['sponsor_relationship'] ?? null,
+                'sponsor_phone' => $biodata['sponsor_phone'] ?? null,
+                'sponsor_email' => $biodata['sponsor_email'] ?? null,
+                'sponsor_address' => $biodata['sponsor_address'] ?? null,
                 'study_level' => $application->entry_mode === 'pg' ? 'postgraduate' : 'undergraduate',
                 'current_level' => $application->entry_mode === 'pg' ? 1 : 100,
                 'status' => 'active',
@@ -54,7 +66,13 @@ class StudentCreationService
                 'status' => 'active',
             ]);
 
-            MedicalProfile::query()->create(['student_id' => $student->id]);
+            MedicalProfile::query()->create([
+                'student_id' => $student->id,
+                'blood_type' => $biodata['blood_group'] ?? null,
+                'genotype' => $biodata['genotype'] ?? null,
+                'has_medical_condition' => (bool) ($biodata['has_medical_condition'] ?? false),
+                'conditions' => $biodata['medical_condition_details'] ?? null,
+            ]);
 
             if ($application->entry_mode === 'pg') {
                 PgRecord::query()->create([

@@ -12,6 +12,7 @@ class OpenApiGenerator
     private array $tagDescriptions = [
         'Auth' => 'Authentication, session, profile, and two-factor flows.',
         'Applications' => 'Admissions application pipeline. Staff list endpoints exclude applicants who are already matriculated with paid tuition (see Registrations).',
+        'Candidate data' => 'JAMB candidate list upload and lookup used before applicant signup.',
         'Registrations' => 'Enrolled students who completed admission (matriculated) and have paid tuition. Filter by entry mode channel.',
         'Students' => 'Student records.',
         'Academic' => 'Academic catalogue setup (campuses, programmes, courses, sessions, intakes, levels, O\'level) and student academic self-service.',
@@ -24,7 +25,7 @@ class OpenApiGenerator
         'Security' => 'Global staff security policies.',
         'Resources' => 'Downloadable operational documents.',
         'Audit' => 'Audit trail.',
-        'Reports' => 'Summary reporting.',
+        'Reports' => 'Gated custom reporting: allowlisted datasets, saved definitions, and tabular export.',
         'Integrations' => 'External integration status.',
         'Communications' => 'Announcements and notifications.',
         'Postgraduate' => 'Postgraduate records.',
@@ -33,6 +34,10 @@ class OpenApiGenerator
 
     /** @var array<string, array<string, mixed>> */
     private array $operationOverrides = [
+        'patch_/api/applications/{application}' => [
+            'summary' => 'Update application file (staff)',
+            'description' => 'Staff with `admissions.view` can edit submitted application fields except application number, NIN, and documents. Email and JAMB registration must stay unique. JAMB is checked against uploaded candidate data (`validated` if found, otherwise `pending`). Change of programme is allowed for 100L–300L; the student level drops by one band except 100L, which stays 100L.',
+        ],
         'get_/api/applications' => [
             'summary' => 'List applications (staff pipeline)',
             'description' => 'Returns paginated applications for staff with `admissions.view`. Excludes records that qualify as registrations (matriculated with paid tuition invoice). Query filters: `stage`, `entry_mode`, `entry_modes` (comma-separated, e.g. `utme,de,transfer`).',
@@ -49,6 +54,18 @@ class OpenApiGenerator
                 ['name' => 'entry_mode', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Filter by a single entry mode.'],
                 ['name' => 'entry_modes', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Comma-separated entry modes (undergraduate: `utme,de,transfer`; JUPEB: `jupeb`; postgraduate: `pg`).'],
             ],
+        ],
+        'get_/api/candidate-data/{jambRegistration}' => [
+            'summary' => 'Lookup candidate by JAMB number',
+            'description' => 'Public lookup used during applicant signup. Returns candidate row and suggested name/UTME prefill payload.',
+            'parameters' => [
+                ['name' => 'jambRegistration', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string']],
+                ['name' => 'academic_year', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Optional session filter.'],
+            ],
+        ],
+        'post_/api/candidate-data/upload' => [
+            'summary' => 'Upload candidate spreadsheet',
+            'description' => 'Import JAMB candidate rows from Excel/CSV. Requires `admissions.import`. Multipart fields: `file`, `academic_year`.',
         ],
     ];
 
@@ -174,6 +191,9 @@ class OpenApiGenerator
 
                 return 'academic resource access ('.$keys.')';
             }
+            if (str_starts_with($middleware, 'portal.nav:')) {
+                return 'office portal link `'.Str::after($middleware, 'portal.nav:').'`';
+            }
         }
 
         return null;
@@ -192,12 +212,15 @@ class OpenApiGenerator
             str_starts_with($uri, 'api/two-factor'),
             str_starts_with($uri, 'api/me') => 'Auth',
             str_starts_with($uri, 'api/applications') => 'Applications',
+            str_starts_with($uri, 'api/candidate-data'),
+            str_starts_with($uri, 'api/candidate-list') => 'Candidate data',
             str_starts_with($uri, 'api/registrations') => 'Registrations',
             str_starts_with($uri, 'api/students') => 'Students',
             str_starts_with($uri, 'api/academic'),
             str_starts_with($uri, 'api/programs') => 'Academic',
             str_starts_with($uri, 'api/wallet'),
             str_starts_with($uri, 'api/invoices'),
+            str_starts_with($uri, 'api/transactions'),
             str_starts_with($uri, 'api/fees'),
             str_starts_with($uri, 'api/payments') => 'Finance',
             str_starts_with($uri, 'api/users'),

@@ -11,7 +11,22 @@ class NotificationController extends Controller
 {
     public function index(Request $request)
     {
-        return AppNotification::query()->where('user_id', $request->user()->id)->latest()->paginate(20);
+        $perPage = min(max($request->integer('per_page', 20), 1), 50);
+
+        return AppNotification::query()
+            ->where('user_id', $request->user()->id)
+            ->latest()
+            ->paginate($perPage);
+    }
+
+    public function unreadCount(Request $request)
+    {
+        $count = AppNotification::query()
+            ->where('user_id', $request->user()->id)
+            ->whereNull('read_at')
+            ->count();
+
+        return ['count' => $count];
     }
 
     public function markRead(AppNotification $notification, Request $request)
@@ -20,6 +35,16 @@ class NotificationController extends Controller
         $notification->update(['read_at' => now()]);
 
         return $notification;
+    }
+
+    public function markAllRead(Request $request)
+    {
+        AppNotification::query()
+            ->where('user_id', $request->user()->id)
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+
+        return ['ok' => true];
     }
 
     public function send(Request $request, Notifier $notifier)

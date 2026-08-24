@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AcademicLevel;
+use App\Models\AcademicSession;
 use App\Models\AcademicTerm;
 use App\Models\Campus;
 use App\Models\Course;
@@ -12,6 +13,7 @@ use App\Models\Intake;
 use App\Models\OlevelSubject;
 use App\Models\Program;
 use App\Services\AuditWriter;
+use App\Support\AdmissionEntryRules;
 use Illuminate\Http\Request;
 
 class AcademicSetupController extends Controller
@@ -22,7 +24,8 @@ class AcademicSetupController extends Controller
     {
         return [
             'campuses' => Campus::query()->with('faculties.departments')->orderBy('name')->get(),
-            'terms' => AcademicTerm::query()->orderByDesc('is_current')->orderByDesc('id')->get(),
+            'terms' => AcademicTerm::query()->with('session')->orderByDesc('is_current')->orderByDesc('id')->get(),
+            'sessions' => AcademicSession::query()->with('semesters')->orderByDesc('id')->get(),
             'programs' => Program::query()->with('department.faculty')->orderBy('name')->get(),
             'courses' => Course::query()->with('department')->orderBy('code')->get(),
             'levels' => AcademicLevel::query()->orderBy('study_level')->orderBy('sort_order')->get(),
@@ -48,7 +51,20 @@ class AcademicSetupController extends Controller
 
     public function terms()
     {
-        return AcademicTerm::query()->orderByDesc('is_current')->orderByDesc('id')->get();
+        return AcademicTerm::query()->with('session')->orderByDesc('is_current')->orderByDesc('id')->get();
+    }
+
+    public function sessions()
+    {
+        return AcademicSession::query()
+            ->with('semesters')
+            ->orderByDesc('id')
+            ->get()
+            ->map(function (AcademicSession $session) {
+                $session->setAttribute('is_current', $session->semesters->contains(fn ($s) => $s->is_current));
+
+                return $session;
+            });
     }
 
     public function programs()
@@ -68,7 +84,11 @@ class AcademicSetupController extends Controller
 
     public function intakesList()
     {
-        return Intake::query()->with('term')->orderByDesc('id')->get();
+        return Intake::query()
+            ->with('term')
+            ->get()
+            ->sortBy(fn (Intake $intake) => [AdmissionEntryRules::entryModeRank($intake->entry_mode), -$intake->id])
+            ->values();
     }
 
     public function olevelSubjectsList()
@@ -150,14 +170,18 @@ class AcademicSetupController extends Controller
 
     public function storeIntake(Request $request)
     {
-        $intake = Intake::query()->create($request->validate([
+        $validated = $request->validate([
             'academic_term_id' => 'required|exists:academic_terms,id',
             'name' => 'required|string',
             'entry_mode' => 'required|in:utme,de,jupeb,transfer,pg',
             'opens_on' => 'required|date',
             'closes_on' => 'required|date|after_or_equal:opens_on',
-            'is_open' => 'boolean',
-        ]));
+            'application_fee_amount' => 'required|numeric|min:0',
+            'acceptance_fee_amount' => 'nullable|numeric|min:0',
+            'is_open' => 'sometimes|boolean',
+        ]);
+        $validated['is_open'] = $request->boolean('is_open', true);
+        $intake = Intake::query()->create($validated);
         $this->audit->record('intake.created', 'Admission intake created', 'admissions', 'intake', $intake->id, null, $intake);
 
         return $intake->load('term');
@@ -166,14 +190,20 @@ class AcademicSetupController extends Controller
     public function updateIntake(Request $request, Intake $intake)
     {
         $before = $intake->toArray();
-        $intake->update($request->validate([
+        $validated = $request->validate([
             'academic_term_id' => 'sometimes|exists:academic_terms,id',
             'name' => 'sometimes|string',
             'entry_mode' => 'sometimes|in:utme,de,jupeb,transfer,pg',
             'opens_on' => 'sometimes|date',
             'closes_on' => 'sometimes|date|after_or_equal:opens_on',
-            'is_open' => 'boolean',
-        ]));
+            'application_fee_amount' => 'sometimes|numeric|min:0',
+            'acceptance_fee_amount' => 'nullable|numeric|min:0',
+            'is_open' => 'sometimes|boolean',
+        ]);
+        if ($request->has('is_open')) {
+            $validated['is_open'] = $request->boolean('is_open');
+        }
+        $intake->update($validated);
         $this->audit->record('intake.updated', 'Admission intake updated', 'admissions', 'intake', $intake->id, $before, $intake);
 
         return $intake->fresh('term');
@@ -190,7 +220,12 @@ class AcademicSetupController extends Controller
 
     public function openIntakes()
     {
-        return Intake::query()->accepting()->with('term')->orderBy('name')->get();
+        return Intake::query()
+            ->with('term')
+            ->get()
+            ->filter(fn (Intake $intake) => $intake->isAcceptingApplications())
+            ->sortBy(fn (Intake $intake) => [AdmissionEntryRules::entryModeRank($intake->entry_mode), $intake->name])
+            ->values();
     }
 
     public function levels()

@@ -27,6 +27,7 @@ return new class extends Migration
             $table->decimal('eng_score', 5, 2)->nullable();
             $table->string('subj')->nullable();
             $table->timestamps();
+            $table->softDeletes();
 
             $table->unique(['rg_num', 'academic_year']);
         });

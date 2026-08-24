@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\ProgrammeFeeResolver;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -73,6 +74,11 @@ class User extends Authenticatable
     public function latestApplication(): HasOne
     {
         return $this->hasOne(Application::class)->latestOfMany();
+    }
+
+    public function latestNinVerification(): HasOne
+    {
+        return $this->hasOne(NinVerification::class)->latestOfMany();
     }
 
     public function permissions(): array
@@ -162,6 +168,14 @@ class User extends Authenticatable
             }
         }
 
+        $programmeFeeTotal = 0.0;
+        $programmeFeeSet = false;
+        $student = $this->relationLoaded('student') ? $this->student : $this->student()->with('program')->first();
+        if ($student) {
+            $programmeFeeTotal = ProgrammeFeeResolver::totalForStudent($student);
+            $programmeFeeSet = $programmeFeeTotal > 0;
+        }
+
         return [
             'lifecycle_stage' => $stage,
             'is_student' => $this->isStudent(),
@@ -170,6 +184,8 @@ class User extends Authenticatable
             'unpaid_application_fee' => $unpaidAppFee,
             'unpaid_acceptance_fee' => $unpaidAcceptance,
             'application_id' => $application?->id,
+            'programme_fee_set' => $programmeFeeSet,
+            'programme_fee_total' => $programmeFeeSet ? $programmeFeeTotal : null,
         ];
     }
 }

@@ -1,0 +1,220 @@
+<?php
+
+namespace App\Support;
+
+use App\Models\Application;
+
+class AdmissionEntryRules
+{
+    /** @var list<string> */
+    public const ENTRY_MODE_ORDER = ['utme', 'de', 'jupeb', 'transfer', 'pg'];
+
+    /** @var list<string> */
+    public const JAMB_ENTRY_MODES = ['utme'];
+
+    /**
+     * Required application upload checklist by entry mode.
+     * Keys are document types stored on application_documents.doc_type.
+     *
+     * @return list<array{key: string, label: string, required: bool, description?: string}>
+     */
+    public static function requiredDocuments(string $entryMode): array
+    {
+        if (in_array($entryMode, ['utme', 'jupeb'], true)) {
+            return [
+                [
+                    'key' => 'passport',
+                    'label' => 'Passport',
+                    'required' => true,
+                    'description' => 'Passport photograph (usually captured from NIN verification).',
+                ],
+                [
+                    'key' => 'birth_certificate',
+                    'label' => 'Birth Certificate',
+                    'required' => true,
+                    'description' => 'Birth certificate or sworn age declaration.',
+                ],
+                [
+                    'key' => 'jamb_result',
+                    'label' => 'JAMB Result',
+                    'required' => true,
+                    'description' => 'UTME / JAMB result slip.',
+                ],
+                [
+                    'key' => 'olevel_first_sitting',
+                    'label' => "O'Level Result (1st sitting)",
+                    'required' => true,
+                    'description' => "Scan or clear photo of your first sitting O'Level result.",
+                ],
+                [
+                    'key' => 'olevel_second_sitting',
+                    'label' => "O'Level Result (2nd sitting)",
+                    'required' => false,
+                    'description' => 'Optional — upload if you have a second sitting.',
+                ],
+            ];
+        }
+
+        if ($entryMode === 'de') {
+            return [
+                [
+                    'key' => 'passport',
+                    'label' => 'Passport',
+                    'required' => true,
+                    'description' => 'Passport photograph (usually captured from NIN verification).',
+                ],
+                [
+                    'key' => 'birth_certificate',
+                    'label' => 'Birth Certificate',
+                    'required' => true,
+                    'description' => 'Birth certificate or sworn age declaration.',
+                ],
+                [
+                    'key' => 'olevel_first_sitting',
+                    'label' => "O'Level Result (1st sitting)",
+                    'required' => true,
+                    'description' => "Scan or clear photo of your first sitting O'Level result.",
+                ],
+                [
+                    'key' => 'de_qualification',
+                    'label' => 'Direct Entry qualification',
+                    'required' => true,
+                    'description' => 'A-Level, diploma, JUPEB, NCE, or equivalent result.',
+                ],
+                [
+                    'key' => 'supporting',
+                    'label' => 'Supporting document',
+                    'required' => false,
+                    'description' => 'Any additional supporting document.',
+                ],
+            ];
+        }
+
+        if ($entryMode === 'transfer') {
+            return [
+                [
+                    'key' => 'passport',
+                    'label' => 'Passport',
+                    'required' => true,
+                    'description' => 'Passport photograph (usually captured from NIN verification).',
+                ],
+                [
+                    'key' => 'birth_certificate',
+                    'label' => 'Birth Certificate',
+                    'required' => true,
+                    'description' => 'Birth certificate or sworn age declaration.',
+                ],
+                [
+                    'key' => 'olevel_first_sitting',
+                    'label' => "O'Level Result (1st sitting)",
+                    'required' => true,
+                    'description' => "Scan or clear photo of your first sitting O'Level result.",
+                ],
+                [
+                    'key' => 'previous_transcript',
+                    'label' => 'Previous institution transcript',
+                    'required' => true,
+                    'description' => 'Official transcript or result from the previous institution.',
+                ],
+                [
+                    'key' => 'supporting',
+                    'label' => 'Supporting document',
+                    'required' => false,
+                    'description' => 'Any additional supporting document.',
+                ],
+            ];
+        }
+
+        if ($entryMode === 'pg') {
+            return [
+                [
+                    'key' => 'passport',
+                    'label' => 'Passport',
+                    'required' => true,
+                    'description' => 'Passport photograph (usually captured from NIN verification).',
+                ],
+                [
+                    'key' => 'degree_certificate',
+                    'label' => 'Degree certificate',
+                    'required' => true,
+                    'description' => 'First degree or equivalent certificate.',
+                ],
+                [
+                    'key' => 'academic_transcript',
+                    'label' => 'Academic transcript',
+                    'required' => true,
+                    'description' => 'Official transcript of the qualifying degree.',
+                ],
+                [
+                    'key' => 'nysc_certificate',
+                    'label' => 'NYSC certificate or exemption',
+                    'required' => true,
+                    'description' => 'NYSC discharge or exemption certificate.',
+                ],
+                [
+                    'key' => 'supporting',
+                    'label' => 'Supporting document',
+                    'required' => false,
+                    'description' => 'Any additional supporting document.',
+                ],
+            ];
+        }
+
+        return [
+            [
+                'key' => 'passport',
+                'label' => 'Passport',
+                'required' => true,
+                'description' => 'Passport photograph (usually captured from NIN verification).',
+            ],
+            [
+                'key' => 'supporting',
+                'label' => 'Supporting document',
+                'required' => false,
+                'description' => 'Any additional supporting document.',
+            ],
+        ];
+    }
+
+    /**
+     * @return list<string> Human-readable missing required document labels
+     */
+    public static function missingRequiredDocuments(Application $application): array
+    {
+        $application->loadMissing(['documents', 'steps']);
+        $uploaded = $application->documents->pluck('doc_type')->unique()->all();
+        $biodata = $application->steps->firstWhere('step_key', 'biodata')?->payload ?? [];
+        $missing = [];
+
+        foreach (self::requiredDocuments((string) $application->entry_mode) as $doc) {
+            if (! ($doc['required'] ?? false)) {
+                continue;
+            }
+            if ($doc['key'] === 'passport') {
+                if (in_array('passport', $uploaded, true) || filled($biodata['photo_path'] ?? null)) {
+                    continue;
+                }
+                $missing[] = $doc['label'];
+
+                continue;
+            }
+            if (! in_array($doc['key'], $uploaded, true)) {
+                $missing[] = $doc['label'];
+            }
+        }
+
+        return $missing;
+    }
+
+    public static function requiresJambRegistration(string $entryMode): bool
+    {
+        return in_array($entryMode, self::JAMB_ENTRY_MODES, true);
+    }
+
+    public static function entryModeRank(string $entryMode): int
+    {
+        $index = array_search($entryMode, self::ENTRY_MODE_ORDER, true);
+
+        return $index === false ? PHP_INT_MAX : $index;
+    }
+}

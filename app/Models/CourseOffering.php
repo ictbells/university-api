@@ -30,4 +30,14 @@ class CourseOffering extends BaseModel
     {
         return $this->hasMany(Enrollment::class);
     }
+
+    public function enrolledCount(): int
+    {
+        return $this->enrollments()->enrolled()->count();
+    }
+
+    public function seatsLeft(): int
+    {
+        return max(0, (int) $this->capacity - $this->enrolledCount());
+    }
 }

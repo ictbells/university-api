@@ -32,6 +32,7 @@ return [
         'secret' => env('PAYSTACK_SECRET_KEY'),
         'public' => env('PAYSTACK_PUBLIC_KEY'),
         'webhook_secret' => env('PAYSTACK_WEBHOOK_SECRET'),
+        'allow_demo_fulfill' => env('PAYSTACK_ALLOW_DEMO_FULFILL', false),
     ],
 
     'prembly' => [

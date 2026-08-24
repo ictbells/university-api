@@ -71,7 +71,7 @@ When creating or editing a role, tick the permissions that role should grant. Ch
 | **Registrar** | SIS, academic setup, applications, registrations, reports, institution |
 | **Admissions** | Applications pipeline, application setup (programmes, intakes, O'level), registrations view |
 | **Finance** | Fees, payments, wallet |
-| **Medical** | Medical module |
+| **Clinic** | Clinic module |
 | **Faculty** | Student view |
 | **PG Coordinator** | Postgraduate records and applications view |
 | **Hostel Officer** | Hostel module |
@@ -274,7 +274,7 @@ Each item requires its own `academic.*.manage` permission and portal link (see �
 ### 8.5 Services
 
 - **Fees & payments** — Fee items, invoices, payments (`finance.invoices.manage`)
-- **Medical** — Student medical records (`medical.view_any`)
+- **Clinic** — Campus clinic: queue, student charts, encounters, prescriptions, sick notes, NHIS-aware billing (`medical.view_any` / `medical.manage` / `medical.billing`). Settings tab sets default NHIS coverage %. Students view **My clinic** on the student portal without a medical permission.
 - **Hostel** — Hostel allocation (`hostel.view`)
 - **Documents** — Issue documents (`documents.issue`)
 

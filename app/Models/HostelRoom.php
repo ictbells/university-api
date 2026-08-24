@@ -2,8 +2,6 @@
 
 namespace App\Models;
 
-use App\Models\BaseModel;
-
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -29,7 +27,7 @@ class HostelRoom extends BaseModel
 
     public function block(): BelongsTo
     {
-        return $this->belongsTo(HostelBlock::class, 'hostel_block_id');
+        return $this->belongsTo(HostelBlock::class, 'hostel_block_id')->withTrashed();
     }
 
     public function beds(): HasMany

@@ -2,8 +2,7 @@
 
 namespace App\Models;
 
-use App\Models\BaseModel;
-
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Announcement extends BaseModel
 {
@@ -12,5 +11,15 @@ class Announcement extends BaseModel
     protected function casts(): array
     {
         return ['published_at' => 'datetime'];
+    }
+
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function isPublished(): bool
+    {
+        return $this->published_at !== null;
     }
 }
