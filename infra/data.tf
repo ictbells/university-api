@@ -73,6 +73,10 @@ data "aws_cloudfront_cache_policy" "caching_optimized" {
   name = "Managed-CachingOptimized"
 }
 
+data "aws_cloudfront_cache_policy" "caching_disabled" {
+  name = "Managed-CachingDisabled"
+}
+
 data "aws_secretsmanager_secret" "rds_master" {
   count = var.rds_master_secret_name != "" ? 1 : 0
   name  = var.rds_master_secret_name

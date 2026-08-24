@@ -85,10 +85,11 @@ resource "aws_cloudfront_origin_access_control" "student" {
 }
 
 resource "aws_s3_object" "staff_index" {
-  bucket       = aws_s3_bucket.staff.id
-  key          = "index.html"
-  content_type = "text/html; charset=utf-8"
-  content      = <<-HTML
+  bucket        = aws_s3_bucket.staff.id
+  key           = "index.html"
+  content_type  = "text/html; charset=utf-8"
+  cache_control = "no-cache, must-revalidate"
+  content       = <<-HTML
     <!doctype html>
     <html lang="en"><head><meta charset="utf-8"><title>Staff portal</title></head>
     <body>
@@ -102,10 +103,11 @@ resource "aws_s3_object" "staff_index" {
 }
 
 resource "aws_s3_object" "student_index" {
-  bucket       = aws_s3_bucket.student.id
-  key          = "index.html"
-  content_type = "text/html; charset=utf-8"
-  content      = <<-HTML
+  bucket        = aws_s3_bucket.student.id
+  key           = "index.html"
+  content_type  = "text/html; charset=utf-8"
+  cache_control = "no-cache, must-revalidate"
+  content       = <<-HTML
     <!doctype html>
     <html lang="en"><head><meta charset="utf-8"><title>Student portal</title></head>
     <body>

@@ -291,6 +291,15 @@ Each API deploy re-runs `scripts/ensure-https.sh` (skipped on VPS). If the brows
 
 `https://staff.cycbankease.com` and `https://student.cycbankease.com` are CloudFront. TLS is on; an empty S3 bucket looks like HTTP 403 `AccessDenied`. Deploy the staff and student workflows (`DEPLOY_TARGET=aws`) so `index.html` is uploaded.
 
+### `Failed to load module script` / MIME type `text/html`
+
+The browser asked for a hashed Vite file (`/assets/index-….js`) and received **HTML** (`index.html`). That happens when:
+
+1. CloudFront still has an old `index.html` (default cache was 24h) after a deploy `--delete`d the previous hashes.
+2. Custom error responses mapped S3 **403/404** for those missing `.js` files to `/index.html` with HTTP 200.
+
+Fix: apply this Terraform (CloudFront Function rewrites only extensionless routes; hashed `/assets/*` 404 for real). Redeploy both SPAs so `index.html` is `Cache-Control: no-cache` and CloudFront is invalidated. Hard-refresh the browser after the invalidation completes.
+
 ## Deploy staff / student SPAs
 
 See build commands below, or use the staff workflow in `frontend/.github/workflows/deploy.yml` and `deploy-student.yml` with environment `development` for AWS.
@@ -300,9 +309,15 @@ cd frontend
 echo 'VITE_API_URL=https://bells-api.cycbankease.com' > .env.production
 echo 'VITE_STUDENT_URL=https://student.cycbankease.com' >> .env.production
 npm ci && npm run build
+aws s3 sync dist/assets "s3://$(cd ../api/infra && terraform output -raw staff_bucket)/assets" \
+  --cache-control "public,max-age=31536000,immutable"
+aws s3 sync dist/ "s3://$(cd ../api/infra && terraform output -raw staff_bucket)/" \
+  --exclude "assets/*" --cache-control "no-cache, must-revalidate"
+aws s3 cp dist/index.html "s3://$(cd ../api/infra && terraform output -raw staff_bucket)/index.html" \
+  --cache-control "no-cache, must-revalidate" --content-type "text/html; charset=utf-8" --metadata-directive REPLACE
 aws s3 sync dist/ "s3://$(cd ../api/infra && terraform output -raw staff_bucket)/" --delete
 aws cloudfront create-invalidation \
-  --distribution-id "$(cd ../api/infra && terraform output -raw staff_cloudfront_id)" --paths "/*"
+  --distribution-id "$(cd ../api/infra && terraform output -raw staff_cloudfront_id)" --paths "/index.html" "/*"
 ```
 
 Student (CloudFront subdomain — use `VITE_BASE=/`):
@@ -312,9 +327,15 @@ cd student
 echo 'VITE_API_URL=https://bells-api.cycbankease.com' > .env.production
 echo 'VITE_BASE=/' >> .env.production
 npm ci && VITE_BASE=/ npm run build
+aws s3 sync dist/assets "s3://$(cd ../api/infra && terraform output -raw student_bucket)/assets" \
+  --cache-control "public,max-age=31536000,immutable"
+aws s3 sync dist/ "s3://$(cd ../api/infra && terraform output -raw student_bucket)/" \
+  --exclude "assets/*" --cache-control "no-cache, must-revalidate"
+aws s3 cp dist/index.html "s3://$(cd ../api/infra && terraform output -raw student_bucket)/index.html" \
+  --cache-control "no-cache, must-revalidate" --content-type "text/html; charset=utf-8" --metadata-directive REPLACE
 aws s3 sync dist/ "s3://$(cd ../api/infra && terraform output -raw student_bucket)/" --delete
 aws cloudfront create-invalidation \
-  --distribution-id "$(cd ../api/infra && terraform output -raw student_cloudfront_id)" --paths "/*"
+  --distribution-id "$(cd ../api/infra && terraform output -raw student_cloudfront_id)" --paths "/index.html" "/*"
 ```
 
 ## Destroy

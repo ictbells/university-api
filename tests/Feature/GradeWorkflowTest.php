@@ -62,7 +62,7 @@ class GradeWorkflowTest extends TestCase
         ]);
         $office->syncNavKeys([
             'results', 'results-students', 'results-import', 'results-approvals',
-            'results-board', 'results-release', 'results-grading-scale', 'results-audit',
+            'results-board', 'results-release', 'results-grading-scale',
         ]);
         Staff::query()->create([
             'user_id' => $this->staffUser->id,

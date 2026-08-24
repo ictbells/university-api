@@ -7,20 +7,22 @@ use App\Models\Program;
 use App\Models\Staff;
 use App\Models\Student;
 use App\Models\WorkflowTemplate;
+use App\Services\AcademicCatalogImportService;
 use App\Services\AuditWriter;
-use App\Services\CourseCatalogImportService;
 use App\Support\ProgrammeEligibility;
 use App\Support\WorkflowCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AcademicController extends Controller
 {
     use Concerns\AuthorizesOfficeApprovals;
+    use Concerns\ImportsAcademicCatalog;
 
     public function __construct(
         private AuditWriter $audit,
-        private CourseCatalogImportService $importer,
+        private AcademicCatalogImportService $catalogImporter,
     ) {}
 
     public function programs(Request $request)
@@ -210,24 +212,24 @@ class AcademicController extends Controller
         });
     }
 
-    public function importTemplate()
+    public function importTemplate(): StreamedResponse
     {
-        return $this->importer->template();
+        return $this->catalogImportTemplate('courses');
     }
 
     public function importCourses(Request $request)
     {
-        $request->validate([
-            'file' => 'required|file|mimes:xlsx,xls,csv|max:10240',
-        ]);
-        try {
-            $result = $this->importer->import($request->file('file'));
-        } catch (\InvalidArgumentException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        }
-        $this->audit->record('course.imported', 'Course catalogue imported', 'academic', 'course', null, null, $result);
+        return $this->runCatalogImport($request, 'courses', 'course.imported', 'Course catalogue imported');
+    }
 
-        return $result;
+    public function importProgramsTemplate(): StreamedResponse
+    {
+        return $this->catalogImportTemplate('programmes');
+    }
+
+    public function importPrograms(Request $request)
+    {
+        return $this->runCatalogImport($request, 'programmes', 'program.imported', 'Programmes imported');
     }
 
     /**

@@ -76,7 +76,7 @@ class AcademicResourceAccess
             return true;
         }
 
-        if (in_array($resourceKey, ['results', 'results-students', 'results-audit'], true)
+        if (in_array($resourceKey, ['results', 'results-students'], true)
             && $user->hasPermission('results.read')) {
             return true;
         }

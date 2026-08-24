@@ -1,3 +1,11 @@
+resource "aws_cloudfront_function" "spa_index" {
+  name    = "${var.environment}-bells-sis-spa-index"
+  runtime = "cloudfront-js-1.0"
+  comment = "Rewrite extensionless SPA routes to /index.html; leave hashed assets alone"
+  publish = true
+  code    = file("${path.module}/cloudfront_spa.js")
+}
+
 resource "aws_cloudfront_distribution" "staff" {
   enabled             = true
   is_ipv6_enabled     = true
@@ -12,27 +20,30 @@ resource "aws_cloudfront_distribution" "staff" {
     origin_access_control_id = aws_cloudfront_origin_access_control.staff.id
   }
 
+  # HTML and client routes: always revalidate. Do not map 403/404 to index.html
+  # (that served text/html for missing .js and broke module scripts).
   default_cache_behavior {
     allowed_methods        = ["GET", "HEAD", "OPTIONS"]
     cached_methods         = ["GET", "HEAD"]
     target_origin_id       = "s3-staff"
     compress               = true
     viewer_protocol_policy = "redirect-to-https"
+    cache_policy_id        = data.aws_cloudfront_cache_policy.caching_disabled.id
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.spa_index.arn
+    }
+  }
+
+  ordered_cache_behavior {
+    path_pattern           = "/assets/*"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD"]
+    target_origin_id       = "s3-staff"
+    compress               = true
+    viewer_protocol_policy = "redirect-to-https"
     cache_policy_id        = data.aws_cloudfront_cache_policy.caching_optimized.id
-  }
-
-  custom_error_response {
-    error_code            = 403
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
-  }
-
-  custom_error_response {
-    error_code            = 404
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
   }
 
   restrictions {
@@ -72,21 +83,22 @@ resource "aws_cloudfront_distribution" "student" {
     target_origin_id       = "s3-student"
     compress               = true
     viewer_protocol_policy = "redirect-to-https"
+    cache_policy_id        = data.aws_cloudfront_cache_policy.caching_disabled.id
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.spa_index.arn
+    }
+  }
+
+  ordered_cache_behavior {
+    path_pattern           = "/assets/*"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD"]
+    target_origin_id       = "s3-student"
+    compress               = true
+    viewer_protocol_policy = "redirect-to-https"
     cache_policy_id        = data.aws_cloudfront_cache_policy.caching_optimized.id
-  }
-
-  custom_error_response {
-    error_code            = 403
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
-  }
-
-  custom_error_response {
-    error_code            = 404
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
   }
 
   restrictions {

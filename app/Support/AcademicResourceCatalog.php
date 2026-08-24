@@ -27,7 +27,6 @@ class AcademicResourceCatalog
         'results-board' => 'results.board',
         'results-release' => 'results.release',
         'results-grading-scale' => 'scales.manage',
-        'results-audit' => 'results.read',
     ];
 
     public static function permission(string $resourceKey): ?string

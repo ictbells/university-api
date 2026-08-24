@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.4  
+**Version:** 1.5  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -205,7 +205,7 @@ When a section (for example Administration) contains a single dropdown whose lab
 
 **Enrolment** contains: Offerings, Course registration, Unit limits, Registration extensions, Import students.
 
-**Results** contains: Results dashboard, Result entry, CSV import, Approvals, Board, Release, Grading scale, Results audit.
+**Results** contains: Results dashboard, Result entry, CSV import, Approvals, Board, Release, Grading scale. Grade changes appear under System → Audit (module `results`).
 
 **Fees & payments** contains: Fee catalog, Sundry fees, Rebates, Programme fees, Generate invoice, Invoices, Students Financial Status, Import invoices, Import wallet history.
 
@@ -345,14 +345,28 @@ Course registration, unit limits, and registration extensions are under **Academ
 | Page | Purpose | Permission |
 |------|---------|------------|
 | Campuses | Campus catalogue | `academic.campuses.manage` |
-| Colleges | Colleges / faculties | `academic.colleges.manage` |
-| Departments | Academic departments | `academic.departments.manage` |
+| Colleges | Colleges / faculties; bulk spreadsheet import | `academic.colleges.manage` |
+| Departments | Academic departments; bulk spreadsheet import | `academic.departments.manage` |
 | Sessions & semesters | Academic sessions, terms, and end-of-session promotion | `academic.sessions.manage`, `academic.sessions.close` |
 | Graduation | Confirm conferment and start the studentship clock | `academic.graduate` |
 | Levels | Study levels (100, 200, …) | `academic.levels.manage` |
-| Courses | Course catalogue; download template and import spreadsheet | `academic.courses.manage` |
+| Courses | Course catalogue; bulk spreadsheet import | `academic.courses.manage` |
 
-Course import columns: `code`, `title`, `units`, `course_type`, `department_code`, `programme_code`, `level_code`.
+#### Catalogue bulk import
+
+Use **Template / Choose file / Import** on Colleges, Departments, Programmes, Courses, and O'level. Import **creates** new rows only: matching records are **skipped** (not updated). Single-row Add/Edit still goes through office approval; bulk import writes directly.
+
+Import order: **Colleges → Departments → Programmes → Courses**. O'level is independent. Campuses must already exist (there is no campus import). Download the template and copy parent **codes** from the lookup sheets; do not paste data into those sheets.
+
+| Page | Required columns | Duplicate skip |
+|------|------------------|----------------|
+| Colleges | `name`, `campus_code` | Same `code`, or same name + campus if code is blank |
+| Departments | `name`, `college_code` | Same `code`, or same name + college if code is blank |
+| Programmes | `name`, `department_code`, `award_type`, `study_level`, `duration_years`, `entry_modes` | Same `code`, or same name + department if code is blank |
+| Courses | `code`, `title`, `department_code` | Same course `code` (no update, no extra programme attach) |
+| O'level | `name` | Same `code` if present, otherwise same name |
+
+Unknown parent codes fail that row only. Course `course_type` is `general`, `faculty`, or `departmental`. Programme `entry_modes` is comma-separated (`utme,de`). Optional course columns: `units`, `course_type`, `programme_code`, `level_code`.
 
 #### Close session (level promotion)
 
@@ -381,11 +395,13 @@ Studentship is not ended by session close. The registrar confirms graduation, th
 
 | Page | Purpose | Permission |
 |------|---------|------------|
-| Programmes | Programmes, entry modes, eligibility, workflow template | `academic.programmes.manage` |
+| Programmes | Programmes, entry modes, eligibility, workflow template; bulk spreadsheet import | `academic.programmes.manage` |
 | Application windows | Open/close intakes by entry mode and session, with application fee | `academic.intakes.manage` |
 | Candidate data | Upload JAMB candidate lists used at student signup | `admissions.import` |
 | Import applicants | Create applicant accounts and applications from another portal | `admissions.import` |
-| O'level | O'level subject catalogue | `academic.olevel.manage` |
+| O'level | O'level subject catalogue; bulk spreadsheet import | `academic.olevel.manage` |
+
+Programme and O'level bulk import uses the same template + skip-duplicates pattern as Admission Setup (§8.4). Import programmes after departments. O'level does not depend on the college/department tree.
 
 #### Candidate data
 
@@ -440,7 +456,8 @@ Result entry follows a controlled workflow before students can see grades on the
 | Board | Board clear / request corrections, printable board lists | `results.board` |
 | Release | Release board-cleared grades to students | `results.release` |
 | Grading scale | Edit letter boundaries (seeded default 5.0 scale) | `scales.manage` |
-| Results audit | Status/score change log | `results.read` |
+
+Grade create/update/import/status changes are written to the platform **Audit** trail (`module = results`), not a separate Results audit screen.
 
 **Typical flow**
 
@@ -599,6 +616,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.2 | Aug 2026 | Platform team | Align with live sidebar (Admission / Application / Enrolment setup, Department Setup, finance submenu), candidate data and applicant import, NIN/password import rules, 25% tuition registrations rule, profile current-password requirement |
 | 1.3 | Aug 2026 | Platform team | Office HOD/unit-head assignment, Approvals inbox, 202 pending-approval behaviour, gated module mutations |
 | 1.4 | Aug 2026 | Platform team | Continuing-student import (supplied matric), invoice and wallet history import keyed by matric, registrations still require ≥25% tuition paid |
+| 1.5 | Aug 2026 | Platform team | Catalogue bulk spreadsheet import for colleges, departments, programmes, O'level, and courses; matching rows skipped; import order Colleges → Departments → Programmes → Courses |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

@@ -6,7 +6,6 @@ use App\Models\AcademicTerm;
 use App\Models\Department;
 use App\Models\Faculty;
 use App\Models\Grade;
-use App\Models\GradeStatusEvent;
 use App\Models\GradeBoundary;
 use App\Models\GradingScale;
 use App\Models\Student;
@@ -301,17 +300,6 @@ class ResultsController extends Controller
         abort_unless($request->user()->hasPermission('results.read'), 403);
 
         return TranscriptBuilder::forStudent($student, true);
-    }
-
-    public function audit(Request $request)
-    {
-        abort_unless($request->user()->hasPermission('results.read'), 403);
-
-        return GradeStatusEvent::query()
-            ->with('actor:id,name,email')
-            ->when($request->filled('grade_id'), fn ($q) => $q->where('grade_id', (int) $request->input('grade_id')))
-            ->latest('id')
-            ->paginate(min(100, max(10, (int) $request->input('per_page', 40))));
     }
 
     public function gradingScales(Request $request)

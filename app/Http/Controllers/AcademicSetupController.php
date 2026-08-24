@@ -12,15 +12,21 @@ use App\Models\Faculty;
 use App\Models\Intake;
 use App\Models\OlevelSubject;
 use App\Models\Program;
+use App\Services\AcademicCatalogImportService;
 use App\Services\AuditWriter;
 use App\Support\AdmissionEntryRules;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AcademicSetupController extends Controller
 {
     use Concerns\AuthorizesOfficeApprovals;
+    use Concerns\ImportsAcademicCatalog;
 
-    public function __construct(private AuditWriter $audit) {}
+    public function __construct(
+        private AuditWriter $audit,
+        private AcademicCatalogImportService $catalogImporter,
+    ) {}
 
     public function index()
     {
@@ -157,6 +163,36 @@ class AcademicSetupController extends Controller
 
             return response()->noContent();
         });
+    }
+
+    public function importFacultiesTemplate(): StreamedResponse
+    {
+        return $this->catalogImportTemplate('colleges');
+    }
+
+    public function importFaculties(Request $request)
+    {
+        return $this->runCatalogImport($request, 'colleges', 'faculty.imported', 'Colleges imported');
+    }
+
+    public function importDepartmentsTemplate(): StreamedResponse
+    {
+        return $this->catalogImportTemplate('departments');
+    }
+
+    public function importDepartments(Request $request)
+    {
+        return $this->runCatalogImport($request, 'departments', 'department.imported', 'Departments imported');
+    }
+
+    public function importOlevelTemplate(): StreamedResponse
+    {
+        return $this->catalogImportTemplate('olevel');
+    }
+
+    public function importOlevel(Request $request)
+    {
+        return $this->runCatalogImport($request, 'olevel', 'olevel_subject.imported', "O'level subjects imported");
     }
 
     public function storeOlevelSubject(Request $request)

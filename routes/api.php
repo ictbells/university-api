@@ -256,6 +256,8 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/academic/faculties', [AcademicSetupController::class, 'faculties'])
         ->middleware('academic.resource:colleges,departments');
     Route::middleware('academic.resource:colleges')->group(function () {
+        Route::get('/academic/faculties/import-template', [AcademicSetupController::class, 'importFacultiesTemplate']);
+        Route::post('/academic/faculties/import', [AcademicSetupController::class, 'importFaculties']);
         Route::post('/faculties', [InstitutionController::class, 'storeFaculty']);
         Route::patch('/faculties/{faculty}', [InstitutionController::class, 'updateFaculty']);
         Route::delete('/faculties/{faculty}', [InstitutionController::class, 'destroyFaculty']);
@@ -263,6 +265,8 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/academic/departments', [AcademicSetupController::class, 'departments'])
         ->middleware('academic.resource:departments,programmes,courses');
     Route::middleware('academic.resource:departments')->group(function () {
+        Route::get('/academic/departments/import-template', [AcademicSetupController::class, 'importDepartmentsTemplate']);
+        Route::post('/academic/departments/import', [AcademicSetupController::class, 'importDepartments']);
         Route::post('/departments', [InstitutionController::class, 'storeDepartment']);
         Route::patch('/departments/{department}', [InstitutionController::class, 'updateDepartment']);
         Route::delete('/departments/{department}', [InstitutionController::class, 'destroyDepartment']);
@@ -302,6 +306,8 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/academic/olevel-subjects', [AcademicSetupController::class, 'olevelSubjectsList'])
         ->middleware('academic.resource:olevel');
     Route::middleware('academic.resource:olevel')->group(function () {
+        Route::get('/academic/olevel-subjects/import-template', [AcademicSetupController::class, 'importOlevelTemplate']);
+        Route::post('/academic/olevel-subjects/import', [AcademicSetupController::class, 'importOlevel']);
         Route::post('/olevel-subjects', [AcademicSetupController::class, 'storeOlevelSubject']);
         Route::patch('/olevel-subjects/{olevelSubject}', [AcademicSetupController::class, 'updateOlevelSubject']);
         Route::delete('/olevel-subjects/{olevelSubject}', [AcademicSetupController::class, 'destroyOlevelSubject']);
@@ -311,6 +317,8 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/academic/workflow-templates', [AcademicController::class, 'workflowTemplates'])
         ->middleware('academic.resource:programmes');
     Route::middleware('academic.resource:programmes')->group(function () {
+        Route::get('/academic/programs/import-template', [AcademicController::class, 'importProgramsTemplate']);
+        Route::post('/academic/programs/import', [AcademicController::class, 'importPrograms']);
         Route::post('/programs', [AcademicController::class, 'storeProgram']);
         Route::patch('/programs/{program}', [AcademicController::class, 'updateProgram']);
         Route::delete('/programs/{program}', [AcademicController::class, 'destroyProgram']);
@@ -354,7 +362,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::post('/academic/registration-extensions/{extension}/review', [RegistrationExtensionController::class, 'review']);
     });
 
-    Route::middleware('academic.resource:results,results-students,results-import,results-approvals,results-board,results-release,results-grading-scale,results-audit')->group(function () {
+    Route::middleware('academic.resource:results,results-students,results-import,results-approvals,results-board,results-release,results-grading-scale')->group(function () {
         Route::get('/academic/results/dashboard', [ResultsController::class, 'dashboard']);
         Route::get('/academic/results/grades', [ResultsController::class, 'index']);
         Route::post('/academic/results/grades', [ResultsController::class, 'store']);
@@ -370,7 +378,6 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::get('/academic/results/students', [ResultsController::class, 'students']);
         Route::get('/academic/results/students/{student}', [ResultsController::class, 'studentGrades']);
         Route::get('/academic/results/students/{student}/transcript', [ResultsController::class, 'staffTranscript']);
-        Route::get('/academic/results/audit', [ResultsController::class, 'audit']);
         Route::get('/academic/results/grading-scales', [ResultsController::class, 'gradingScales']);
         Route::put('/academic/results/grading-scales/{gradingScale}', [ResultsController::class, 'updateGradingScale']);
         Route::get('/academic/results/reports/submission-list/{scope}', [ResultsController::class, 'submissionList'])
