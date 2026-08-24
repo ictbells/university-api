@@ -4,8 +4,8 @@ exec > >(tee -a /var/log/bells-sis-user-data.log) 2>&1
 echo "bells-sis user-data start $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 export DEBIAN_FRONTEND=noninteractive
-export HOME="${HOME:-/root}"
-export COMPOSER_HOME="${COMPOSER_HOME:-/root/.composer}"
+export HOME="$${HOME:-/root}"
+export COMPOSER_HOME="$${COMPOSER_HOME:-/root/.composer}"
 mkdir -p "$COMPOSER_HOME"
 REGION="${region}"
 API_FQDN="${api_fqdn}"
