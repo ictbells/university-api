@@ -245,7 +245,7 @@ Staff placed at that node will see only those links (plus Home), subject to thei
 | Department Setup | `office-setup` | `/office-setup` |
 | Approvals | `approvals` | `/approvals` |
 
-Academic setup items use the resource keys `campuses`, `colleges`, `departments`, `sessions`, `levels`, `courses`, `programmes`, `intakes`, `olevel`, `offerings`, `course-registration`, `unit-limits`, `registration-extensions`.
+Academic setup items use the resource keys `campuses`, `colleges`, `departments`, `sessions`, `graduation`, `levels`, `courses`, `programmes`, `intakes`, `olevel`, `offerings`, `course-registration`, `unit-limits`, `registration-extensions`.
 
 Legacy `/admissions/*` URLs redirect to `/applications/*`.
 
@@ -340,6 +340,7 @@ Course registration, unit limits, and registration extensions are under **Academ
 | Colleges | Colleges / faculties | `academic.colleges.manage` |
 | Departments | Academic departments | `academic.departments.manage` |
 | Sessions & semesters | Academic sessions, terms, and end-of-session promotion | `academic.sessions.manage`, `academic.sessions.close` |
+| Graduation | Confirm conferment and start the studentship clock | `academic.graduate` |
 | Levels | Study levels (100, 200, …) | `academic.levels.manage` |
 | Courses | Course catalogue; download template and import spreadsheet | `academic.courses.manage` |
 
@@ -356,6 +357,17 @@ At the end of an academic year, close the session to promote students and lock t
 5. Optional: enable **Auto-close on end date** when creating or editing a session so the nightly calendar job (`academic:sync-calendar`) closes the session after `ends_on` and runs the same promotion.
 
 Closed sessions cannot be deleted. Re-opening a closed session is not supported.
+
+#### Graduation and studentship expiry
+
+Studentship is not ended by session close. The registrar confirms graduation, then a nightly job ends studentship after the configured number of years (default **2**).
+
+1. After senate conferment, open **Academic → Admission Setup → Graduation** (`academic.graduate`). Assign the `graduation` portal link in Department Setup.
+2. Filter final-year **active** students (the same cohort session close left unchanged). Optionally choose a graduating session for the audit record.
+3. Select students, set the **conferment date**, and confirm. Status becomes **graduated**. `studentship_expires_at` is conferment date plus the years in **Application settings → Studentship after graduation**.
+4. Late senate lists: on **Overview → Students**, use **Confer** on an active student (does not require final year).
+5. Until expiry, graduates can still sign in to the student portal. They cannot register courses for a new session.
+6. The scheduler runs `students:expire-studentship` daily (after `academic:sync-calendar`). Graduates whose expiry date has passed become **alumni** and student-portal login is blocked. Staff can still open the record. Dual staff accounts keep staff-portal access.
 
 ### 8.5 Academic — Application Setup
 

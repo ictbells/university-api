@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\BaseModel;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Enrollment extends BaseModel
@@ -41,7 +42,12 @@ class Enrollment extends BaseModel
 
     public function grade(): HasOne
     {
-        return $this->hasOne(Grade::class);
+        return $this->hasOne(Grade::class)->where('sitting', 'main')->latestOfMany();
+    }
+
+    public function grades(): HasMany
+    {
+        return $this->hasMany(Grade::class);
     }
 
     public function registeredBy(): BelongsTo
