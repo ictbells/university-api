@@ -4,6 +4,9 @@ exec > >(tee -a /var/log/bells-sis-user-data.log) 2>&1
 echo "bells-sis user-data start $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 export DEBIAN_FRONTEND=noninteractive
+export HOME="${HOME:-/root}"
+export COMPOSER_HOME="${COMPOSER_HOME:-/root/.composer}"
+mkdir -p "$COMPOSER_HOME"
 REGION="${region}"
 API_FQDN="${api_fqdn}"
 APP_URL="${app_url}"
@@ -185,10 +188,6 @@ if ! command -v aws >/dev/null 2>&1; then
   rm -rf "$tmpdir"
 fi
 
-if ! command -v composer >/dev/null 2>&1; then
-  curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
-fi
-
 mkdir -p /var/www/api/public
 chown -R www-data:www-data /var/www/api
 
@@ -213,6 +212,11 @@ server {
     root /var/www/api/public;
     index index.php index.html;
     client_max_body_size 16m;
+
+    location = /up {
+        default_type text/plain;
+        try_files /up =404;
+    }
 
     location ^~ /.well-known/acme-challenge/ {
         root /var/www/api/public;
@@ -243,6 +247,10 @@ chown -R www-data:www-data /var/www/api/public
 nginx -t
 systemctl enable --now nginx php8.3-fpm
 systemctl reload nginx || systemctl restart nginx
+
+if ! command -v composer >/dev/null 2>&1; then
+  curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+fi
 
 ensure_schema || true
 write_env || true
@@ -316,6 +324,11 @@ server {
     ssl_certificate     $cert;
     ssl_certificate_key $key;
     ssl_protocols TLSv1.2 TLSv1.3;
+
+    location = /up {
+        default_type text/plain;
+        try_files /up =404;
+    }
 
     location / {
         try_files \$uri \$uri/ /index.php?\$query_string;
