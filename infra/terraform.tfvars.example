@@ -24,7 +24,9 @@ db_username = "bells_sis_app"
 letsencrypt_email = "you@example.com"
 
 # GitHub Actions SSM deploy (no SSH key). Set AWS_ROLE_ARN to output github_deploy_role_arn.
-github_repository = "your-org/office"
+# Requires iam:CreateOpenIDConnectProvider on first apply (or set create_github_oidc_provider = false if provider exists).
+enable_github_deploy_role = true
+github_repository         = "your-org/your-api-repo"
 
 # No EC2 key pair — access the box with SSM Session Manager only.
 # key_name and ssh_ingress_cidr are not needed.

@@ -7,7 +7,8 @@
 # GitHub Environment: development
 #   AWS_ROLE_ARN (OIDC, admin/Terraform) — OR — AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY
 #   LETSENCRYPT_EMAIL (secret)
-#   Optional: GITHUB_REPOSITORY var (defaults to this repo for OIDC deploy role)
+#   Optional var GITHUB_REPOSITORY → TF_VAR_github_repository (org/repo for deploy OIDC role)
+#   If unset, set github_repository in terraform.tfvars instead.
 #
 # S3 state: unibadanmfb-tf-state / bells-sis/terraform.tfstate
 

@@ -135,3 +135,21 @@ variable "root_volume_gb" {
   description = "Encrypted gp3 root volume size in GiB."
   default     = 20
 }
+
+variable "enable_github_deploy_role" {
+  type        = bool
+  description = "Create IAM role for GitHub Actions to deploy via SSM + S3."
+  default     = true
+}
+
+variable "create_github_oidc_provider" {
+  type        = bool
+  description = "Create the account GitHub OIDC provider. Set false if token.actions.githubusercontent.com already exists (manage elsewhere)."
+  default     = true
+}
+
+variable "github_repository" {
+  type        = string
+  description = "GitHub repo allowed to assume the deploy role (org/name). Empty skips deploy role."
+  default     = ""
+}

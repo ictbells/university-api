@@ -77,7 +77,11 @@ The Terraform principal also needs **S3 access** to remote state bucket **`uniba
 }
 ```
 
-Account-wide OIDC provider `token.actions.githubusercontent.com` must already exist in AWS.
+Account-wide GitHub OIDC provider `token.actions.githubusercontent.com` is **created by Terraform** on first apply (`create_github_oidc_provider = true`, default). If it already exists in the account, either set `create_github_oidc_provider = false` in `terraform.tfvars`, or import:
+
+```bash
+terraform import 'aws_iam_openid_connect_provider.github[0]' token.actions.githubusercontent.com
+```
 
 ### Step 2 — Run Terraform
 

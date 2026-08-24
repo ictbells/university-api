@@ -1,25 +1,31 @@
 # Optional GitHub Actions OIDC role for SSM deploy (no SSH key).
-# Requires an existing account OIDC provider for token.actions.githubusercontent.com
+# CI credentials (access keys / OIDC) are separate from this AWS IAM OIDC provider.
 
-variable "enable_github_deploy_role" {
-  type        = bool
-  description = "Create IAM role for GitHub Actions to deploy via SSM + S3."
-  default     = true
+locals {
+  github_deploy_enabled = var.enable_github_deploy_role && var.github_repository != ""
 }
 
-variable "github_repository" {
-  type        = string
-  description = "GitHub repo allowed to assume the deploy role (org/name)."
-  default     = ""
+resource "aws_iam_openid_connect_provider" "github" {
+  count = local.github_deploy_enabled && var.create_github_oidc_provider ? 1 : 0
+
+  url             = "https://token.actions.githubusercontent.com"
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = ["6938fd4d98bab03fa021e5087f35c2eb286b9550"]
 }
 
 data "aws_iam_openid_connect_provider" "github" {
-  count = var.enable_github_deploy_role && var.github_repository != "" ? 1 : 0
+  count = local.github_deploy_enabled && !var.create_github_oidc_provider ? 1 : 0
   url   = "https://token.actions.githubusercontent.com"
 }
 
+locals {
+  github_oidc_provider_arn = local.github_deploy_enabled ? (
+    var.create_github_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : data.aws_iam_openid_connect_provider.github[0].arn
+  ) : ""
+}
+
 resource "aws_iam_role" "github_deploy" {
-  count = var.enable_github_deploy_role && var.github_repository != "" ? 1 : 0
+  count = local.github_deploy_enabled ? 1 : 0
   name  = "${var.environment}-bells-sis-github-deploy"
 
   assume_role_policy = jsonencode({
@@ -27,7 +33,7 @@ resource "aws_iam_role" "github_deploy" {
     Statement = [{
       Effect = "Allow"
       Principal = {
-        Federated = data.aws_iam_openid_connect_provider.github[0].arn
+        Federated = local.github_oidc_provider_arn
       }
       Action = "sts:AssumeRoleWithWebIdentity"
       Condition = {
@@ -43,7 +49,7 @@ resource "aws_iam_role" "github_deploy" {
 }
 
 resource "aws_iam_role_policy" "github_deploy" {
-  count = var.enable_github_deploy_role && var.github_repository != "" ? 1 : 0
+  count = local.github_deploy_enabled ? 1 : 0
   name  = "${var.environment}-bells-sis-github-deploy"
   role  = aws_iam_role.github_deploy[0].id
 
