@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -9,6 +10,14 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Previous deploy created tables then failed on RDS trigger 1419, so the
+        // migration was not recorded. Resume from triggers only in that case.
+        if (Schema::hasTable('webhook_logs')) {
+            $this->installAuditLogTriggers();
+
+            return;
+        }
+
         Schema::table('users', function (Blueprint $table) {
             $table->string('status')->default('active')->after('password');
         });
@@ -498,7 +507,18 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        if (Schema::getConnection()->getDriverName() === 'mysql') {
+        $this->installAuditLogTriggers();
+    }
+
+    private function installAuditLogTriggers(): void
+    {
+        if (Schema::getConnection()->getDriverName() !== 'mysql') {
+            return;
+        }
+
+        try {
+            DB::unprepared('DROP TRIGGER IF EXISTS audit_logs_no_update');
+            DB::unprepared('DROP TRIGGER IF EXISTS audit_logs_no_delete');
             DB::unprepared('
                 CREATE TRIGGER audit_logs_no_update BEFORE UPDATE ON audit_logs
                 FOR EACH ROW
@@ -513,7 +533,24 @@ return new class extends Migration
                     SIGNAL SQLSTATE "45000" SET MESSAGE_TEXT = "Audit logs are immutable";
                 END
             ');
+        } catch (QueryException $e) {
+            // RDS: no SUPER, binlog on, log_bin_trust_function_creators=0 → 1419.
+            // App-level immutability lives on App\Models\AuditLog.
+            if ($this->isRdsTriggerPrivilegeError($e)) {
+                return;
+            }
+            throw $e;
         }
+    }
+
+    private function isRdsTriggerPrivilegeError(QueryException $e): bool
+    {
+        $driverCode = (int) ($e->errorInfo[1] ?? 0);
+        $message = $e->getMessage();
+
+        return $driverCode === 1419
+            || str_contains($message, 'log_bin_trust_function_creators')
+            || str_contains($message, 'SUPER privilege');
     }
 
     public function down(): void

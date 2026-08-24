@@ -273,6 +273,12 @@ sudo grep -E '^DB_(USERNAME|PASSWORD)=' /var/www/api/.env
 # DB_PASSWORD must be wrapped in double quotes
 ```
 
+### `SQLSTATE[HY000]: General error: 1419` (audit_logs trigger / SUPER)
+
+Shared RDS (`prod-bankease`) has binary logging on. The app user cannot have SUPER, so `CREATE TRIGGER` fails unless the instance parameter `log_bin_trust_function_creators=1`.
+
+Migrate now skips that trigger on 1419. Audit rows stay immutable in `App\Models\AuditLog`. Optional: ask whoever owns BankEase RDS to set `log_bin_trust_function_creators=1` if you want the database trigger as well.
+
 ## Deploy staff / student SPAs
 
 See build commands below, or use `deploy-frontend.yml` / `deploy-student.yml` with `DEPLOY_TARGET=aws`.

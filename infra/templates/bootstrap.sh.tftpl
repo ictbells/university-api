@@ -93,7 +93,7 @@ ensure_schema() {
   if [[ "$app_user" =~ ^[A-Za-z0-9_]+$ ]] && [ -n "$app_pass" ]; then
     local app_pass_sql
     app_pass_sql="$(jq -n --arg p "$app_pass" '$p')"
-    mysql -h "$RDS_HOST_TF" -P "$RDS_PORT_TF" -u "$admin_user" -e "CREATE USER IF NOT EXISTS \`$app_user\`@'%' IDENTIFIED BY $app_pass_sql; ALTER USER \`$app_user\`@'%' IDENTIFIED BY $app_pass_sql; GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, CREATE VIEW, SHOW VIEW, CREATE ROUTINE, ALTER ROUTINE, EXECUTE, LOCK TABLES, REFERENCES ON \`$DB_NAME_TF\`.* TO \`$app_user\`@'%'; FLUSH PRIVILEGES;"
+    mysql -h "$RDS_HOST_TF" -P "$RDS_PORT_TF" -u "$admin_user" -e "CREATE USER IF NOT EXISTS \`$app_user\`@'%' IDENTIFIED BY $app_pass_sql; ALTER USER \`$app_user\`@'%' IDENTIFIED BY $app_pass_sql; GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, CREATE VIEW, SHOW VIEW, CREATE ROUTINE, ALTER ROUTINE, EXECUTE, LOCK TABLES, REFERENCES, TRIGGER ON \`$DB_NAME_TF\`.* TO \`$app_user\`@'%'; FLUSH PRIVILEGES;"
     echo "app user granted on $DB_NAME_TF: $app_user"
   fi
   unset MYSQL_PWD

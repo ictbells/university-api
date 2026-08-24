@@ -150,7 +150,7 @@ grant_app_user() {
   mysql --connect-timeout=10 -h "$host" -P "$port" -u "$admin_user" \
     -e "CREATE DATABASE IF NOT EXISTS \`$name\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
   mysql --connect-timeout=10 -h "$host" -P "$port" -u "$admin_user" \
-    -e "CREATE USER IF NOT EXISTS \`$app_user\`@'%' IDENTIFIED BY $app_pass_sql; ALTER USER \`$app_user\`@'%' IDENTIFIED BY $app_pass_sql; GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, CREATE VIEW, SHOW VIEW, CREATE ROUTINE, ALTER ROUTINE, EXECUTE, LOCK TABLES, REFERENCES ON \`$name\`.* TO \`$app_user\`@'%'; FLUSH PRIVILEGES;"
+    -e "CREATE USER IF NOT EXISTS \`$app_user\`@'%' IDENTIFIED BY $app_pass_sql; ALTER USER \`$app_user\`@'%' IDENTIFIED BY $app_pass_sql; GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, CREATE VIEW, SHOW VIEW, CREATE ROUTINE, ALTER ROUTINE, EXECUTE, LOCK TABLES, REFERENCES, TRIGGER ON \`$name\`.* TO \`$app_user\`@'%'; FLUSH PRIVILEGES;"
   unset MYSQL_PWD
   echo "Granted $app_user on $name@$host"
 }
