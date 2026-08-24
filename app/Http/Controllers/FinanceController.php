@@ -31,6 +31,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 class FinanceController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
     public function __construct(
         private InvoiceService $invoices,
         private InvoiceExportService $invoiceExports,
@@ -84,10 +85,12 @@ class FinanceController extends Controller
         $data['is_active'] = $request->boolean('is_active', true);
         $data['display_order'] = (int) ($data['display_order'] ?? 0);
 
-        $fee = FeeItem::query()->create($data);
-        $this->audit->record('fee.created', 'Fee item created', 'fees', 'fee_item', $fee->id, null, $fee);
+        return $this->officeGate('finance.store_fee', null, $data, 'Create fee item', function () use ($data) {
+            $fee = FeeItem::query()->create($data);
+            $this->audit->record('fee.created', 'Fee item created', 'fees', 'fee_item', $fee->id, null, $fee);
 
-        return $fee;
+            return $fee;
+        });
     }
 
     public function updateFee(Request $request, FeeItem $fee)
@@ -111,19 +114,24 @@ class FinanceController extends Controller
         if ($request->has('is_active')) {
             $data['is_active'] = $request->boolean('is_active');
         }
-        $fee->update($data);
-        $this->audit->record('fee.updated', 'Fee item updated', 'fees', 'fee_item', $fee->id, $before, $fee);
 
-        return $fee->fresh();
+        return $this->officeGate('finance.update_fee', $fee, ['fee_id' => $fee->id, ...$data], 'Update fee item', function () use ($fee, $data, $before) {
+            $fee->update($data);
+            $this->audit->record('fee.updated', 'Fee item updated', 'fees', 'fee_item', $fee->id, $before, $fee);
+
+            return $fee->fresh();
+        });
     }
 
     public function destroyFee(FeeItem $fee)
     {
-        $before = $fee->toArray();
-        $fee->delete();
-        $this->audit->record('fee.deleted', 'Fee item deleted', 'fees', 'fee_item', $fee->id, $before, null);
+        return $this->officeGate('finance.destroy_fee', $fee, ['fee_id' => $fee->id], 'Delete fee item', function () use ($fee) {
+            $before = $fee->toArray();
+            $fee->delete();
+            $this->audit->record('fee.deleted', 'Fee item deleted', 'fees', 'fee_item', $fee->id, $before, null);
 
-        return response()->noContent();
+            return response()->noContent();
+        });
     }
 
     public function invoices(Request $request)
@@ -177,37 +185,41 @@ class FinanceController extends Controller
         ]);
         $reason = trim($data['reason']);
 
-        try {
-            $invoice = $this->invoices->disable($invoice, $reason);
-        } catch (RuntimeException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        }
-        $this->audit->record(
-            'invoice.disabled',
-            'Invoice '.$invoice->number.' disabled',
-            'fees',
-            'invoice',
-            $invoice->id,
-            null,
-            $invoice,
-            $reason,
-        );
+        return $this->officeGate('finance.disable_invoice', $invoice, ['invoice_id' => $invoice->id, ...$data], 'Disable invoice', function () use ($invoice, $reason) {
+            try {
+                $invoice = $this->invoices->disable($invoice, $reason);
+            } catch (RuntimeException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+            $this->audit->record(
+                'invoice.disabled',
+                'Invoice '.$invoice->number.' disabled',
+                'fees',
+                'invoice',
+                $invoice->id,
+                null,
+                $invoice,
+                $reason,
+            );
 
-        return $invoice;
+            return $invoice;
+        });
     }
 
     public function enableInvoice(Request $request, Invoice $invoice)
     {
         abort_unless($request->user()->hasPermission('finance.invoices.manage'), 403);
 
-        try {
-            $invoice = $this->invoices->enable($invoice);
-        } catch (RuntimeException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        }
-        $this->audit->record('invoice.enabled', 'Invoice '.$invoice->number.' enabled', 'fees', 'invoice', $invoice->id, null, $invoice);
+        return $this->officeGate('finance.enable_invoice', $invoice, ['invoice_id' => $invoice->id], 'Enable invoice', function () use ($invoice) {
+            try {
+                $invoice = $this->invoices->enable($invoice);
+            } catch (RuntimeException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+            $this->audit->record('invoice.enabled', 'Invoice '.$invoice->number.' enabled', 'fees', 'invoice', $invoice->id, null, $invoice);
 
-        return $invoice;
+            return $invoice;
+        });
     }
 
     public function history(Request $request)
@@ -372,6 +384,10 @@ class FinanceController extends Controller
             'installment_percent' => ['nullable', 'integer', Rule::in(FeeSchedule::INSTALLMENT_PERCENTS)],
             'amount' => 'nullable|numeric|min:0',
         ]);
+
+        return $this->officeGate('finance.generate_invoice', null, $data, 'Generate invoice', function () use ($request, $data) {
+            return $this->generateNow($request, $data);
+        });
 
         $student = isset($data['student_id'])
             ? Student::query()->with(['user', 'program'])->findOrFail($data['student_id'])

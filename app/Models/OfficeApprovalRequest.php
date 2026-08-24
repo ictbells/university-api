@@ -4,9 +4,12 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class OfficeApprovalRequest extends BaseModel
 {
+    use SoftDeletes;
+
     public const PENDING_UNIT_HEAD = 'pending_unit_head';
 
     public const PENDING_HOD = 'pending_hod';

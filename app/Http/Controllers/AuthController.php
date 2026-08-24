@@ -304,7 +304,8 @@ class AuthController extends Controller
         $nav = $this->navResolver->resolve($user);
         $staff = $user->staff;
         if ($staff) {
-            $staff->setAttribute('office_placement', $this->placement->label($staff));
+            $this->placement->enrich($user);
+            $staff = $user->staff;
         }
 
         $ninRecord = $user->latestNinVerification;
@@ -343,6 +344,8 @@ class AuthController extends Controller
             'nin_identity' => $this->prembly->identityPayload($ninRecord),
             'nav_unrestricted' => $nav['unrestricted'],
             'nav_link_keys' => $nav['keys'],
+            'is_office_hod' => (bool) ($staff?->is_office_hod),
+            'is_office_unit_head' => (bool) ($staff?->is_office_unit_head),
             'security' => $this->security->policyPayload($user),
             'token' => $token,
             'university' => [

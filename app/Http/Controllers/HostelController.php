@@ -15,6 +15,7 @@ use App\Services\HostelRoomService;
 use App\Services\HostelService;
 use App\Services\InvoiceService;
 use App\Services\Notifier;
+use App\Services\OfficeApprovalService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -109,23 +110,25 @@ class HostelController extends Controller
             'levels.*.closes_at' => 'nullable|date',
         ]);
 
-        $windows = $this->hostels->syncLevelWindows(
-            $data['category'],
-            $data['levels'],
-            $data['academic_term_id'] ?? null,
-        );
+        return $this->officeGate('hostel.sync_level_windows', null, $data, 'Update hostel level windows', function () use ($data) {
+            $windows = $this->hostels->syncLevelWindows(
+                $data['category'],
+                $data['levels'],
+                $data['academic_term_id'] ?? null,
+            );
 
-        $this->audit->record(
-            'hostel.level_windows',
-            'Hostel level windows updated',
-            'hostel',
-            'hostel_level_window',
-            null,
-            null,
-            ['category' => $data['category'], 'levels' => $data['levels']],
-        );
+            $this->audit->record(
+                'hostel.level_windows',
+                'Hostel level windows updated',
+                'hostel',
+                'hostel_level_window',
+                null,
+                null,
+                ['category' => $data['category'], 'levels' => $data['levels']],
+            );
 
-        return $windows;
+            return $windows;
+        });
     }
 
     public function queue(Request $request)
@@ -342,10 +345,12 @@ class HostelController extends Controller
             'is_active' => 'boolean',
         ]);
 
-        $room = $this->rooms->storeRoom($hostelBlock, $data);
-        $this->audit->record('hostel.room.created', 'Hostel room created', 'hostel', 'hostel_room', $room->id, null, $room);
+        return $this->officeGate('hostel.store_room', $hostelBlock, ['hostel_block_id' => $hostelBlock->id, ...$data], 'Create hostel room', function () use ($hostelBlock, $data) {
+            $room = $this->rooms->storeRoom($hostelBlock, $data);
+            $this->audit->record('hostel.room.created', 'Hostel room created', 'hostel', 'hostel_room', $room->id, null, $room);
 
-        return $this->rooms->formatRoom($room);
+            return $this->rooms->formatRoom($room);
+        });
     }
 
     public function updateRoom(Request $request, HostelRoom $hostelRoom)
@@ -359,53 +364,66 @@ class HostelController extends Controller
             'reserve_note' => 'nullable|string|max:255',
         ]);
 
-        $before = $hostelRoom->toArray();
-        $room = $this->rooms->updateRoom($hostelRoom, $data);
-        $this->audit->record('hostel.room.updated', 'Hostel room updated', 'hostel', 'hostel_room', $room->id, $before, $room->toArray());
+        return $this->officeGate('hostel.update_room', $hostelRoom, ['hostel_room_id' => $hostelRoom->id, ...$data], 'Update hostel room', function () use ($hostelRoom, $data) {
+            $before = $hostelRoom->toArray();
+            $room = $this->rooms->updateRoom($hostelRoom, $data);
+            $this->audit->record('hostel.room.updated', 'Hostel room updated', 'hostel', 'hostel_room', $room->id, $before, $room->toArray());
 
-        return $this->rooms->formatRoom($room);
+            return $this->rooms->formatRoom($room);
+        });
     }
 
     public function destroyRoom(HostelRoom $hostelRoom)
     {
-        $before = $hostelRoom->toArray();
-        $this->rooms->deleteRoom($hostelRoom);
-        $this->audit->record('hostel.room.deleted', 'Hostel room deleted', 'hostel', 'hostel_room', $hostelRoom->id, $before, null);
+        return $this->officeGate('hostel.destroy_room', $hostelRoom, ['hostel_room_id' => $hostelRoom->id], 'Delete hostel room', function () use ($hostelRoom) {
+            $before = $hostelRoom->toArray();
+            $this->rooms->deleteRoom($hostelRoom);
+            $this->audit->record('hostel.room.deleted', 'Hostel room deleted', 'hostel', 'hostel_room', $hostelRoom->id, $before, null);
 
-        return response()->noContent();
+            return response()->noContent();
+        });
     }
 
     public function reserveRoom(Request $request, HostelRoom $hostelRoom)
     {
         $data = $request->validate(['reserve_note' => 'nullable|string|max:255']);
-        $room = $this->rooms->reserveRoom($hostelRoom, $data['reserve_note'] ?? null);
-        $this->audit->record('hostel.room.reserved', 'Hostel room reserved', 'hostel', 'hostel_room', $room->id, null, $room->toArray());
 
-        return $this->rooms->formatRoom($room);
+        return $this->officeGate('hostel.reserve_room', $hostelRoom, ['hostel_room_id' => $hostelRoom->id, ...$data], 'Reserve hostel room', function () use ($hostelRoom, $data) {
+            $room = $this->rooms->reserveRoom($hostelRoom, $data['reserve_note'] ?? null);
+            $this->audit->record('hostel.room.reserved', 'Hostel room reserved', 'hostel', 'hostel_room', $room->id, null, $room->toArray());
+
+            return $this->rooms->formatRoom($room);
+        });
     }
 
     public function releaseRoom(HostelRoom $hostelRoom)
     {
-        $room = $this->rooms->releaseRoom($hostelRoom);
-        $this->audit->record('hostel.room.released', 'Hostel room reservation released', 'hostel', 'hostel_room', $room->id, null, $room->toArray());
+        return $this->officeGate('hostel.release_room', $hostelRoom, ['hostel_room_id' => $hostelRoom->id], 'Release hostel room reservation', function () use ($hostelRoom) {
+            $room = $this->rooms->releaseRoom($hostelRoom);
+            $this->audit->record('hostel.room.released', 'Hostel room reservation released', 'hostel', 'hostel_room', $room->id, null, $room->toArray());
 
-        return $this->rooms->formatRoom($room);
+            return $this->rooms->formatRoom($room);
+        });
     }
 
     public function disableRoom(HostelRoom $hostelRoom)
     {
-        $room = $this->rooms->setRoomActive($hostelRoom, false);
-        $this->audit->record('hostel.room.disabled', 'Hostel room disabled', 'hostel', 'hostel_room', $room->id, null, $room->toArray());
+        return $this->officeGate('hostel.disable_room', $hostelRoom, ['hostel_room_id' => $hostelRoom->id], 'Disable hostel room', function () use ($hostelRoom) {
+            $room = $this->rooms->setRoomActive($hostelRoom, false);
+            $this->audit->record('hostel.room.disabled', 'Hostel room disabled', 'hostel', 'hostel_room', $room->id, null, $room->toArray());
 
-        return $this->rooms->formatRoom($room);
+            return $this->rooms->formatRoom($room);
+        });
     }
 
     public function enableRoom(HostelRoom $hostelRoom)
     {
-        $room = $this->rooms->setRoomActive($hostelRoom, true);
-        $this->audit->record('hostel.room.enabled', 'Hostel room enabled', 'hostel', 'hostel_room', $room->id, null, $room->toArray());
+        return $this->officeGate('hostel.enable_room', $hostelRoom, ['hostel_room_id' => $hostelRoom->id], 'Enable hostel room', function () use ($hostelRoom) {
+            $room = $this->rooms->setRoomActive($hostelRoom, true);
+            $this->audit->record('hostel.room.enabled', 'Hostel room enabled', 'hostel', 'hostel_room', $room->id, null, $room->toArray());
 
-        return $this->rooms->formatRoom($room);
+            return $this->rooms->formatRoom($room);
+        });
     }
 
     public function availableBeds(Request $request)
@@ -443,10 +461,20 @@ class HostelController extends Controller
     {
         $filters = $this->allocationFilters($request);
 
-        return $this->hostels->staffAllocationQuery($filters)
+        $rows = $this->hostels->staffAllocationQuery($filters)
             ->limit(200)
-            ->get()
-            ->map(fn (HostelAllocation $allocation) => $this->hostels->formatStaffAllocation($allocation))
+            ->get();
+        $approvals = app(OfficeApprovalService::class);
+        $open = $approvals->openKeyedBySubject($rows);
+
+        return $rows
+            ->map(function (HostelAllocation $allocation) use ($approvals, $open) {
+                $row = $this->hostels->formatStaffAllocation($allocation);
+                $pending = $open->get($allocation->getKey());
+                $row['open_office_approval'] = $pending ? $approvals->serialize($pending) : null;
+
+                return $row;
+            })
             ->values();
     }
 

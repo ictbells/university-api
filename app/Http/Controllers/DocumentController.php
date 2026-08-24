@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 
 class DocumentController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
     public function __construct(private AuditWriter $audit) {}
 
     public function index(Request $request)
@@ -35,13 +36,22 @@ class DocumentController extends Controller
             'html_body' => 'nullable|string',
         ]);
         $student = Student::query()->findOrFail($data['student_id']);
-        $doc = Document::query()->create([
-            ...$data,
-            'user_id' => $student->user_id,
-            'status' => 'issued',
-        ]);
-        $this->audit->record('document.issued', $doc->title, 'documents', 'document', $doc->id, null, $doc);
 
-        return $doc;
+        return $this->officeGate(
+            'documents.issue',
+            $student,
+            $data,
+            'Issue document '.$data['title'],
+            function () use ($data, $student) {
+                $doc = Document::query()->create([
+                    ...$data,
+                    'user_id' => $student->user_id,
+                    'status' => 'issued',
+                ]);
+                $this->audit->record('document.issued', $doc->title, 'documents', 'document', $doc->id, null, $doc);
+
+                return $doc;
+            },
+        );
     }
 }

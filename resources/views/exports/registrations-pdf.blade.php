@@ -138,7 +138,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="{{ $showEntryMode ? 8 : 7 }}" style="text-align:center; color:#64748b;">No registrations match the selected filters.</td>
+                    <td colspan="{{ $showEntryMode ? 11 : 10 }}" style="text-align:center; color:#64748b;">No registrations match the selected filters.</td>
                 </tr>
             @endforelse
         </tbody>

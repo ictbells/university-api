@@ -19,7 +19,7 @@ trait HasOfficeNavLinks
 
     public function syncNavKeys(array $keys): void
     {
-        $this->navLinks()->withTrashed()->forceDelete();
+        $this->navLinks()->delete();
 
         foreach (array_values(array_unique($keys)) as $key) {
             $this->navLinks()->create(['nav_key' => $key]);

@@ -41,7 +41,14 @@ class StaffNavResolver
         };
 
         if ($keys === []) {
-            return ['unrestricted' => false, 'keys' => ['home']];
+            $keys = ['home'];
+        }
+
+        $isHead = OfficeDepartment::query()->where('head_staff_id', $staff->id)->exists()
+            || OfficeUnit::query()->where('head_staff_id', $staff->id)->exists();
+        if ($isHead) {
+            $keys[] = 'home';
+            $keys[] = 'approvals';
         }
 
         return ['unrestricted' => false, 'keys' => array_values(array_unique($keys))];

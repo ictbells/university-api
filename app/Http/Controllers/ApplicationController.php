@@ -201,7 +201,14 @@ class ApplicationController extends Controller
             'credit_assessment' => 'nullable|array',
         ]);
 
-        return $this->decorateFile($this->staffUpdates->update($application, $data));
+        return $this->officeGate(
+            'admissions.staff_update',
+            $application,
+            $data + ['application_id' => $application->id],
+            'Update application file',
+            fn () => $this->decorateFile($this->staffUpdates->update($application, $data)),
+            \App\Support\OfficeApprovalCatalog::admissionsNavKey($application->entry_mode ?? $application->channel ?? null),
+        );
     }
 
     public function formPrint(Request $request, Application $application): Response
@@ -684,18 +691,28 @@ class ApplicationController extends Controller
         abort_unless($invoice, 422, 'No acceptance fee invoice exists for this application.');
 
         $before = $invoice->toArray();
-        $invoice = $this->invoices->updateAcceptanceFeeInvoice($invoice, (float) $data['amount']);
-        $this->audit->record(
-            'application.acceptance_fee_updated',
-            'Acceptance fee amount updated',
-            'admissions',
-            'application',
-            $application->id,
-            $before,
-            $invoice->toArray(),
-        );
 
-        return $application->fresh(['acceptanceFeeInvoice']);
+        return $this->officeGate(
+            'admissions.update_acceptance_fee',
+            $application,
+            $data + ['application_id' => $application->id],
+            'Update acceptance fee',
+            function () use ($application, $invoice, $data, $before) {
+                $invoice = $this->invoices->updateAcceptanceFeeInvoice($invoice, (float) $data['amount']);
+                $this->audit->record(
+                    'application.acceptance_fee_updated',
+                    'Acceptance fee amount updated',
+                    'admissions',
+                    'application',
+                    $application->id,
+                    $before,
+                    $invoice->toArray(),
+                );
+
+                return $application->fresh(['acceptanceFeeInvoice']);
+            },
+            \App\Support\OfficeApprovalCatalog::admissionsNavKey($application->entry_mode ?? $application->channel ?? null),
+        );
     }
 
     private function issueOffer(Application $application, ?float $acceptanceFeeAmount = null): void

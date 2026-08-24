@@ -14,6 +14,7 @@ use Illuminate\Http\Request;
 
 class MedicalController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
     public function __construct(
         private ClinicBillingService $billing,
         private AuditWriter $audit,
@@ -72,18 +73,27 @@ class MedicalController extends Controller
             'nhis_valid_until' => 'nullable|date',
         ]);
         $before = $profile->toArray();
-        $profile->update($data);
-        $this->audit->record(
-            'medical.profile_updated',
-            'Medical profile updated',
-            'medical',
-            'medical_profile',
-            $profile->id,
-            $before,
-            $profile->fresh()->toArray()
-        );
 
-        return $profile->fresh();
+        return $this->officeGate(
+            'medical.update_profile',
+            $student,
+            ['student_id' => $student->id, ...$data],
+            'Update medical profile',
+            function () use ($profile, $data, $before) {
+                $profile->update($data);
+                $this->audit->record(
+                    'medical.profile_updated',
+                    'Medical profile updated',
+                    'medical',
+                    'medical_profile',
+                    $profile->id,
+                    $before,
+                    $profile->fresh()->toArray()
+                );
+
+                return $profile->fresh();
+            },
+        );
     }
 
     public function addImmunization(Request $request, Student $student)

@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 
 class AnnouncementController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
     public function __construct(private AnnouncementService $announcements) {}
 
     public function index(Request $request)
@@ -35,7 +36,7 @@ class AnnouncementController extends Controller
             'publish' => 'sometimes|boolean',
         ]);
 
-        return $this->announcements->create($request->user(), $data);
+        return $this->officeGate('announcements.store', null, $data, 'Create announcement', fn () => $this->announcements->create($request->user(), $data));
     }
 
     public function update(Request $request, Announcement $announcement)
@@ -46,23 +47,25 @@ class AnnouncementController extends Controller
             'audience' => 'sometimes|required|in:'.implode(',', AnnouncementService::AUDIENCES),
         ]);
 
-        return $this->announcements->update($announcement, $data);
+        return $this->officeGate('announcements.update', $announcement, ['announcement_id' => $announcement->id, ...$data], 'Update announcement', fn () => $this->announcements->update($announcement, $data));
     }
 
     public function publish(Announcement $announcement)
     {
-        return $this->announcements->publish($announcement);
+        return $this->officeGate('announcements.publish', $announcement, ['announcement_id' => $announcement->id], 'Publish announcement', fn () => $this->announcements->publish($announcement));
     }
 
     public function unpublish(Announcement $announcement)
     {
-        return $this->announcements->unpublish($announcement);
+        return $this->officeGate('announcements.unpublish', $announcement, ['announcement_id' => $announcement->id], 'Unpublish announcement', fn () => $this->announcements->unpublish($announcement));
     }
 
     public function destroy(Announcement $announcement)
     {
-        $this->announcements->delete($announcement);
+        return $this->officeGate('announcements.destroy', $announcement, ['announcement_id' => $announcement->id], 'Delete announcement', function () use ($announcement) {
+            $this->announcements->delete($announcement);
 
-        return response()->noContent();
+            return response()->noContent();
+        });
     }
 }

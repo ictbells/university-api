@@ -8,6 +8,7 @@ class PermissionCatalog
     {
         return [
             ['key' => 'institution.manage', 'module' => 'institution', 'label' => 'Manage institution and office setup'],
+            ['key' => 'office.approvals.view', 'module' => 'institution', 'label' => 'View office approval inbox'],
             ['key' => 'academic.campuses.manage', 'module' => 'academic', 'label' => 'Manage campuses'],
             ['key' => 'academic.colleges.manage', 'module' => 'academic', 'label' => 'Manage colleges'],
             ['key' => 'academic.departments.manage', 'module' => 'academic', 'label' => 'Manage departments'],

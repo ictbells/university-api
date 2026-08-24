@@ -19,6 +19,7 @@ use Illuminate\Http\Request;
 
 class ClinicController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
     public function __construct(
         private ClinicBillingService $billing,
         private AuditWriter $audit,
@@ -113,7 +114,13 @@ class ClinicController extends Controller
     {
         abort_unless($request->user()->hasPermission('medical.manage'), 403);
 
-        return $this->appointments->approve($visit)->load(['student.medicalProfile']);
+        return $this->officeGate(
+            'medical.approve_appointment',
+            $visit,
+            ['visit_id' => $visit->id],
+            'Approve clinic appointment',
+            fn () => $this->appointments->approve($visit)->load(['student.medicalProfile']),
+        );
     }
 
     public function rejectAppointment(Request $request, ClinicVisit $visit)
@@ -123,7 +130,13 @@ class ClinicController extends Controller
             'reason' => 'nullable|string|max:500',
         ]);
 
-        return $this->appointments->reject($visit, $data['reason'] ?? null)->load(['student.medicalProfile']);
+        return $this->officeGate(
+            'medical.reject_appointment',
+            $visit,
+            ['visit_id' => $visit->id, ...$data],
+            'Reject clinic appointment',
+            fn () => $this->appointments->reject($visit, $data['reason'] ?? null)->load(['student.medicalProfile']),
+        );
     }
 
     public function bookAppointment(Request $request)
@@ -284,21 +297,30 @@ class ClinicController extends Controller
         $data = $request->validate([
             'coverage_percent_override' => 'nullable|numeric|min:0|max:100',
         ]);
-        $bill = $this->billing->finalize(
-            $visit,
-            array_key_exists('coverage_percent_override', $data) ? (float) $data['coverage_percent_override'] : null
-        );
-        $this->audit->record(
-            'clinic.bill_finalized',
-            'Clinic bill finalized',
-            'medical',
-            'medical_bill',
-            $bill->id,
-            null,
-            $bill->toArray()
-        );
 
-        return $bill->load('invoice');
+        return $this->officeGate(
+            'medical.finalize_bill',
+            $visit,
+            ['visit_id' => $visit->id, ...$data],
+            'Finalize clinic bill',
+            function () use ($visit, $data) {
+                $bill = $this->billing->finalize(
+                    $visit,
+                    array_key_exists('coverage_percent_override', $data) ? (float) $data['coverage_percent_override'] : null
+                );
+                $this->audit->record(
+                    'clinic.bill_finalized',
+                    'Clinic bill finalized',
+                    'medical',
+                    'medical_bill',
+                    $bill->id,
+                    null,
+                    $bill->toArray()
+                );
+
+                return $bill->load('invoice');
+            },
+        );
     }
 
     public function bills(Request $request)

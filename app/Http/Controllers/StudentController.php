@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 
 class StudentController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
     public function __construct(private AuditWriter $audit) {}
 
     public function index(Request $request)
@@ -80,9 +81,18 @@ class StudentController extends Controller
             }
         }
         $before = $student->only(array_keys($data));
-        $student->update($data);
-        $this->audit->record('student.updated', 'Student profile updated', 'sis', 'student', $student->id, $before, $student->fresh());
 
-        return $student->fresh();
+        $execute = function () use ($student, $data, $before) {
+            $student->update($data);
+            $this->audit->record('student.updated', 'Student profile updated', 'sis', 'student', $student->id, $before, $student->fresh());
+
+            return $student->fresh();
+        };
+
+        if ($student->user_id !== $user->id) {
+            return $this->officeGate('students.update', $student, ['student_id' => $student->id, ...$data], 'Update student record', $execute);
+        }
+
+        return $execute();
     }
 }

@@ -19,6 +19,7 @@ use App\Http\Controllers\IntegrationController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MedicalController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\OfficeApprovalController;
 use App\Http\Controllers\OfficeStructureController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PgController;
@@ -68,6 +69,11 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/me/passport', [AuthController::class, 'myPassport']);
     Route::patch('/me', [AuthController::class, 'updateProfile']);
     Route::post('/logout', [AuthController::class, 'logout']);
+
+    Route::get('/office-approvals', [OfficeApprovalController::class, 'index']);
+    Route::get('/office-approvals/{officeApproval}', [OfficeApprovalController::class, 'show']);
+    Route::post('/office-approvals/{officeApproval}/approve', [OfficeApprovalController::class, 'approve']);
+    Route::post('/office-approvals/{officeApproval}/reject', [OfficeApprovalController::class, 'reject']);
 
     Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
@@ -134,10 +140,14 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/academic/courses', [AcademicController::class, 'courses'])
         ->middleware('academic.resource:courses,programmes,offerings,course-registration');
     Route::get('/academic/my-enrollments', [AcademicController::class, 'myEnrollments']);
+    Route::get('/academic/my-registration', [CourseRegistrationController::class, 'myContext']);
     Route::get('/academic/my-registration-context', [CourseRegistrationController::class, 'myContext']);
+    Route::post('/academic/my-registration', [CourseRegistrationController::class, 'myRegister']);
     Route::post('/academic/my-enrollments', [CourseRegistrationController::class, 'myRegister']);
+    Route::post('/academic/my-registration/enrollments/{enrollment}/drop', [CourseRegistrationController::class, 'myDrop']);
     Route::delete('/academic/my-enrollments/{enrollment}', [CourseRegistrationController::class, 'myDrop']);
     Route::get('/academic/my-registration-extension', [CourseRegistrationController::class, 'myExtension']);
+    Route::post('/academic/my-registration/extension', [CourseRegistrationController::class, 'requestExtension']);
     Route::post('/academic/my-registration-extension', [CourseRegistrationController::class, 'requestExtension']);
     Route::get('/academic/transcript/{student?}', [AcademicController::class, 'transcript']);
     Route::get('/exam-clearance', [ExamClearanceController::class, 'mine']);
@@ -180,6 +190,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
 
     Route::middleware('permission:institution.manage')->group(function () {
         Route::get('/office-structure', [OfficeStructureController::class, 'index']);
+        Route::get('/office-staff-options', [OfficeStructureController::class, 'staffOptions']);
         Route::get('/staff-nav/catalog', [OfficeStructureController::class, 'navCatalog']);
         Route::post('/office-departments', [OfficeStructureController::class, 'storeDepartment']);
         Route::post('/office-units', [OfficeStructureController::class, 'storeUnit']);
@@ -323,10 +334,6 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::patch('/unit-limits/{unitLimit}', [UnitLimitController::class, 'update']);
         Route::delete('/unit-limits/{unitLimit}', [UnitLimitController::class, 'destroy']);
     });
-    Route::get('/academic/my-registration', [CourseRegistrationController::class, 'myContext']);
-    Route::post('/academic/my-registration', [CourseRegistrationController::class, 'myRegister']);
-    Route::post('/academic/my-registration/enrollments/{enrollment}/drop', [CourseRegistrationController::class, 'myDrop']);
-    Route::post('/academic/my-registration/extension', [CourseRegistrationController::class, 'requestExtension']);
     Route::middleware('permission:academic.extensions.review')->group(function () {
         Route::get('/registration-extensions', [RegistrationExtensionController::class, 'index']);
         Route::post('/registration-extensions/{extension}/review', [RegistrationExtensionController::class, 'review']);

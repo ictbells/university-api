@@ -48,7 +48,6 @@ class OfficeApprovalExecutor
             'hostel.approve' => $this->hostelApprove($payload),
             'hostel.reject' => $this->hostelReject($payload),
             'hostel.vacate' => $this->hostelVacate($payload),
-            'hostel.store' => $this->replayController(HostelControllerProxy::class, 'store', $payload),
             default => $this->replayViaRequest($actionKey, $payload),
         };
     }
@@ -102,21 +101,36 @@ class OfficeApprovalExecutor
         $entry = $map[$actionKey] ?? null;
         abort_unless($entry, 500, 'No executor is registered for '.$actionKey);
 
-        [$class, $method, $param] = $entry;
+        [$class, $method, $param] = array_pad($entry, 3, null);
         $controller = app($class);
         $request = Request::create('/', $payload['_http_method'] ?? 'POST', $payload['data'] ?? $payload);
         $this->actingAs($payload, $request);
 
-        if ($param && isset($payload[$param['key']])) {
-            $model = $param['class']::query()->findOrFail($payload[$param['key']]);
-
-            return $controller->{$method}($request, $model);
+        $args = [];
+        $ref = new \ReflectionMethod($controller, $method);
+        foreach ($ref->getParameters() as $parameter) {
+            $type = $parameter->getType();
+            $typeName = $type instanceof \ReflectionNamedType ? $type->getName() : null;
+            if ($typeName === Request::class || ($typeName && is_subclass_of($typeName, Request::class))) {
+                $args[] = $request;
+                continue;
+            }
+            if ($typeName && class_exists($typeName) && is_subclass_of($typeName, \Illuminate\Database\Eloquent\Model::class)) {
+                $key = \Illuminate\Support\Str::snake(class_basename($typeName)).'_id';
+                if ($param && ($param['class'] ?? null) === $typeName) {
+                    $key = $param['key'];
+                }
+                $id = $payload[$key] ?? $payload[str_replace('_id', '', $key).'_id'] ?? null;
+                abort_unless($id, 500, 'Missing '.$key.' to replay '.$actionKey);
+                $args[] = $typeName::query()->findOrFail($id);
+                continue;
+            }
+            if ($parameter->isDefaultValueAvailable()) {
+                $args[] = $parameter->getDefaultValue();
+            }
         }
-        if ($param && ($param['key'] ?? null) === null) {
-            return $controller->{$method}($request);
-        }
 
-        return $controller->{$method}($request);
+        return $controller->{$method}(...$args);
     }
 
     /**

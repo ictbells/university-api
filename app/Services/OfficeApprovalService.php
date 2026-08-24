@@ -241,6 +241,22 @@ class OfficeApprovalService
             ->first();
     }
 
+    public function openKeyedBySubject($subjects)
+    {
+        $subjects = collect($subjects);
+        if ($subjects->isEmpty()) {
+            return collect();
+        }
+        $first = $subjects->first();
+
+        return OfficeApprovalRequest::query()
+            ->open()
+            ->where('subject_type', $first->getMorphClass())
+            ->whereIn('subject_id', $subjects->map->getKey()->all())
+            ->get()
+            ->keyBy('subject_id');
+    }
+
     public function isReviewer(User $user): bool
     {
         return $this->isSuperAdmin($user)

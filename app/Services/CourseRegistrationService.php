@@ -824,7 +824,7 @@ class CourseRegistrationService
         $rows = Enrollment::query()
             ->with(['offering.course', 'grade'])
             ->where('student_id', $student->id)
-            ->where('status', 'enrolled')
+            ->whereHas('grade')
             ->get();
 
         $failed = [];

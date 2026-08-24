@@ -8,6 +8,7 @@ class StaffNavCatalog
     {
         return [
             ['key' => 'home', 'section' => 'Overview', 'label' => 'Home', 'perm' => null],
+            ['key' => 'approvals', 'section' => 'Overview', 'label' => 'Approvals', 'perm' => null],
             ['key' => 'students', 'section' => 'Overview', 'label' => 'Students', 'perm' => 'students.view_any'],
             ['key' => 'admissions-undergraduate', 'section' => 'Applications', 'label' => 'Undergraduate', 'perm' => 'admissions.view'],
             ['key' => 'admissions-jupeb', 'section' => 'Applications', 'label' => 'JUPEB', 'perm' => 'admissions.view'],

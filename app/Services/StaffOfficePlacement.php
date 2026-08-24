@@ -19,6 +19,8 @@ class StaffOfficePlacement
         $staff = $this->clean($user->staff);
         $staff->setAttribute('office_placement', $this->label($staff));
         $staff->setAttribute('office_placement_stale', $this->isStale($staff));
+        $staff->setAttribute('is_office_hod', OfficeDepartment::query()->where('head_staff_id', $staff->id)->exists());
+        $staff->setAttribute('is_office_unit_head', OfficeUnit::query()->where('head_staff_id', $staff->id)->exists());
         $user->setRelation('staff', $staff);
     }
 
