@@ -21,6 +21,8 @@ class Student extends BaseModel
     {
         return [
             'date_of_birth' => 'date:Y-m-d',
+            'graduated_at' => 'date:Y-m-d',
+            'studentship_expires_at' => 'date:Y-m-d',
             'nin_locked' => 'boolean',
             'nin' => 'encrypted',
         ];

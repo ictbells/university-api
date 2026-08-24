@@ -28,6 +28,7 @@ class SecuritySettingsController extends Controller
             'exam_clearance.clinic_bills_cleared' => 'sometimes|boolean',
             'admissions_email' => 'sometimes|nullable|email|max:255',
             'admissions_phone' => 'sometimes|nullable|string|max:40',
+            'studentship_years_after_graduation' => 'sometimes|integer|min:1|max:10',
         ]);
 
         return response()->json(SecuritySettings::update($data));

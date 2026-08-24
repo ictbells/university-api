@@ -29,6 +29,7 @@ class SecuritySettings
             'inactivity_logout_minutes' => self::inactivityLogoutMinutes(),
             'exam_clearance' => ExamClearanceSettings::all(),
             ...AdmissionsContactSettings::all(),
+            'studentship_years_after_graduation' => Studentship::yearsAfterGraduation(),
         ];
     }
 
@@ -63,6 +64,12 @@ class SecuritySettings
         }
         if (array_key_exists('admissions_email', $data) || array_key_exists('admissions_phone', $data)) {
             AdmissionsContactSettings::update($data);
+        }
+        if (array_key_exists('studentship_years_after_graduation', $data)) {
+            Setting::setValue(
+                Studentship::YEARS_KEY,
+                (string) max(1, min(10, (int) $data['studentship_years_after_graduation'])),
+            );
         }
 
         return self::all();

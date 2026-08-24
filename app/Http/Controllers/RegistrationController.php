@@ -64,6 +64,7 @@ class RegistrationController extends Controller
             'search' => 'nullable|string',
             'show_entry_mode' => 'nullable|boolean',
             'course_reg_status' => 'nullable|in:not_started,in_progress,registered',
+            'studentship' => 'nullable|in:current,alumni,all',
         ]);
 
         $term = AcademicTerm::current();
@@ -92,6 +93,7 @@ class RegistrationController extends Controller
         $student->setAttribute('course_reg_status', $roster['status']);
         $student->setAttribute('enrolled_units', $roster['enrolled_units']);
         $student->setAttribute('extension_status', $roster['extension_status']);
+        $student->setAttribute('studentship_current', \App\Support\Studentship::isCurrent($student));
 
         return $student;
     }

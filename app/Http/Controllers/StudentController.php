@@ -25,6 +25,19 @@ class StudentController extends Controller
             ->with(['program:id,name,code', 'user:id,name,email'])
             ->latest();
 
+        $status = (string) $request->input('status', '');
+        if ($status === 'current' || $status === '') {
+            $query->whereIn('status', \App\Support\Studentship::CURRENT_STATUSES)
+                ->where(function ($builder) {
+                    $builder->whereNull('studentship_expires_at')
+                        ->orWhereDate('studentship_expires_at', '>', now()->toDateString());
+                });
+        } elseif ($status === 'alumni') {
+            $query->where('status', \App\Support\Studentship::STATUS_ALUMNI);
+        } elseif (in_array($status, \App\Support\Studentship::STATUSES, true)) {
+            $query->where('status', $status);
+        }
+
         if ($request->filled('matric')) {
             $key = strtoupper(preg_replace('/\s+/', '', trim((string) $request->input('matric'))) ?: '');
             $query->where(function ($builder) use ($key) {

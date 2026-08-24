@@ -113,6 +113,16 @@ class AuthController extends Controller
             }
 
             if (! $user->isStudentPortalUser()) {
+                $student = $user->student;
+                if ($student && ! \App\Support\Studentship::isCurrent($student)) {
+                    $ended = $student->studentship_expires_at?->toDateString()
+                        ?: $student->graduated_at?->toDateString();
+                    throw ValidationException::withMessages([
+                        'login' => $ended
+                            ? 'Your studentship ended on '.$ended.'. Sign in is no longer available on the student portal.'
+                            : 'Your studentship has ended. Sign in is no longer available on the student portal.',
+                    ]);
+                }
                 throw ValidationException::withMessages([
                     'login' => 'This account uses the staff portal. Sign in at '.rtrim(config('app.frontend_url'), '/'),
                 ]);

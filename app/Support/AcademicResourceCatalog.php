@@ -10,6 +10,7 @@ class AcademicResourceCatalog
         'colleges' => 'academic.colleges.manage',
         'departments' => 'academic.departments.manage',
         'sessions' => 'academic.sessions.manage',
+        'graduation' => 'academic.graduate',
         'levels' => 'academic.levels.manage',
         'courses' => 'academic.courses.manage',
         'offerings' => 'academic.offerings.manage',

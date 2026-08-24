@@ -72,6 +72,7 @@ class DatabaseSeeder extends Seeder
         Setting::setValue('security.two_factor_enabled', '0');
         Setting::setValue('security.password_rotation_days', '0');
         Setting::setValue('security.inactivity_logout_minutes', '0');
+        Setting::setValue('studentship.years_after_graduation', '2');
 
         $user = User::query()->firstOrCreate(
             ['email' => 'support@cyctechservices.com'],

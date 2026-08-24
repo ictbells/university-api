@@ -14,6 +14,7 @@ use App\Http\Controllers\CourseRegistrationController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\ExamClearanceController;
 use App\Http\Controllers\FinanceController;
+use App\Http\Controllers\GraduationController;
 use App\Http\Controllers\HostelController;
 use App\Http\Controllers\InstitutionController;
 use App\Http\Controllers\IntegrationController;
@@ -133,6 +134,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/students', [StudentController::class, 'index']);
     Route::get('/students/{student}', [StudentController::class, 'show']);
     Route::patch('/students/{student}', [StudentController::class, 'update']);
+    Route::post('/students/{student}/confer', [GraduationController::class, 'conferOne']);
 
     Route::get('/wallet', [WalletController::class, 'show']);
     Route::post('/wallet/pay/{invoice}', [WalletController::class, 'payInvoice']);
@@ -225,7 +227,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/academic/setup', [AcademicSetupController::class, 'index'])
         ->middleware('academic.resource:'.$academicSetupKeys);
     Route::get('/academic/campuses', [AcademicSetupController::class, 'campuses'])
-        ->middleware('academic.resource:campuses,colleges');
+        ->middleware('academic.resource:campuses,colleges,graduation');
     Route::middleware('academic.resource:campuses')->group(function () {
         Route::post('/campuses', [InstitutionController::class, 'storeCampus']);
         Route::patch('/campuses/{campus}', [InstitutionController::class, 'updateCampus']);
@@ -248,7 +250,11 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/academic/terms', [AcademicSetupController::class, 'terms'])
         ->middleware('academic.resource:sessions,intakes,offerings,course-registration,unit-limits,registration-extensions');
     Route::get('/academic/sessions', [AcademicSetupController::class, 'sessions'])
-        ->middleware('academic.resource:sessions,intakes,offerings,course-registration,unit-limits,registration-extensions');
+        ->middleware('academic.resource:sessions,intakes,offerings,course-registration,unit-limits,registration-extensions,graduation');
+    Route::middleware('academic.resource:graduation')->group(function () {
+        Route::get('/academic/graduation/candidates', [GraduationController::class, 'candidates']);
+        Route::post('/academic/graduation/confer', [GraduationController::class, 'confer']);
+    });
     Route::middleware('academic.resource:sessions')->group(function () {
         Route::post('/academic/sessions', [InstitutionController::class, 'storeSession']);
         Route::patch('/academic/sessions/{session}', [InstitutionController::class, 'updateSession']);
@@ -281,7 +287,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::delete('/olevel-subjects/{olevelSubject}', [AcademicSetupController::class, 'destroyOlevelSubject']);
     });
     Route::get('/academic/programs', [AcademicSetupController::class, 'programs'])
-        ->middleware('academic.resource:programmes,courses,offerings,course-registration,unit-limits');
+        ->middleware('academic.resource:programmes,courses,offerings,course-registration,unit-limits,graduation');
     Route::get('/academic/workflow-templates', [AcademicController::class, 'workflowTemplates'])
         ->middleware('academic.resource:programmes');
     Route::middleware('academic.resource:programmes')->group(function () {

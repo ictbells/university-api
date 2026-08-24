@@ -20,6 +20,7 @@ class StaffNavCatalog
             ['key' => 'colleges', 'section' => 'Academic', 'label' => 'Colleges', 'perm' => 'academic.colleges.manage'],
             ['key' => 'departments', 'section' => 'Academic', 'label' => 'Departments', 'perm' => 'academic.departments.manage'],
             ['key' => 'sessions', 'section' => 'Academic', 'label' => 'Sessions', 'perm' => 'academic.sessions.manage'],
+            ['key' => 'graduation', 'section' => 'Academic', 'label' => 'Graduation', 'perm' => 'academic.graduate'],
             ['key' => 'programmes', 'section' => 'Academic', 'label' => 'Programmes', 'perm' => 'academic.programmes.manage'],
             ['key' => 'levels', 'section' => 'Academic', 'label' => 'Levels', 'perm' => 'academic.levels.manage'],
             ['key' => 'courses', 'section' => 'Academic', 'label' => 'Courses', 'perm' => 'academic.courses.manage'],

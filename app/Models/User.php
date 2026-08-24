@@ -134,8 +134,8 @@ class User extends Authenticatable
 
     public function isStudentPortalUser(): bool
     {
-        if ($this->isStudent()) {
-            return true;
+        if ($this->student) {
+            return \App\Support\Studentship::isCurrent($this->student);
         }
 
         return $this->roles()

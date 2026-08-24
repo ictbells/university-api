@@ -14,6 +14,12 @@ Schedule::command('academic:sync-calendar')
     ->onOneServer()
     ->appendOutputTo(storage_path('logs/academic-calendar.log'));
 
+Schedule::command('students:expire-studentship')
+    ->dailyAt('00:15')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->appendOutputTo(storage_path('logs/studentship-expiry.log'));
+
 Schedule::command('clinic:cancel-no-shows')
     ->dailyAt('23:30')
     ->timezone('Africa/Lagos')

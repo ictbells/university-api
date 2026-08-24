@@ -14,6 +14,9 @@ class EnsureStudent
         if (! $user || ! $user->student) {
             return response()->json(['message' => 'Student record is not available at this stage.'], 403);
         }
+        if (! \App\Support\Studentship::isCurrent($user->student)) {
+            return response()->json(['message' => 'Your studentship has ended.'], 403);
+        }
 
         return $next($request);
     }

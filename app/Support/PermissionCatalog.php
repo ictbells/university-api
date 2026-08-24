@@ -14,6 +14,7 @@ class PermissionCatalog
             ['key' => 'academic.departments.manage', 'module' => 'academic', 'label' => 'Manage departments'],
             ['key' => 'academic.sessions.manage', 'module' => 'academic', 'label' => 'Manage academic sessions'],
             ['key' => 'academic.sessions.close', 'module' => 'academic', 'label' => 'Close academic sessions and promote students'],
+            ['key' => 'academic.graduate', 'module' => 'academic', 'label' => 'Confirm graduation and studentship'],
             ['key' => 'academic.levels.manage', 'module' => 'academic', 'label' => 'Manage academic levels'],
             ['key' => 'academic.courses.manage', 'module' => 'academic', 'label' => 'Manage courses'],
             ['key' => 'academic.offerings.manage', 'module' => 'academic', 'label' => 'Manage course offerings'],

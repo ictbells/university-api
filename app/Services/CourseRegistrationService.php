@@ -706,6 +706,11 @@ class CourseRegistrationService
 
     private function assertStudentMayMutate(Student $student, AcademicTerm $term, ?RegistrationExtension $extension): void
     {
+        if (! \App\Support\Studentship::canRegisterCourses($student)) {
+            $this->fail('studentship', $student->status === \App\Support\Studentship::STATUS_GRADUATED
+                ? 'Graduated students cannot register for a new session.'
+                : 'Studentship is not current; course registration is closed.');
+        }
         if (! TuitionProgress::meetsMinimum($student)) {
             $this->fail('tuition', 'Pay at least 25% of current-session tuition before registering courses.');
         }

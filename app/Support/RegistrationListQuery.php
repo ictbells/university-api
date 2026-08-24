@@ -20,6 +20,17 @@ class RegistrationListQuery
                 'invoices' => fn ($q) => $q->where('category', 'tuition')->whereIn('status', ['paid', 'partial'])->latest(),
             ]);
 
+        $studentship = (string) $request->input('studentship', 'current');
+        if ($studentship === 'current' || $studentship === '') {
+            $query->whereIn('status', \App\Support\Studentship::CURRENT_STATUSES)
+                ->where(function (Builder $builder) {
+                    $builder->whereNull('studentship_expires_at')
+                        ->orWhereDate('studentship_expires_at', '>', now()->toDateString());
+                });
+        } elseif ($studentship === 'alumni') {
+            $query->where('status', \App\Support\Studentship::STATUS_ALUMNI);
+        }
+
         if ($request->filled('entry_mode') && ! in_array('entry_mode', $except, true)) {
             $query->whereHas('application', fn ($q) => $q->where('entry_mode', $request->entry_mode));
         }
@@ -123,6 +134,9 @@ class RegistrationListQuery
         }
         if ($request->filled('course_reg_status')) {
             $parts[] = 'Course registration: '.str_replace('_', ' ', (string) $request->course_reg_status);
+        }
+        if ($request->filled('studentship') && $request->input('studentship') !== 'current') {
+            $parts[] = 'Studentship: '.(string) $request->studentship;
         }
 
         return $parts;

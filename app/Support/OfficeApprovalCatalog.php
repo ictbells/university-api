@@ -81,6 +81,7 @@ class OfficeApprovalCatalog
             'academic.update_session' => ['nav_key' => 'sessions', 'label' => 'Update session'],
             'academic.destroy_session' => ['nav_key' => 'sessions', 'label' => 'Delete session'],
             'academic.close_session' => ['nav_key' => 'sessions', 'label' => 'Close session and promote students'],
+            'academic.graduate' => ['nav_key' => 'graduation', 'label' => 'Confirm graduation'],
             'academic.store_term' => ['nav_key' => 'sessions', 'label' => 'Create term'],
             'academic.update_term' => ['nav_key' => 'sessions', 'label' => 'Update term'],
             'academic.destroy_term' => ['nav_key' => 'sessions', 'label' => 'Delete term'],
