@@ -155,7 +155,7 @@ EOF
 # --- packages ---
 wait_for_iam
 
-# 2 GiB swap for composer on t2.micro
+# 2 GiB swap for composer on small instances (t3.micro)
 if [ ! -f /swapfile ]; then
   fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
   chmod 600 /swapfile

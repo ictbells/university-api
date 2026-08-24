@@ -9,7 +9,7 @@ api_subdomain     = "bells-api"
 staff_subdomain   = "staff"
 student_subdomain = "student"
 
-instance_type = "t2.micro"
+instance_type = "t3.micro"
 
 rds_instance_identifier = "prod-bankease"
 # Used only to CREATE DATABASE bells_sis + GRANT (never touch schema bankease).

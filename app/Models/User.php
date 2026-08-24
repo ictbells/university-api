@@ -26,6 +26,7 @@ class User extends Authenticatable
         'jamb_registration',
         'password',
         'status',
+        'portal_credential_cipher',
     ];
 
     protected $hidden = [

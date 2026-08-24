@@ -15,7 +15,7 @@ Terraform under this directory provisions:
 
 | Resource | Detail |
 |----------|--------|
-| EC2 `t2.micro` + EIP | API at **`bells-api.cycbankease.com`** (nginx, PHP 8.3-FPM, Certbot, Supervisor) |
+| EC2 `t3.micro` + EIP | API at **`bells-api.cycbankease.com`** (nginx, PHP 8.3-FPM, Certbot, Supervisor) |
 | Route 53 A | `bells-api` only — **does not touch `api.cycbankease.com`** |
 | Existing RDS | Attaches to **`prod-bankease`**; creates schema **`bells_sis`** (not `bankease`) |
 | S3 + CloudFront | Staff + student SPAs with `www` alternates |
@@ -121,6 +121,17 @@ For student deploys, point `AWS_S3_BUCKET` / CloudFront id at `student_bucket` /
 ### Step 4 — Wait, then deploy
 
 EC2 user-data installs nginx, PHP, Supervisor, and retries Certbot (~5–10 minutes). Then push to **`master`** (or run **Deploy API** manually with environment `development`).
+
+### Terraform stuck on `aws_instance.api: Still creating...`
+
+Terraform marks EC2 **created** when AWS reports state **`running`** (usually **1–3 minutes**). It does **not** wait for user-data/bootstrap. If you see **15–20+ minutes** on this line:
+
+1. **EC2 console** → find `test-bells-sis-api` → check **Instance state** and **Status checks**.
+2. **Actions → Monitor and troubleshoot → Get system log** / **Instance reachability** for errors.
+3. Common causes: **InsufficientInstanceCapacity** for the chosen instance type in that AZ, subnet out of IPs, or account/vCPU limits.
+4. If state is already **running** but Terraform still waits, note the instance id and refresh/cancel the stuck apply (rare provider/API glitch).
+
+Mitigations: try another subnet/AZ, or change **`instance_type`** in tfvars, or retry apply later. Bootstrap logs (`/var/log/bells-sis-user-data.log`) only matter **after** Terraform finishes EC2 create.
 
 Configure **`production`** separately for VPS when ready — it does not depend on Terraform.
 
