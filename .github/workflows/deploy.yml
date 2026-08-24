@@ -6,7 +6,11 @@ name: Deploy API
 
 on:
   push:
-    branches: [main, master]
+    branches: [master]
+    paths:
+      - '**'
+      - '!infra/**'
+      - '!.github/workflows/terraform-infra.yml'
   workflow_dispatch:
     inputs:
       environment:

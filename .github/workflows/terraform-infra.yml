@@ -1,0 +1,169 @@
+# Terraform plan/apply for infra/ (Bells SIS AWS test stack).
+#
+# Standalone api repo workflow. Monorepo uses /.github/workflows/terraform-infra.yml.
+#
+# Run this BEFORE the first Deploy API run to development.
+#
+# GitHub Environment: infrastructure
+#   AWS_ROLE_ARN (OIDC) — OR — AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY
+#   LETSENCRYPT_EMAIL (secret)
+#   Optional: GITHUB_REPOSITORY var (defaults to this repo for OIDC deploy role)
+#
+# S3 state: unibadanmfb-tf-state / bells-sis/terraform.tfstate
+
+name: Terraform infra (bells-sis)
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'infra/**'
+      - '.github/workflows/terraform-infra.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'infra/**'
+      - '.github/workflows/terraform-infra.yml'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: plan = plan only; apply = plan then apply; destroy = tear down
+        required: true
+        default: plan
+        type: choice
+        options: [plan, apply, destroy]
+      ref:
+        description: Git ref to checkout (workflow_dispatch only)
+        required: false
+        default: master
+
+concurrency:
+  group: terraform-bells-sis-infra
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: infra
+
+env:
+  TF_IN_AUTOMATION: true
+  AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+  TF_VAR_letsencrypt_email: ${{ secrets.LETSENCRYPT_EMAIL }}
+  TF_VAR_github_repository: ${{ vars.GITHUB_REPOSITORY || github.repository }}
+  TF_VAR_db_password: ${{ secrets.TF_VAR_db_password }}
+
+jobs:
+  plan:
+    name: Terraform plan
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.action == 'plan'
+    runs-on: ubuntu-latest
+    environment: infrastructure
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref || github.ref }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.9.0'
+          terraform_wrapper: false
+
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN || secrets.AWS_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - run: aws sts get-caller-identity
+
+      - name: Require letsencrypt email
+        run: |
+          if [[ -z "$TF_VAR_letsencrypt_email" ]]; then
+            echo "Set secret LETSENCRYPT_EMAIL on the infrastructure environment." >&2
+            exit 1
+          fi
+
+      - run: terraform fmt -check -recursive
+      - run: terraform init -input=false
+      - run: terraform validate -no-color
+      - run: terraform plan -no-color -input=false
+
+  apply:
+    name: Terraform apply / destroy
+    if: github.event_name == 'workflow_dispatch' && (github.event.inputs.action == 'apply' || github.event.inputs.action == 'destroy')
+    runs-on: ubuntu-latest
+    environment: infrastructure
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.9.0'
+          terraform_wrapper: false
+
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN || secrets.AWS_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - run: aws sts get-caller-identity
+
+      - name: Require letsencrypt email
+        run: |
+          if [[ -z "$TF_VAR_letsencrypt_email" ]]; then
+            echo "Set secret LETSENCRYPT_EMAIL on the infrastructure environment." >&2
+            exit 1
+          fi
+
+      - run: terraform fmt -check -recursive
+      - run: terraform init -input=false
+      - run: terraform validate -no-color
+
+      - name: Terraform plan (create/update)
+        if: github.event.inputs.action == 'apply'
+        run: terraform plan -no-color -input=false -out=tfplan
+
+      - name: Terraform plan (destroy)
+        if: github.event.inputs.action == 'destroy'
+        run: terraform plan -destroy -no-color -input=false -out=tfplan
+
+      - run: terraform apply -no-color -input=false -auto-approve tfplan
+
+      - name: Post apply outputs (copy to development environment)
+        if: github.event.inputs.action == 'apply'
+        run: |
+          {
+            echo "## Terraform outputs — copy into GitHub Environment \`development\`"
+            echo ""
+            echo "### Secret"
+            echo "| Name | Value |"
+            echo "|------|-------|"
+            echo "| AWS_ROLE_ARN | \`$(terraform output -raw github_deploy_role_arn)\` |"
+            echo ""
+            echo "### Variables"
+            echo "| Name | Value |"
+            echo "|------|-------|"
+            echo "| AWS_REGION | \`us-east-1\` |"
+            echo "| AWS_EC2_INSTANCE_ID | \`$(terraform output -raw api_instance_id)\` |"
+            echo "| AWS_EC2_PATH | \`/var/www/api\` |"
+            echo "| AWS_DEPLOY_S3_BUCKET | \`$(terraform output -raw deploy_s3_bucket)\` |"
+            echo "| VITE_API_URL | \`https://$(terraform output -raw api_fqdn)\` |"
+            echo "| VITE_STUDENT_URL | \`$(terraform output -raw student_url)\` |"
+            echo "| AWS_S3_BUCKET (staff) | \`$(terraform output -raw staff_bucket)\` |"
+            echo "| AWS_CLOUDFRONT_DISTRIBUTION_ID (staff) | \`$(terraform output -raw staff_cloudfront_id)\` |"
+            echo ""
+            echo "Wait ~5–10 min after first apply for EC2 bootstrap + Certbot before deploying the API."
+          } >> "$GITHUB_STEP_SUMMARY"

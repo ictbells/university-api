@@ -1,5 +1,16 @@
 # Bells SIS — test AWS stack (cycbankease.com)
 
+Terraform lives in **`infra/`** (this repo) or **`api/infra/`** (monorepo).
+
+## Where to run Terraform (GitHub Actions)
+
+| Repo layout | Workflow location | Actions tab |
+|-------------|-------------------|-------------|
+| **This repo** (api only) | `.github/workflows/terraform-infra.yml` | **Terraform infra (bells-sis)** |
+| Monorepo (`office`) | `/.github/workflows/terraform-infra.yml` | Same workflow name at repo root |
+
+If you only pushed the **api** repo, use **Actions → Terraform infra (bells-sis) → Run workflow → apply** in **this** repository — not the monorepo.
+
 Terraform under this directory provisions:
 
 | Resource | Detail |
@@ -49,7 +60,7 @@ For Terraform only (needs broad AWS permissions — **not** the same role as dep
 |--------------|---------|
 | `AWS_ROLE_ARN` or `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | Run Terraform |
 | `LETSENCRYPT_EMAIL` | Certbot on EC2 (`TF_VAR_letsencrypt_email`) |
-| `GITHUB_REPOSITORY` (var, optional) | Defaults to this repo (`org/office`) for OIDC deploy role |
+| `GITHUB_REPOSITORY` (var, optional) | Defaults to **this repo** (`org/your-api-repo`) for OIDC deploy role |
 
 The Terraform role also needs **S3 access** to remote state bucket **`unibadanmfb-tf-state`** (object key `bells-sis/terraform.tfstate`): `s3:ListBucket` on the bucket, and `s3:GetObject` / `s3:PutObject` / `s3:DeleteObject` on `bells-sis/*`.
 
@@ -60,13 +71,13 @@ The Terraform role also needs **S3 access** to remote state bucket **`unibadanmf
 Or locally:
 
 ```bash
-cd api/infra
+cd infra
 cp terraform.tfvars.example terraform.tfvars
-# edit letsencrypt_email, github_repository
+# edit letsencrypt_email, github_repository (your GitHub org/repo name)
 terraform init && terraform apply
 ```
 
-PRs / pushes to `master` that touch `api/infra/**` run **plan only**. Apply is **manual** (`workflow_dispatch`).
+PRs / pushes to `master` that touch `infra/**` run **plan only**. Apply is **manual** (`workflow_dispatch`).
 
 ### Step 3 — Copy outputs → Environment `development`
 

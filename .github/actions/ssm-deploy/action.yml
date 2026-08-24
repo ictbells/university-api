@@ -1,0 +1,146 @@
+name: SSM deploy
+description: Upload app tarball to S3 and deploy on EC2 via AWS Systems Manager (no SSH key)
+
+inputs:
+  instance-id:
+    description: Target EC2 instance id
+    required: true
+  region:
+    description: AWS region
+    required: true
+    default: us-east-1
+  s3-bucket:
+    description: S3 bucket for deploy artifacts (EC2 role must read deploys/*)
+    required: true
+  s3-prefix:
+    description: Key prefix inside the bucket (e.g. deploys/api)
+    required: false
+    default: deploys/api
+  local-path:
+    description: Local app directory to deploy
+    required: true
+  remote-path:
+    description: Directory on the instance (e.g. /var/www/api)
+    required: true
+  exclude-from:
+    description: Path to tar exclude patterns file
+    required: false
+    default: ''
+  env-file:
+    description: Local .env to upload (empty = keep server .env)
+    required: false
+    default: ''
+  remote-command:
+    description: Shell command after extract (run on instance)
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Package, upload, and run SSM command
+      shell: bash
+      env:
+        INSTANCE_ID: ${{ inputs.instance-id }}
+        REGION: ${{ inputs.region }}
+        BUCKET: ${{ inputs.s3-bucket }}
+        PREFIX: ${{ inputs.s3-prefix }}
+        LOCAL_PATH: ${{ inputs.local-path }}
+        REMOTE_PATH: ${{ inputs.remote-path }}
+        EXCLUDE_FROM: ${{ inputs.exclude-from }}
+        ENV_FILE: ${{ inputs.env-file }}
+        REMOTE_COMMAND: ${{ inputs.remote-command }}
+        DEPLOY_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      run: |
+        set -euo pipefail
+        PREFIX="${PREFIX#/}"
+        PREFIX="${PREFIX%/}"
+        ARTIFACT_KEY="${PREFIX}/${DEPLOY_ID}.tar.gz"
+        SCRIPT_KEY="${PREFIX}/${DEPLOY_ID}.sh"
+        WORK="${RUNNER_TEMP}/ssm-deploy"
+        ARCHIVE="${WORK}/artifact.tar.gz"
+        REMOTE_SCRIPT="${WORK}/remote.sh"
+        mkdir -p "$WORK"
+
+        EXCLUDE_ARGS=()
+        if [[ -n "$EXCLUDE_FROM" && -f "$EXCLUDE_FROM" ]]; then
+          EXCLUDE_ARGS+=(--exclude-from="$EXCLUDE_FROM")
+        fi
+
+        tar -czf "$ARCHIVE" -C "$LOCAL_PATH" "${EXCLUDE_ARGS[@]}" .
+        aws s3 cp "$ARCHIVE" "s3://${BUCKET}/${ARTIFACT_KEY}" --region "$REGION"
+
+        ENV_S3_KEY=""
+        if [[ -n "$ENV_FILE" && -f "$ENV_FILE" ]]; then
+          ENV_S3_KEY="${PREFIX}/${DEPLOY_ID}.env"
+          aws s3 cp "$ENV_FILE" "s3://${BUCKET}/${ENV_S3_KEY}" --region "$REGION"
+        fi
+
+        cat >"$REMOTE_SCRIPT" <<EOF
+        #!/bin/bash
+        set -euo pipefail
+        BUCKET="${BUCKET}"
+        REGION="${REGION}"
+        ARTIFACT_KEY="${ARTIFACT_KEY}"
+        ENV_S3_KEY="${ENV_S3_KEY}"
+        REMOTE_PATH="${REMOTE_PATH}"
+        ARCHIVE="/tmp/bells-sis-deploy.tar.gz"
+
+        aws s3 cp "s3://\${BUCKET}/\${ARTIFACT_KEY}" "\$ARCHIVE" --region "\$REGION"
+        mkdir -p "\$REMOTE_PATH"
+        tar -xzf "\$ARCHIVE" -C "\$REMOTE_PATH"
+        rm -f "\$ARCHIVE"
+
+        if [[ -n "\$ENV_S3_KEY" ]]; then
+          aws s3 cp "s3://\${BUCKET}/\${ENV_S3_KEY}" "\$REMOTE_PATH/.env" --region "\$REGION"
+          chown www-data:www-data "\$REMOTE_PATH/.env"
+          chmod 640 "\$REMOTE_PATH/.env"
+        fi
+
+        chown -R www-data:www-data "\$REMOTE_PATH/storage" "\$REMOTE_PATH/bootstrap/cache" 2>/dev/null || true
+        chmod +x "\$REMOTE_PATH/scripts/"*.sh 2>/dev/null || true
+        EOF
+
+        if [[ -n "$REMOTE_COMMAND" ]]; then
+          printf '\n%s\n' "$REMOTE_COMMAND" >>"$REMOTE_SCRIPT"
+        fi
+
+        aws s3 cp "$REMOTE_SCRIPT" "s3://${BUCKET}/${SCRIPT_KEY}" --region "$REGION"
+
+        COMMAND_ID="$(aws ssm send-command \
+          --region "$REGION" \
+          --instance-ids "$INSTANCE_ID" \
+          --document-name "AWS-RunShellScript" \
+          --comment "bells-sis deploy ${DEPLOY_ID}" \
+          --parameters "commands=[\"aws s3 cp s3://${BUCKET}/${SCRIPT_KEY} /tmp/bells-sis-deploy.sh --region ${REGION} && chmod +x /tmp/bells-sis-deploy.sh && /bin/bash /tmp/bells-sis-deploy.sh\"]" \
+          --query Command.CommandId \
+          --output text)"
+
+        echo "SSM command id: $COMMAND_ID"
+        for i in $(seq 1 90); do
+          STATUS="$(aws ssm get-command-invocation \
+            --region "$REGION" \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --query Status --output text 2>/dev/null || echo Pending)"
+          case "$STATUS" in
+            Success)
+              echo "Deploy succeeded."
+              exit 0
+              ;;
+            Failed|Cancelled|TimedOut)
+              aws ssm get-command-invocation \
+                --region "$REGION" \
+                --command-id "$COMMAND_ID" \
+                --instance-id "$INSTANCE_ID" \
+                --query '[Status,StandardOutputContent,StandardErrorContent]' \
+                --output text
+              exit 1
+              ;;
+            *)
+              sleep 10
+              ;;
+          esac
+        done
+        echo "SSM command timed out waiting for completion." >&2
+        exit 1

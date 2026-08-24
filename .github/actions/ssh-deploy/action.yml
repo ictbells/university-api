@@ -1,0 +1,96 @@
+name: SSH rsync deploy
+description: Sync a local directory to a VPS or EC2 host over SSH
+
+inputs:
+  host:
+    required: true
+  user:
+    required: true
+  ssh-key:
+    required: true
+  port:
+    required: false
+    default: '22'
+  remote-path:
+    required: true
+  local-path:
+    required: true
+  extra-excludes:
+    description: Extra rsync --exclude flags (space-separated)
+    required: false
+    default: ''
+  exclude-from:
+    description: Path to an rsync exclude file
+    required: false
+    default: ''
+  env-file:
+    description: Local file to copy to remote .env (empty to leave server .env)
+    required: false
+    default: ''
+  remote-command:
+    description: Command to run on the host after sync
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Install rsync
+      shell: bash
+      run: sudo apt-get update -qq && sudo apt-get install -y -qq rsync openssh-client
+
+    - name: Sync files
+      shell: bash
+      env:
+        SSH_KEY: ${{ inputs.ssh-key }}
+        HOST: ${{ inputs.host }}
+        USER: ${{ inputs.user }}
+        PORT: ${{ inputs.port }}
+        REMOTE_PATH: ${{ inputs.remote-path }}
+        LOCAL_PATH: ${{ inputs.local-path }}
+        EXTRA_EXCLUDES: ${{ inputs.extra-excludes }}
+        EXCLUDE_FROM: ${{ inputs.exclude-from }}
+        ENV_FILE: ${{ inputs.env-file }}
+        REMOTE_COMMAND: ${{ inputs.remote-command }}
+      run: |
+        set -euo pipefail
+        mkdir -p ~/.ssh
+        chmod 700 ~/.ssh
+        printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+        ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+        SSH="ssh -i $HOME/.ssh/deploy_key -p $PORT -o StrictHostKeyChecking=accept-new"
+
+        ssh -i "$HOME/.ssh/deploy_key" -p "$PORT" -o StrictHostKeyChecking=accept-new \
+          "$USER@$HOST" "mkdir -p '$REMOTE_PATH'"
+
+        EXCLUDES=(
+          --exclude='.git/'
+          --exclude='.github/'
+          --exclude='node_modules/'
+          --exclude='tests/'
+          --exclude='.env'
+          --exclude='.env.*'
+        )
+        FROM_ARGS=()
+        if [[ -n "$EXCLUDE_FROM" ]]; then
+          FROM_ARGS+=(--exclude-from="$EXCLUDE_FROM")
+        fi
+        EXTRA_ARGS=()
+        if [[ -n "$EXTRA_EXCLUDES" ]]; then
+          # shellcheck disable=SC2206
+          EXTRA_ARGS=( $EXTRA_EXCLUDES )
+        fi
+        rsync -az --delete "${EXCLUDES[@]}" "${FROM_ARGS[@]}" "${EXTRA_ARGS[@]}" \
+          -e "$SSH" \
+          "$LOCAL_PATH"/ "$USER@$HOST:$REMOTE_PATH/"
+
+        if [[ -n "$ENV_FILE" ]]; then
+          scp -i "$HOME/.ssh/deploy_key" -P "$PORT" -o StrictHostKeyChecking=accept-new \
+            "$ENV_FILE" "$USER@$HOST:$REMOTE_PATH/.env"
+        fi
+
+        if [[ -n "$REMOTE_COMMAND" ]]; then
+          ssh -i "$HOME/.ssh/deploy_key" -p "$PORT" -o StrictHostKeyChecking=accept-new \
+            "$USER@$HOST" "$REMOTE_COMMAND"
+        fi
