@@ -64,7 +64,7 @@ class AuditWriter
             return null;
         }
         $array = is_array($data) ? $data : (method_exists($data, 'toArray') ? $data->toArray() : (array) $data);
-        foreach (['password', 'password_confirmation', 'remember_token', 'token'] as $secret) {
+        foreach (['password', 'password_confirmation', 'current_password', 'remember_token', 'token'] as $secret) {
             unset($array[$secret]);
         }
         if (isset($array['nin']) && is_string($array['nin']) && strlen($array['nin']) > 4) {

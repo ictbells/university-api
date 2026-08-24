@@ -1,0 +1,30 @@
+# Copy to terraform.tfvars (gitignored). Do not commit secrets.
+aws_region  = "us-east-1"
+environment = "test"
+project_name = "bells-sis"
+
+hosted_zone_name = "cycbankease.com"
+# Must NOT be "api" — api.cycbankease.com already belongs to BankEase.
+api_subdomain     = "bells-api"
+staff_subdomain   = "staff"
+student_subdomain = "student"
+
+instance_type = "t2.micro"
+
+rds_instance_identifier = "prod-bankease"
+# Used only to CREATE DATABASE bells_sis + GRANT (never touch schema bankease).
+rds_master_secret_name  = "prod/bankease/rds/master"
+
+db_name     = "bells_sis"
+db_username = "bells_sis_app"
+# Leave empty to auto-generate into Secrets Manager: test/bells-sis/rds/app
+# db_password = "change-me"
+
+# Required for Let's Encrypt on bells-api.cycbankease.com
+letsencrypt_email = "you@example.com"
+
+# GitHub Actions SSM deploy (no SSH key). Set AWS_ROLE_ARN to output github_deploy_role_arn.
+github_repository = "your-org/office"
+
+# No EC2 key pair — access the box with SSM Session Manager only.
+# key_name and ssh_ingress_cidr are not needed.

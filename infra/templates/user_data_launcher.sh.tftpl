@@ -1,0 +1,32 @@
+#!/bin/bash
+# Tiny launcher under the 16 KiB EC2 user-data limit. Full bootstrap lives in S3.
+set -euxo pipefail
+exec > >(tee -a /var/log/bells-sis-bootstrap-launcher.log) 2>&1
+
+REGION="${region}"
+DEST=/var/lib/cloud/bells-sis-user-data.sh
+S3_URI="s3://${bootstrap_s3_bucket}/${bootstrap_s3_key}"
+BOOTSTRAP_MD5="${bootstrap_script_md5}"
+
+echo "bells-sis launcher start $(date -u +%Y-%m-%dT%H:%M:%SZ) md5=$BOOTSTRAP_MD5"
+
+# cloud-init may not have awscli yet on Ubuntu — install minimally if needed.
+if ! command -v aws >/dev/null 2>&1; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y
+  apt-get install -y awscli || apt-get install -y awscli curl unzip
+fi
+
+for i in $(seq 1 90); do
+  if aws sts get-caller-identity --region "$REGION" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
+aws sts get-caller-identity --region "$REGION" >/dev/null
+
+mkdir -p /var/lib/cloud
+aws s3 cp "$S3_URI" "$DEST" --region "$REGION"
+chmod 0700 "$DEST"
+echo "bells-sis launcher exec $DEST"
+exec /bin/bash "$DEST"

@@ -1,0 +1,120 @@
+# Optional GitHub Actions OIDC role for SSM deploy (no SSH key).
+# Requires an existing account OIDC provider for token.actions.githubusercontent.com
+
+variable "enable_github_deploy_role" {
+  type        = bool
+  description = "Create IAM role for GitHub Actions to deploy via SSM + S3."
+  default     = true
+}
+
+variable "github_repository" {
+  type        = string
+  description = "GitHub repo allowed to assume the deploy role (org/name)."
+  default     = ""
+}
+
+data "aws_iam_openid_connect_provider" "github" {
+  count = var.enable_github_deploy_role && var.github_repository != "" ? 1 : 0
+  url   = "https://token.actions.githubusercontent.com"
+}
+
+resource "aws_iam_role" "github_deploy" {
+  count = var.enable_github_deploy_role && var.github_repository != "" ? 1 : 0
+  name  = "${var.environment}-bells-sis-github-deploy"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Federated = data.aws_iam_openid_connect_provider.github[0].arn
+      }
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+        }
+        StringLike = {
+          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repository}:*"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "github_deploy" {
+  count = var.enable_github_deploy_role && var.github_repository != "" ? 1 : 0
+  name  = "${var.environment}-bells-sis-github-deploy"
+  role  = aws_iam_role.github_deploy[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "UploadDeployArtifacts"
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:AbortMultipartUpload"
+        ]
+        Resource = "${aws_s3_bucket.bootstrap.arn}/deploys/*"
+      },
+      {
+        Sid    = "RunShellOnApiInstance"
+        Effect = "Allow"
+        Action = [
+          "ssm:SendCommand"
+        ]
+        Resource = [
+          "arn:aws:ssm:${var.aws_region}::document/AWS-RunShellScript",
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/${aws_instance.api.id}"
+        ]
+      },
+      {
+        Sid    = "ReadCommandOutput"
+        Effect = "Allow"
+        Action = [
+          "ssm:GetCommandInvocation",
+          "ssm:ListCommandInvocations"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "DescribeInstanceForDeploy"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeInstances"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "SyncSpaBuckets"
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:ListBucket",
+          "s3:GetObject"
+        ]
+        Resource = [
+          aws_s3_bucket.staff.arn,
+          "${aws_s3_bucket.staff.arn}/*",
+          aws_s3_bucket.student.arn,
+          "${aws_s3_bucket.student.arn}/*"
+        ]
+      },
+      {
+        Sid    = "InvalidateCloudFront"
+        Effect = "Allow"
+        Action = [
+          "cloudfront:CreateInvalidation",
+          "cloudfront:GetInvalidation"
+        ]
+        Resource = [
+          aws_cloudfront_distribution.staff.arn,
+          aws_cloudfront_distribution.student.arn
+        ]
+      }
+    ]
+  })
+}

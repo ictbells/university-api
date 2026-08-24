@@ -215,7 +215,11 @@ class AuthController extends Controller
             'phone' => 'nullable|string|max:30',
             'staff_title' => 'nullable|string|max:255',
             'password' => PasswordRules::rules(false),
-        ], PasswordRules::messages());
+            'current_password' => 'required_with:password|current_password',
+        ], array_merge(PasswordRules::messages(), [
+            'current_password.required_with' => 'Enter your current password to set a new one.',
+            'current_password.current_password' => 'The current password is incorrect.',
+        ]));
 
         $before = $user->toArray();
         if (! empty($data['password'])) {

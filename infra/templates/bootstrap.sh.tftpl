@@ -1,0 +1,353 @@
+#!/bin/bash
+set -euo pipefail
+exec > >(tee -a /var/log/bells-sis-user-data.log) 2>&1
+echo "bells-sis user-data start $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+export DEBIAN_FRONTEND=noninteractive
+REGION="${region}"
+API_FQDN="${api_fqdn}"
+APP_URL="${app_url}"
+FRONTEND_URL="${frontend_url}"
+STUDENT_URL="${student_url}"
+SANCTUM_DOMAINS="${sanctum_domains}"
+CORS_ORIGINS="${cors_origins}"
+SESSION_DOMAIN_TF="${session_domain}"
+SESSION_COOKIE_TF="${session_cookie}"
+LETSENCRYPT_EMAIL="${letsencrypt_email}"
+RDS_HOST_TF="${rds_host}"
+RDS_PORT_TF="${rds_port}"
+DB_NAME_TF="${db_name}"
+DB_USERNAME_TF="${db_username}"
+
+{ set +x; } 2>/dev/null
+APP_SECRET_NAME="${app_secret_name}"
+MASTER_SECRET_NAME="${master_secret_name}"
+APP_KEY_SECRET_NAME="${app_key_secret_name}"
+set -x
+
+wait_for_iam() {
+  local i=0
+  while [ "$i" -lt 90 ]; do
+    if aws sts get-caller-identity --region "$REGION" >/dev/null 2>&1; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 2
+  done
+  return 1
+}
+
+sm_get() {
+  { set +x; } 2>/dev/null
+  aws secretsmanager get-secret-value --secret-id "$1" --region "$REGION" --query SecretString --output text
+}
+
+ensure_schema() {
+  { set +x; } 2>/dev/null
+  if [ -z "$MASTER_SECRET_NAME" ]; then
+    echo "No master secret configured; skipping CREATE DATABASE (create $DB_NAME_TF manually)"
+    set -x
+    return 0
+  fi
+  local master_json app_json admin_user admin_pass app_user app_pass
+  master_json="$(sm_get "$MASTER_SECRET_NAME")" || {
+    echo "WARNING: cannot read master secret $MASTER_SECRET_NAME; skip schema create" >&2
+    set -x
+    return 0
+  }
+  app_json="$(sm_get "$APP_SECRET_NAME")"
+  admin_user="$(echo "$master_json" | jq -r '.username // empty')"
+  admin_pass="$(echo "$master_json" | jq -r '.password // empty')"
+  app_user="$(echo "$app_json" | jq -r '.username // empty')"
+  app_pass="$(echo "$app_json" | jq -r '.password // empty')"
+  if [ -z "$admin_user" ] || [ -z "$admin_pass" ]; then
+    echo "WARNING: master secret missing username/password" >&2
+    set -x
+    return 0
+  fi
+  if [ "$DB_NAME_TF" = "bankease" ]; then
+    echo "FATAL: refusing to use bankease schema" >&2
+    set -x
+    return 1
+  fi
+  export MYSQL_PWD="$admin_pass"
+  local ok=0 i
+  for i in $(seq 1 36); do
+    if mysql --connect-timeout=10 -h "$RDS_HOST_TF" -P "$RDS_PORT_TF" -u "$admin_user" -e "SELECT 1" >/dev/null 2>&1; then
+      ok=1
+      break
+    fi
+    echo "waiting for RDS $RDS_HOST_TF:$RDS_PORT_TF (attempt $i/36)"
+    sleep 5
+  done
+  if [ "$ok" -ne 1 ]; then
+    echo "WARNING: cannot connect to RDS as master; skip schema create" >&2
+    unset MYSQL_PWD
+    set -x
+    return 0
+  fi
+  mysql -h "$RDS_HOST_TF" -P "$RDS_PORT_TF" -u "$admin_user" -e "CREATE DATABASE IF NOT EXISTS \`$DB_NAME_TF\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+  if [[ "$app_user" =~ ^[A-Za-z0-9_]+$ ]] && [ -n "$app_pass" ]; then
+    local app_pass_sql
+    app_pass_sql="$(jq -n --arg p "$app_pass" '$p')"
+    mysql -h "$RDS_HOST_TF" -P "$RDS_PORT_TF" -u "$admin_user" -e "CREATE USER IF NOT EXISTS \`$app_user\`@'%' IDENTIFIED BY $app_pass_sql; ALTER USER \`$app_user\`@'%' IDENTIFIED BY $app_pass_sql; GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, CREATE VIEW, SHOW VIEW, CREATE ROUTINE, ALTER ROUTINE, EXECUTE, LOCK TABLES, REFERENCES ON \`$DB_NAME_TF\`.* TO \`$app_user\`@'%'; FLUSH PRIVILEGES;"
+    echo "app user granted on $DB_NAME_TF: $app_user"
+  fi
+  unset MYSQL_PWD
+  set -x
+}
+
+write_env() {
+  { set +x; } 2>/dev/null
+  local app_json app_user app_pass app_key
+  app_json="$(sm_get "$APP_SECRET_NAME")"
+  app_user="$(echo "$app_json" | jq -r '.username')"
+  app_pass="$(echo "$app_json" | jq -r '.password')"
+  app_key="$(sm_get "$APP_KEY_SECRET_NAME")"
+  cat >/var/www/api/.env <<EOF
+APP_NAME="Bells University of Technology"
+APP_ENV=production
+APP_KEY=$app_key
+APP_DEBUG=false
+APP_URL=$APP_URL
+FRONTEND_URL=$FRONTEND_URL
+STUDENT_URL=$STUDENT_URL
+CORS_ALLOWED_ORIGINS=$CORS_ORIGINS
+
+APP_LOCALE=en
+APP_FALLBACK_LOCALE=en
+
+DB_CONNECTION=mysql
+DB_HOST=$RDS_HOST_TF
+DB_PORT=$RDS_PORT_TF
+DB_DATABASE=$DB_NAME_TF
+DB_USERNAME=$app_user
+DB_PASSWORD=$app_pass
+
+SESSION_DRIVER=cookie
+SESSION_LIFETIME=120
+SESSION_PATH=/
+SESSION_DOMAIN=$SESSION_DOMAIN_TF
+SESSION_SECURE_COOKIE=true
+SESSION_COOKIE=$SESSION_COOKIE_TF
+SANCTUM_STATEFUL_DOMAINS=$SANCTUM_DOMAINS
+
+CACHE_STORE=database
+QUEUE_CONNECTION=database
+FILESYSTEM_DISK=local
+MAIL_MAILER=log
+MAIL_FROM_ADDRESS="noreply@bellsuniversity.edu.ng"
+MAIL_FROM_NAME="Bells University of Technology"
+
+PAYSTACK_SECRET_KEY=
+PAYSTACK_PUBLIC_KEY=
+PAYSTACK_WEBHOOK_SECRET=
+PAYSTACK_ALLOW_DEMO_FULFILL=false
+PREMBLY_API_KEY=
+PREMBLY_APP_ID=
+PREMBLY_BASE_URL=https://api.prembly.com
+EOF
+  chown www-data:www-data /var/www/api/.env
+  chmod 640 /var/www/api/.env
+  set -x
+}
+
+# --- packages ---
+wait_for_iam
+
+# 2 GiB swap for composer on t2.micro
+if [ ! -f /swapfile ]; then
+  fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >>/etc/fstab
+fi
+
+apt-get update -y
+apt-get install -y software-properties-common curl unzip git jq mysql-client openssl cron
+add-apt-repository -y ppa:ondrej/php || true
+apt-get update -y
+apt-get install -y \
+  nginx \
+  php8.3-fpm php8.3-cli php8.3-mysql php8.3-xml php8.3-mbstring \
+  php8.3-curl php8.3-zip php8.3-gd php8.3-intl php8.3-bcmath php8.3-tokenizer \
+  certbot python3-certbot-nginx \
+  supervisor \
+  awscli
+
+if ! command -v composer >/dev/null 2>&1; then
+  curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+fi
+
+mkdir -p /var/www/api/public
+chown -R www-data:www-data /var/www/api
+
+cat >/var/www/api/public/index.php <<'PHP'
+<?php
+http_response_code(200);
+header('Content-Type: text/plain');
+echo "bells-sis api placeholder — deploy Laravel to /var/www/api\n";
+PHP
+
+cat >/var/www/api/public/up <<'UP'
+OK
+UP
+
+# HTTP vhost first (ACME + later redirect)
+rm -f /etc/nginx/sites-enabled/default
+cat >/etc/nginx/sites-available/bells-sis-api <<NGX
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name $API_FQDN;
+    root /var/www/api/public;
+    index index.php index.html;
+    client_max_body_size 16m;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/api/public;
+        default_type "text/plain";
+        try_files \$uri =404;
+    }
+
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
+    }
+
+    location ~ \.php\$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
+        include fastcgi_params;
+    }
+
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}
+NGX
+ln -sfn /etc/nginx/sites-available/bells-sis-api /etc/nginx/sites-enabled/bells-sis-api
+mkdir -p /var/www/api/public/.well-known/acme-challenge
+chown -R www-data:www-data /var/www/api/public
+
+nginx -t
+systemctl enable --now nginx php8.3-fpm
+systemctl reload nginx || systemctl restart nginx
+
+ensure_schema || true
+write_env || true
+
+# Supervisor: queue worker + scheduler (replaces cron schedule:run)
+mkdir -p /var/log/bells-sis
+chown www-data:www-data /var/log/bells-sis
+
+cat >/etc/supervisor/conf.d/bells-sis.conf <<'SUP'
+[program:bells-sis-queue]
+process_name=%(program_name)s_%(process_num)02d
+command=/usr/bin/php /var/www/api/artisan queue:work database --sleep=3 --tries=3 --max-time=3600
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=www-data
+numprocs=1
+redirect_stderr=true
+stdout_logfile=/var/log/bells-sis/queue.log
+stopwaitsecs=3600
+
+[program:bells-sis-scheduler]
+command=/usr/bin/php /var/www/api/artisan schedule:work
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=www-data
+numprocs=1
+redirect_stderr=true
+stdout_logfile=/var/log/bells-sis/scheduler.log
+SUP
+
+systemctl enable supervisor
+systemctl restart supervisor
+supervisorctl reread
+supervisorctl update || true
+
+# TLS: self-signed first, then certbot with retries
+SELF_DIR=/etc/nginx/ssl/selfsigned
+mkdir -p "$SELF_DIR"
+openssl req -x509 -nodes -newkey rsa:2048 -days 30 \
+  -keyout "$SELF_DIR/privkey.pem" -out "$SELF_DIR/fullchain.pem" \
+  -subj "/CN=$API_FQDN" >/dev/null 2>&1
+
+install_https_vhost() {
+  local cert="$1" key="$2"
+  cat >/etc/nginx/sites-available/bells-sis-api <<NGXSSL
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name $API_FQDN;
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/api/public;
+        default_type "text/plain";
+        try_files \$uri =404;
+    }
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name $API_FQDN;
+    root /var/www/api/public;
+    index index.php index.html;
+    client_max_body_size 16m;
+
+    ssl_certificate     $cert;
+    ssl_certificate_key $key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
+    }
+
+    location ~ \.php\$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
+        include fastcgi_params;
+    }
+
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}
+NGXSSL
+  nginx -t && systemctl reload nginx
+}
+
+install_https_vhost "$SELF_DIR/fullchain.pem" "$SELF_DIR/privkey.pem"
+
+if [ -n "$LETSENCRYPT_EMAIL" ] && command -v certbot >/dev/null 2>&1; then
+  # Wait for DNS A record to point here (Route 53 apply may race).
+  for attempt in 1 2 3 4 5 6; do
+    if certbot certonly --nginx -d "$API_FQDN" \
+      --non-interactive --agree-tos -m "$LETSENCRYPT_EMAIL" \
+      --keep-until-expiring; then
+      install_https_vhost "/etc/letsencrypt/live/$API_FQDN/fullchain.pem" "/etc/letsencrypt/live/$API_FQDN/privkey.pem"
+      break
+    fi
+    echo "certbot attempt $attempt failed; sleeping 60s"
+    sleep 60
+  done
+  cat >/etc/cron.d/certbot-renew <<'CRON'
+SHELL=/bin/bash
+0 3,15 * * * root certbot renew --quiet --deploy-hook "nginx -t && systemctl reload nginx"
+CRON
+  chmod 644 /etc/cron.d/certbot-renew
+else
+  echo "letsencrypt_email empty or certbot missing; HTTPS is self-signed"
+fi
+
+echo "bells-sis user-data done $(date -u +%Y-%m-%dT%H:%M:%SZ)"

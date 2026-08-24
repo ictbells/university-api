@@ -28,6 +28,13 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'env_s3' => [
+        'enabled' => env('LOAD_ENV_FROM_S3', false),
+        'bucket' => env('ENV_S3_BUCKET', env('AWS_BUCKET')),
+        'key' => env('ENV_S3_KEY', 'api/.env'),
+        'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
+    ],
+
     'paystack' => [
         'secret' => env('PAYSTACK_SECRET_KEY'),
         'public' => env('PAYSTACK_PUBLIC_KEY'),
