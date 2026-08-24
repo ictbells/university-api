@@ -46,23 +46,38 @@ Infrastructure must exist **before** the API deploy workflow can succeed. Use th
 
 ```mermaid
 flowchart TD
-  A[Create GitHub Environment infrastructure] --> B[Run Terraform infra workflow apply]
-  B --> C[Copy outputs into development env]
+  A[Configure GitHub Environment development] --> B[Run Terraform infra workflow apply]
+  B --> C[Copy remaining outputs into development]
   C --> D[Wait for EC2 bootstrap + Certbot]
-  D --> E[Push api/ to master → Deploy API]
+  D --> E[Push to master → Deploy API]
 ```
 
-### Step 1 — GitHub Environment `infrastructure`
+### Step 1 — GitHub Environment `development`
 
-For Terraform only (needs broad AWS permissions — **not** the same role as deploy):
+Terraform and API deploy both use **`development`**. Credential flow:
+
+**First Terraform apply** — use **admin** AWS credentials (broad permissions + S3 state):
 
 | Secret / var | Purpose |
 |--------------|---------|
-| `AWS_ROLE_ARN` or `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | Run Terraform |
+| `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | Recommended for first apply (leave `AWS_ROLE_ARN` unset) |
+| — or — `AWS_ROLE_ARN` | Admin OIDC role for Terraform (not the deploy role yet) |
 | `LETSENCRYPT_EMAIL` | Certbot on EC2 (`TF_VAR_letsencrypt_email`) |
-| `GITHUB_REPOSITORY` (var, optional) | Defaults to **this repo** (`org/your-api-repo`) for OIDC deploy role |
+| `GITHUB_REPOSITORY` (var, optional) | Defaults to **this repo** for OIDC deploy role |
 
-The Terraform role also needs **S3 access** to remote state bucket **`unibadanmfb-tf-state`** (object key `bells-sis/terraform.tfstate`): `s3:ListBucket` on the bucket, and `s3:GetObject` / `s3:PutObject` / `s3:DeleteObject` on `bells-sis/*`.
+**After first apply** — add deploy outputs (Step 3). Set `AWS_ROLE_ARN` to `github_deploy_role_arn` for **Deploy API**. Keep admin access keys if you need to re-run Terraform later (the deploy role cannot run Terraform).
+
+The Terraform principal also needs **S3 access** to remote state bucket **`unibadanmfb-tf-state`** (object key `bells-sis/terraform.tfstate`): `s3:ListBucket` on the bucket, and `s3:GetObject` / `s3:PutObject` / `s3:DeleteObject` on `bells-sis/*`.
+
+**OIDC role trust** (if using `AWS_ROLE_ARN` for Terraform):
+
+```json
+"StringLike": {
+  "token.actions.githubusercontent.com:sub": "repo:YOUR_ORG/YOUR_API_REPO:environment:development"
+}
+```
+
+Account-wide OIDC provider `token.actions.githubusercontent.com` must already exist in AWS.
 
 ### Step 2 — Run Terraform
 
@@ -79,9 +94,9 @@ terraform init && terraform apply
 
 PRs / pushes to `master` that touch `infra/**` run **plan only**. Apply is **manual** (`workflow_dispatch`).
 
-### Step 3 — Copy outputs → Environment `development`
+### Step 3 — Copy outputs → same `development` environment
 
-After apply, open the workflow **job summary** (or `terraform output`) and set:
+After apply, open the workflow **job summary** (or `terraform output`) and add:
 
 | development secret | terraform output |
 |--------------------|------------------|

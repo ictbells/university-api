@@ -4,8 +4,8 @@
 #
 # Run this BEFORE the first Deploy API run to development.
 #
-# GitHub Environment: infrastructure
-#   AWS_ROLE_ARN (OIDC) — OR — AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY
+# GitHub Environment: development
+#   AWS_ROLE_ARN (OIDC, admin/Terraform) — OR — AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY
 #   LETSENCRYPT_EMAIL (secret)
 #   Optional: GITHUB_REPOSITORY var (defaults to this repo for OIDC deploy role)
 #
@@ -57,7 +57,7 @@ jobs:
     name: Terraform plan
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.action == 'plan'
     runs-on: ubuntu-latest
-    environment: infrastructure
+    environment: development
     permissions:
       contents: read
       id-token: write
@@ -72,19 +72,19 @@ jobs:
           terraform_wrapper: false
 
       - name: Configure AWS
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: ./.github/actions/configure-aws
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN || secrets.AWS_ROLE_ARN }}
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          role-arn: ${{ vars.AWS_ROLE_ARN || secrets.AWS_ROLE_ARN }}
+          access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          region: ${{ env.AWS_REGION }}
 
       - run: aws sts get-caller-identity
 
       - name: Require letsencrypt email
         run: |
           if [[ -z "$TF_VAR_letsencrypt_email" ]]; then
-            echo "Set secret LETSENCRYPT_EMAIL on the infrastructure environment." >&2
+            echo "Set secret LETSENCRYPT_EMAIL on the development environment." >&2
             exit 1
           fi
 
@@ -97,7 +97,7 @@ jobs:
     name: Terraform apply / destroy
     if: github.event_name == 'workflow_dispatch' && (github.event.inputs.action == 'apply' || github.event.inputs.action == 'destroy')
     runs-on: ubuntu-latest
-    environment: infrastructure
+    environment: development
     permissions:
       contents: read
       id-token: write
@@ -112,19 +112,19 @@ jobs:
           terraform_wrapper: false
 
       - name: Configure AWS
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: ./.github/actions/configure-aws
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN || secrets.AWS_ROLE_ARN }}
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          role-arn: ${{ vars.AWS_ROLE_ARN || secrets.AWS_ROLE_ARN }}
+          access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          region: ${{ env.AWS_REGION }}
 
       - run: aws sts get-caller-identity
 
       - name: Require letsencrypt email
         run: |
           if [[ -z "$TF_VAR_letsencrypt_email" ]]; then
-            echo "Set secret LETSENCRYPT_EMAIL on the infrastructure environment." >&2
+            echo "Set secret LETSENCRYPT_EMAIL on the development environment." >&2
             exit 1
           fi
 

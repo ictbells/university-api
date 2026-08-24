@@ -63,12 +63,12 @@ jobs:
 
       - name: Configure AWS
         if: ${{ steps.target.outputs.target == 'aws' || env.PULL_ENV_FROM_S3 == 'true' }}
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: ./.github/actions/configure-aws
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+          role-arn: ${{ secrets.AWS_ROLE_ARN }}
+          access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          region: ${{ vars.AWS_REGION || 'us-east-1' }}
 
       - uses: shivammathur/setup-php@v2
         with:
