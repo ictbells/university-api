@@ -8,8 +8,33 @@ cd "$ROOT"
 export HOME="${HOME:-/var/www}"
 export COMPOSER_HOME="${COMPOSER_HOME:-/var/www/.composer}"
 export COMPOSER_ALLOW_SUPERUSER=1
-mkdir -p "$COMPOSER_HOME"
+mkdir -p "$COMPOSER_HOME" "$HOME"
 mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache
+
+git config --global --add safe.directory "$ROOT" 2>/dev/null || true
+git config --global --add safe.directory '*' 2>/dev/null || true
+
+ensure_php_841() {
+  if php -r 'exit(version_compare(PHP_VERSION, "8.4.1", ">=") ? 0 : 1);' 2>/dev/null; then
+    return 0
+  fi
+  echo "PHP $(php -r 'echo PHP_VERSION;' 2>/dev/null || echo unknown) < 8.4.1; installing php8.4 (composer.lock requires it)."
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y
+  apt-get install -y \
+    php8.4-fpm php8.4-cli php8.4-mysql php8.4-xml php8.4-mbstring \
+    php8.4-curl php8.4-zip php8.4-gd php8.4-intl php8.4-bcmath php8.4-tokenizer
+  if [[ -x /usr/bin/php8.4 ]]; then
+    update-alternatives --install /usr/bin/php php /usr/bin/php8.4 84 || true
+    update-alternatives --set php /usr/bin/php8.4 || true
+  fi
+  sed -i 's/php8\.3-fpm\.sock/php8.4-fpm.sock/g' /etc/nginx/sites-available/* 2>/dev/null || true
+  systemctl enable --now php8.4-fpm
+  systemctl disable --now php8.3-fpm 2>/dev/null || true
+  nginx -t && systemctl reload nginx || true
+}
+
+ensure_php_841
 
 if [[ "${LOAD_ENV_FROM_S3:-false}" =~ ^(1|true|yes|on)$ ]]; then
   ENV_S3_FORCE=true bash "$ROOT/scripts/pull-env-from-s3.sh"

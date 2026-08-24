@@ -15,7 +15,7 @@ Terraform under this directory provisions:
 
 | Resource | Detail |
 |----------|--------|
-| EC2 `t3.micro` + EIP | API at **`bells-api.cycbankease.com`** (nginx, PHP 8.3-FPM, Certbot, Supervisor) |
+| EC2 `t3.micro` + EIP | API at **`bells-api.cycbankease.com`** (nginx, PHP 8.4-FPM, Certbot, Supervisor) |
 | Route 53 A | `bells-api` only — **does not touch `api.cycbankease.com`** |
 | Existing RDS | Attaches to **`prod-bankease`**; creates schema **`bells_sis`** (not `bankease`) |
 | S3 + CloudFront | Staff + student SPAs with `www` alternates |
