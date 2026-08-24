@@ -13,10 +13,10 @@ class ResourceCatalog
             [
                 'slug' => 'staff-portal-operations-sop',
                 'title' => 'Staff Portal Operations SOP',
-                'description' => 'Standard operating procedure for the Bells University staff portal: access control, office structure, HOD/unit-head approvals, academic and admissions setup, candidate and applicant import, security policies, and day-to-day administration.',
+                'description' => 'Standard operating procedure for the Bells University staff portal: access control, office structure, HOD/unit-head approvals, academic and admissions setup, candidate and continuing-student import, invoice and wallet history import, security policies, and day-to-day administration.',
                 'permission' => 'resources.view',
                 'filename' => 'bells-staff-portal-operations-sop.md',
-                'version' => '1.3',
+                'version' => '1.4',
                 'updated_at' => '2026-08-24',
             ],
         ];

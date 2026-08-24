@@ -2,9 +2,10 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class LegacyInvoiceImport extends BaseModel
+class LegacyInvoiceImport extends Model
 {
     protected $guarded = [];
 

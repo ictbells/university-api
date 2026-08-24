@@ -12,7 +12,9 @@ use App\Models\Role;
 use App\Models\User;
 use App\Support\ApplicantImportColumns;
 use App\Support\ApplicationReference;
+use App\Support\ImportLookupSheets;
 use App\Support\NinCipher;
+use App\Support\SpreadsheetImport;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
@@ -20,10 +22,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\IOFactory;
-use PhpOffice\PhpSpreadsheet\Spreadsheet;
-use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
@@ -42,41 +41,28 @@ class ApplicantImportService
     public function template(string $entryMode): StreamedResponse
     {
         $entryMode = $this->normalizeMode($entryMode);
-        $columns = ApplicantImportColumns::forMode($entryMode);
-        $spreadsheet = new Spreadsheet;
 
-        $instructions = $spreadsheet->getActiveSheet();
-        $instructions->setTitle('Instructions');
-        $instructions->fromArray([
-            ['Import applicants — '.$entryMode],
-            [''],
-            ['1. Keep the header row on the Applicants sheet. Do not rename columns.'],
-            ['2. Fill one row per applicant. Leave password blank to generate a new password and email it.'],
-            ['3. first_choice_programme_code must match a programme code already set up for this entry mode.'],
-            ['4. Documents are not imported from Excel. Applicants upload remaining files after they sign in.'],
-            ['5. If Verify NIN is checked on upload, Prembly is called for every NIN.'],
-            ['6. Login on the student portal uses application number (APP/YYYY/#####) or JAMB registration, not email.'],
-            [''],
-            ['Required columns: '.implode(', ', ApplicantImportColumns::required($entryMode))],
-        ], null, 'A1');
-        $instructions->getColumnDimension('A')->setWidth(120);
-
-        $sheet = $spreadsheet->createSheet();
-        $sheet->setTitle('Applicants');
-        $sheet->fromArray($columns, null, 'A1');
-        $sheet->fromArray([array_values(ApplicantImportColumns::sample($entryMode))], null, 'A2');
-        foreach ($columns as $index => $column) {
-            $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($index + 1))->setAutoSize(true);
-        }
-        $spreadsheet->setActiveSheetIndex(1);
-
-        $filename = "applicant-import-{$entryMode}-template.xlsx";
-
-        return response()->streamDownload(function () use ($spreadsheet) {
-            (new Xlsx($spreadsheet))->save('php://output');
-        }, $filename, [
-            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        ]);
+        return SpreadsheetImport::templateDownload(
+            'Applicants',
+            ApplicantImportColumns::forMode($entryMode),
+            [
+                'Import applicants — '.$entryMode,
+                '',
+                '1. Keep the header row on the Applicants sheet. Do not rename columns. Do not paste data into Instructions or lookup sheets.',
+                '2. Fill one row per applicant. Leave password blank to generate a new password and email it.',
+                '3. Copy first_choice_programme_code from the Programmes sheet (code column). It must match a programme already set up for this entry mode.',
+                '4. Copy O-level subject names from the O-level subjects sheet. The application window (intake) is chosen on the import page, not in this file.',
+                '5. Lookup sheets (Campuses, Colleges, Departments, Programmes, Levels, O-level subjects) are for reference. Import reads only the Applicants sheet.',
+                '6. Documents are not imported from Excel. Applicants upload remaining files after they sign in.',
+                '7. If Verify NIN is checked on upload, Prembly is called for every NIN.',
+                '8. Login on the student portal uses application number (APP/YYYY/#####) or JAMB registration, not email.',
+                '',
+                'Required columns: '.implode(', ', ApplicantImportColumns::required($entryMode)),
+            ],
+            ApplicantImportColumns::sample($entryMode),
+            "applicant-import-{$entryMode}-template.xlsx",
+            ImportLookupSheets::forApplicants($entryMode),
+        );
     }
 
     /**
@@ -217,25 +203,11 @@ class ApplicantImportService
 
     public function errorSpreadsheet(array $errors): StreamedResponse
     {
-        $spreadsheet = new Spreadsheet;
-        $sheet = $spreadsheet->getActiveSheet();
-        $sheet->fromArray(['row', 'email', 'nin', 'message'], null, 'A1');
-        $line = 2;
-        foreach ($errors as $error) {
-            $sheet->fromArray([
-                $error['row'] ?? '',
-                $error['email'] ?? '',
-                $error['nin'] ?? '',
-                $error['message'] ?? '',
-            ], null, 'A'.$line);
-            $line++;
-        }
-
-        return response()->streamDownload(function () use ($spreadsheet) {
-            (new Xlsx($spreadsheet))->save('php://output');
-        }, 'applicant-import-errors.xlsx', [
-            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        ]);
+        return SpreadsheetImport::errorSpreadsheet(
+            $errors,
+            ['row', 'email', 'nin', 'message'],
+            'applicant-import-errors.xlsx',
+        );
     }
 
     private function cacheKey(string $importId): string

@@ -12,6 +12,7 @@ use App\Models\Student;
 use App\Models\User;
 use App\Support\ApplicantImportColumns;
 use App\Support\ApplicationReference;
+use App\Support\ImportLookupSheets;
 use App\Support\NinCipher;
 use App\Support\SpreadsheetImport;
 use App\Support\StudentImportColumns;
@@ -44,16 +45,18 @@ class StudentImportService
                 'Import students — continuing / returning students',
                 '',
                 '1. Import invoices and wallet history first (keyed by matric_number). Those rows stay pending until this step creates the student.',
-                '2. Keep the header row. One row per student. Login on the student portal uses the supplied matric_number, not email.',
-                '3. programme_code must match an existing programme that accepts this entry mode.',
-                '4. current_level is 100, 200, 300, 400, or 500 (or 1–5, which is stored as 100–500).',
-                '5. Leave password blank to generate a new password. Tick Email portal passwords on upload to send it.',
-                '6. Duplicate email, NIN, JAMB, matric number, or old application number is skipped.',
+                '2. Keep the header row on the Students sheet. One row per student. Do not paste data into Instructions or lookup sheets.',
+                '3. Copy programme_code from the Programmes sheet (code column). It must match a programme that accepts this entry mode.',
+                '4. Copy current_level from the Levels sheet (code column). Use 100, 200, 300, 400, or 500 (or 1–5, stored as 100–500).',
+                '5. Lookup sheets (Campuses, Colleges, Departments, Programmes, Levels) are for reference. Import reads only the Students sheet.',
+                '6. Leave password blank to generate a new password. Tick Email portal passwords on upload to send it.',
+                '7. Duplicate email, NIN, JAMB, matric number, or old application number is skipped.',
                 '',
                 'Required columns: '.implode(', ', StudentImportColumns::required()),
             ],
             StudentImportColumns::sample(),
             'student-import-template.xlsx',
+            ImportLookupSheets::forStudents(),
         );
     }
 

@@ -8,6 +8,7 @@ use App\Models\WalletTransaction;
 use App\Support\SpreadsheetImport;
 use App\Support\WalletImportColumns;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
@@ -63,6 +64,7 @@ class WalletImportService
         $skipped = 0;
         $errors = [];
         $matricsToPost = [];
+        $seenRefs = $this->pendingReferences();
 
         for ($i = 1, $count = count($rows); $i < $count; $i++) {
             $row = $rows[$i];
@@ -72,7 +74,7 @@ class WalletImportService
             }
             $data = SpreadsheetImport::mapRow($row, $indexes);
             try {
-                $matric = $this->stageRow($data, $line);
+                $matric = $this->stageRow($data, $line, $seenRefs);
                 $student = $this->findStudent($matric);
                 if ($student) {
                     $matricsToPost[$matric] = $student;
@@ -210,7 +212,7 @@ class WalletImportService
                 continue;
             }
             try {
-                $this->postStaging($student, $row);
+                DB::transaction(fn () => $this->postStaging($student, $row));
                 $posted++;
             } catch (Throwable $e) {
                 $halted = true;
@@ -232,9 +234,26 @@ class WalletImportService
     }
 
     /**
-     * @param  array<string, string>  $data
+     * @return array<string, true>
      */
-    private function stageRow(array $data, int $line): string
+    private function pendingReferences(): array
+    {
+        $seen = [];
+        foreach (LegacyWalletImport::query()->where('status', 'pending')->get(['payload']) as $row) {
+            $reference = trim((string) data_get($row->payload, 'reference'));
+            if ($reference !== '') {
+                $seen[$reference] = true;
+            }
+        }
+
+        return $seen;
+    }
+
+    /**
+     * @param  array<string, string>  $data
+     * @param  array<string, true>  $seenRefs
+     */
+    private function stageRow(array $data, int $line, array &$seenRefs): string
     {
         foreach (WalletImportColumns::required() as $field) {
             if (blank($data[$field] ?? null)) {
@@ -259,10 +278,7 @@ class WalletImportService
         if ($reference !== '' && WalletTransaction::query()->where('reference', $reference)->exists()) {
             throw new RuntimeException('This wallet reference already exists.');
         }
-        if ($reference !== '' && LegacyWalletImport::query()
-            ->where('status', 'pending')
-            ->where('payload->reference', $reference)
-            ->exists()) {
+        if ($reference !== '' && isset($seenRefs[$reference])) {
             throw new RuntimeException('This wallet reference is already staged.');
         }
 
@@ -280,6 +296,10 @@ class WalletImportService
             'occurred_at' => $occurred,
             'source_row' => $line,
         ]);
+
+        if ($reference !== '') {
+            $seenRefs[$reference] = true;
+        }
 
         return $matric;
     }

@@ -30,6 +30,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Mail;
 use Laravel\Sanctum\Sanctum;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Tests\TestCase;
@@ -80,6 +81,25 @@ class StudentImportTest extends TestCase
             'is_open' => true,
             'application_fee_amount' => 5000,
         ]);
+    }
+
+    public function test_staff_can_download_template_with_lookup_sheets(): void
+    {
+        Sanctum::actingAs($this->staffUser(['students.import'], ['import-students']));
+
+        $response = $this->get('/api/students/import-template?entry_mode=utme')
+            ->assertOk()
+            ->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+        $spreadsheet = $this->loadWorkbook($response->streamedContent());
+        foreach (['Instructions', 'Students', 'Campuses', 'Colleges', 'Departments', 'Programmes', 'Levels'] as $title) {
+            $this->assertNotNull($spreadsheet->getSheetByName($title), "Missing sheet {$title}");
+        }
+        $this->assertNull($spreadsheet->getSheetByName('O-level subjects'));
+
+        $programmes = $spreadsheet->getSheetByName('Programmes')->toArray(null, true, true, false);
+        $codes = collect($programmes)->skip(1)->map(fn ($row) => (string) ($row[1] ?? ''));
+        $this->assertTrue($codes->contains('BSC-CS'));
     }
 
     public function test_invoice_import_holds_rows_until_student_exists(): void
@@ -266,6 +286,14 @@ class StudentImportTest extends TestCase
         (new Xlsx($spreadsheet))->save($path);
 
         return new UploadedFile($path, strtolower($title).'.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+    }
+
+    private function loadWorkbook(string $binary): Spreadsheet
+    {
+        $path = sys_get_temp_dir().'/student-template-'.uniqid().'.xlsx';
+        file_put_contents($path, $binary);
+
+        return IOFactory::load($path);
     }
 
     /**

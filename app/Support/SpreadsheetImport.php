@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Cache;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -146,6 +147,7 @@ class SpreadsheetImport
      * @param  list<string>  $columns
      * @param  list<string>  $instructions
      * @param  array<string, string>  $sample
+     * @param  list<array{title: string, headers: list<string>, rows: list<list<mixed>>}>  $referenceSheets
      */
     public static function templateDownload(
         string $sheetTitle,
@@ -153,6 +155,7 @@ class SpreadsheetImport
         array $instructions,
         array $sample,
         string $filename,
+        array $referenceSheets = [],
     ): StreamedResponse {
         $spreadsheet = new Spreadsheet;
         $help = $spreadsheet->getActiveSheet();
@@ -168,9 +171,19 @@ class SpreadsheetImport
             $values[] = $sample[$column] ?? '';
         }
         $sheet->fromArray([$values], null, 'A2');
-        foreach ($columns as $index => $column) {
-            $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($index + 1))->setAutoSize(true);
+        self::autosizeColumns($sheet, count($columns));
+
+        foreach ($referenceSheets as $reference) {
+            $lookup = $spreadsheet->createSheet();
+            $lookup->setTitle(substr((string) $reference['title'], 0, 31));
+            $headers = $reference['headers'] ?? [];
+            $lookup->fromArray($headers, null, 'A1');
+            if (($reference['rows'] ?? []) !== []) {
+                $lookup->fromArray($reference['rows'], null, 'A2');
+            }
+            self::autosizeColumns($lookup, count($headers));
         }
+
         $spreadsheet->setActiveSheetIndex(1);
 
         return response()->streamDownload(function () use ($spreadsheet) {
@@ -178,6 +191,13 @@ class SpreadsheetImport
         }, $filename, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         ]);
+    }
+
+    private static function autosizeColumns(Worksheet $sheet, int $columnCount): void
+    {
+        for ($index = 1; $index <= max(1, $columnCount); $index++) {
+            $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($index))->setAutoSize(true);
+        }
     }
 
     /**

@@ -10,6 +10,7 @@ use App\Support\FeeSchedule;
 use App\Support\InvoiceImportColumns;
 use App\Support\SpreadsheetImport;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -184,7 +185,7 @@ class InvoiceImportService
         $failed = 0;
         foreach ($rows as $row) {
             try {
-                $this->postStaging($student, $row);
+                DB::transaction(fn () => $this->postStaging($student, $row));
                 $posted++;
             } catch (Throwable $e) {
                 $row->update([
@@ -203,23 +204,25 @@ class InvoiceImportService
      */
     private function importRow(array $data, int $line): string
     {
-        $payload = $this->validatedPayload($data);
-        $student = $this->findStudent($payload['matric_number']);
-        $staging = LegacyInvoiceImport::query()->create([
-            'matric_number' => $payload['matric_number'],
-            'invoice_number' => $payload['invoice_number'] ?: null,
-            'payload' => $payload,
-            'status' => 'pending',
-            'source_row' => $line,
-        ]);
+        return DB::transaction(function () use ($data, $line) {
+            $payload = $this->validatedPayload($data);
+            $student = $this->findStudent($payload['matric_number']);
+            $staging = LegacyInvoiceImport::query()->create([
+                'matric_number' => $payload['matric_number'],
+                'invoice_number' => $payload['invoice_number'] ?: null,
+                'payload' => $payload,
+                'status' => 'pending',
+                'source_row' => $line,
+            ]);
 
-        if (! $student) {
-            return 'pending';
-        }
+            if (! $student) {
+                return 'pending';
+            }
 
-        $this->postStaging($student, $staging);
+            $this->postStaging($student, $staging);
 
-        return 'posted';
+            return 'posted';
+        });
     }
 
     /**

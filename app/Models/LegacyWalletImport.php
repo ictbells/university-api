@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
-class LegacyWalletImport extends BaseModel
+use Illuminate\Database\Eloquent\Model;
+
+class LegacyWalletImport extends Model
 {
     protected $guarded = [];
 

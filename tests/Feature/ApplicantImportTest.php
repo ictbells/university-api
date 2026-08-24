@@ -29,6 +29,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\Sanctum;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Tests\TestCase;
@@ -87,9 +88,22 @@ class ApplicantImportTest extends TestCase
     {
         Sanctum::actingAs($this->staffUser());
 
-        $this->get('/api/applicants/import-template?entry_mode=utme')
+        $response = $this->get('/api/applicants/import-template?entry_mode=utme')
             ->assertOk()
             ->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+        $spreadsheet = $this->loadWorkbook($response->streamedContent());
+        foreach (['Instructions', 'Applicants', 'Campuses', 'Colleges', 'Departments', 'Programmes', 'Levels', 'O-level subjects'] as $title) {
+            $this->assertNotNull($spreadsheet->getSheetByName($title), "Missing sheet {$title}");
+        }
+
+        $programmes = $spreadsheet->getSheetByName('Programmes')->toArray(null, true, true, false);
+        $codes = collect($programmes)->skip(1)->map(fn ($row) => (string) ($row[1] ?? ''));
+        $this->assertTrue($codes->contains('BSC-CS'));
+
+        $subjects = $spreadsheet->getSheetByName('O-level subjects')->toArray(null, true, true, false);
+        $names = collect($subjects)->skip(1)->map(fn ($row) => (string) ($row[2] ?? ''));
+        $this->assertTrue($names->contains('English Language'));
     }
 
     public function test_import_creates_submitted_application_and_allows_student_login(): void
@@ -243,6 +257,14 @@ class ApplicantImportTest extends TestCase
             ->assertJsonPath('queued', true);
 
         Queue::assertPushed(ImportApplicantsJob::class);
+    }
+
+    private function loadWorkbook(string $binary): \PhpOffice\PhpSpreadsheet\Spreadsheet
+    {
+        $path = sys_get_temp_dir().'/applicant-template-'.uniqid().'.xlsx';
+        file_put_contents($path, $binary);
+
+        return IOFactory::load($path);
     }
 
     /**

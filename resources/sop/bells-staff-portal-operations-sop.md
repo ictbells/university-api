@@ -401,7 +401,7 @@ Upload JAMB candidate spreadsheets **before** new applicants register. Students 
 Use this when moving people from another admissions portal into this system.
 
 1. Select the **application window** (intake) and **category** (UTME, Direct Entry, JUPEB, Transfer, or Postgraduate). The window's entry mode must match the category.
-2. Download the **template** for that category and fill one row per applicant. Do not rename columns.
+2. Download the **template** for that category and fill one row per applicant on the **Applicants** sheet. Do not rename columns. Extra sheets (**Campuses**, **Colleges**, **Departments**, **Programmes**, **Levels**, **O-level subjects**) are lookup lists — copy the programme **code** onto the Applicants sheet; do not paste rows into those sheets. The application window is selected on the page, not in the file.
 3. Optionally tick **Verify NIN during upload (Prembly is called for every row)**. Failed NINs are skipped and no account is created. Leave this off to store NIN without live verification; the applicant can verify later in the form.
 4. Optionally tick **Email portal passwords** (default on). If the spreadsheet `password` column is filled, that plaintext is hashed and stored and is not emailed unless this box is checked. If the column is blank, a new password is generated and emailed when the box is on.
 5. Upload `.xlsx`, `.xls`, or `.csv`. The job is queued when NIN verification is on **or** the file has 40 or more data rows (unless the queue driver is `sync`). Wait for the result summary.
@@ -409,7 +409,7 @@ Use this when moving people from another admissions portal into this system.
 
 **Required columns (all categories):** email, phone, nin, first_name, last_name, first_choice_programme_code. UTME and Direct Entry also require `jamb_registration`.
 
-**Programme codes** must already exist for that entry mode. **Documents are not imported** from Excel; applicants upload remaining files after they sign in.
+**Programme codes** must already exist for that entry mode (copy from the Programmes lookup sheet). **Documents are not imported** from Excel; applicants upload remaining files after they sign in.
 
 Complete rows land at stage **`submitted`** (application fee is skipped) so staff can process admission immediately. Incomplete rows stay in the form so the applicant can finish after login.
 
@@ -463,7 +463,7 @@ Use these when moving continuing students from another portal. **Do not** invent
 
 1. **Fees & payments → Import invoices.** Spreadsheet keyed by `matric_number`. One row is one invoice. Extra rows with the same `invoice_number` add extra payments. Tuition requires `installment_percent` (25/50/75/100). `paid_amount` records money received on the invoice. If the student does not exist yet, rows stay **pending** until Import students runs.
 2. **Fees & payments → Import wallet history.** One row is one credit or debit. Replay is in `occurred_at` order. Wallet credit does **not** count as tuition paid. If a debit would take the wallet below zero, that row and remaining rows for the same matric are skipped.
-3. **Academic → Enrolment → Import students.** Select an application window and category. Required: email, phone, nin, first_name, last_name, programme_code, matric_number, current_level. Creates a user (student role), a historical application at stage `matriculated`, and a student record with the **supplied** matric (not an auto-generated `BUT/{year}/M/{####}`). Then posts pending invoices and wallet rows for that matric.
+3. **Academic → Enrolment → Import students.** Select an application window and category. Download the template and copy `programme_code` / `current_level` from the **Programmes** and **Levels** lookup sheets (Campuses, Colleges, and Departments are also included). Required: email, phone, nin, first_name, last_name, programme_code, matric_number, current_level. Creates a user (student role), a historical application at stage `matriculated`, and a student record with the **supplied** matric (not an auto-generated `BUT/{year}/M/{####}`). Then posts pending invoices and wallet rows for that matric.
 
 If an old payment was wallet-funded, record `paid_amount` on the invoice sheet **and** a matching **debit** on the wallet sheet. These imports do not call Paystack and do not settle invoices from the wallet automatically.
 - **Clinic** — Queue, student charts, encounters, prescriptions, sick notes, NHIS-aware billing (`medical.view_any` / `medical.manage` / `medical.billing`)
@@ -521,7 +521,7 @@ Use the audit trail for compliance reviews and incident investigation.
 
 1. Open **Academic → Application Setup → Import applicants**.
 2. Choose category and matching application window.
-3. Download the template; fill from the old-portal export. Leave `password` blank unless the old portal provided a reusable plaintext password (never paste a password hash).
+3. Download the template; fill from the old-portal export on the Applicants sheet. Copy programme codes from the Programmes lookup sheet. Leave `password` blank unless the old portal provided a reusable plaintext password (never paste a password hash).
 4. Leave **Verify NIN** off unless Prembly should run during the upload.
 5. Upload the file and review created / skipped / emailed counts.
 6. Download failed rows, correct them, and re-upload only those rows.
@@ -598,6 +598,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.1 | Aug 2026 | Platform team | Applications/Registrations split, academic setup permissions, registrations API |
 | 1.2 | Aug 2026 | Platform team | Align with live sidebar (Admission / Application / Enrolment setup, Department Setup, finance submenu), candidate data and applicant import, NIN/password import rules, 25% tuition registrations rule, profile current-password requirement |
 | 1.3 | Aug 2026 | Platform team | Office HOD/unit-head assignment, Approvals inbox, 202 pending-approval behaviour, gated module mutations |
+| 1.4 | Aug 2026 | Platform team | Continuing-student import (supplied matric), invoice and wallet history import keyed by matric, registrations still require ≥25% tuition paid |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 
