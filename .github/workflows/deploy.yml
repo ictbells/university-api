@@ -97,6 +97,32 @@ jobs:
           echo "Using deploy bucket s3://${BUCKET}/ (source=${SOURCE})"
           echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve EC2 instance
+        id: instance
+        if: ${{ steps.target.outputs.target == 'aws' }}
+        env:
+          FROM_VARS: ${{ vars.AWS_EC2_INSTANCE_ID }}
+          FROM_SECRETS: ${{ secrets.AWS_EC2_INSTANCE_ID }}
+          GH_ENV: ${{ env.GH_ENV }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+        run: |
+          set -euo pipefail
+          valid_id() { [[ "$1" =~ ^i-([0-9a-f]{8}|[0-9a-f]{17})$ ]]; }
+          ID="${FROM_VARS:-${AWS_EC2_INSTANCE_ID:-${FROM_SECRETS:-}}}"
+          ID="$(echo "$ID" | tr -d '[:space:]')"
+          if ! valid_id "$ID"; then
+            ID="$(aws ec2 describe-instances --region "$AWS_REGION" \
+              --filters "Name=instance-state-name,Values=running,pending" "Name=tag:Name,Values=*bells-sis-api" \
+              --query "Reservations[].Instances[].InstanceId | [0]" --output text)"
+            ID="$(echo "$ID" | tr -d '[:space:]')"
+          fi
+          if ! valid_id "$ID"; then
+            echo "Set AWS_EC2_INSTANCE_ID (terraform output api_instance_id)." >&2
+            exit 1
+          fi
+          echo "Using EC2 instance ${ID}"
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
@@ -110,7 +136,7 @@ jobs:
         if: ${{ steps.target.outputs.target == 'aws' }}
         uses: ./.github/actions/ssm-deploy
         with:
-          instance-id: ${{ vars.AWS_EC2_INSTANCE_ID }}
+          instance-id: ${{ steps.instance.outputs.id }}
           region: ${{ vars.AWS_REGION || 'us-east-1' }}
           s3-bucket: ${{ steps.bucket.outputs.bucket }}
           s3-prefix: deploys/api
