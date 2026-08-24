@@ -26,6 +26,8 @@ class SecuritySettingsController extends Controller
             'exam_clearance.no_outstanding_invoices' => 'sometimes|boolean',
             'exam_clearance.hostel_if_allocated' => 'sometimes|boolean',
             'exam_clearance.clinic_bills_cleared' => 'sometimes|boolean',
+            'admissions_email' => 'sometimes|nullable|email|max:255',
+            'admissions_phone' => 'sometimes|nullable|string|max:40',
         ]);
 
         return response()->json(SecuritySettings::update($data));

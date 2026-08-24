@@ -12,6 +12,8 @@ use Illuminate\Http\Request;
 
 class CourseRegistrationController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
+
     public function __construct(private CourseRegistrationService $registration) {}
 
     public function context(Request $request)
@@ -52,7 +54,9 @@ class CourseRegistrationController extends Controller
         $student = Student::query()->findOrFail($data['student_id']);
         $offering = CourseOffering::query()->findOrFail($data['course_offering_id']);
 
-        return $this->registration->register($student, $offering, $request->user(), true, $data['reason'] ?? null);
+        return $this->officeGate('academic.staff_register', $student, $data, 'Staff course registration', function () use ($student, $offering, $request, $data) {
+            return $this->registration->register($student, $offering, $request->user(), true, $data['reason'] ?? null);
+        });
     }
 
     public function staffDrop(Request $request, Enrollment $enrollment)
@@ -61,7 +65,9 @@ class CourseRegistrationController extends Controller
             'reason' => 'nullable|string|max:500',
         ]);
 
-        return $this->registration->drop($enrollment, $request->user(), true, $data['reason'] ?? null);
+        return $this->officeGate('academic.staff_drop', $enrollment, ['enrollment_id' => $enrollment->id, ...$data], 'Staff course drop', function () use ($enrollment, $request, $data) {
+            return $this->registration->drop($enrollment, $request->user(), true, $data['reason'] ?? null);
+        });
     }
 
     public function grantGrace(Request $request)
@@ -80,14 +86,16 @@ class CourseRegistrationController extends Controller
             : $this->registration->currentTerm();
         abort_unless($term, 422, 'No current semester is set.');
 
-        return $this->registration->grantGrace(
-            $student,
-            $term,
-            $data['bucket'],
-            (int) $data['extra_units'],
-            $data['reason'],
-            $request->user(),
-        );
+        return $this->officeGate('academic.grant_grace', $student, $data, 'Grant grace units', function () use ($student, $term, $data, $request) {
+            return $this->registration->grantGrace(
+                $student,
+                $term,
+                $data['bucket'],
+                (int) $data['extra_units'],
+                $data['reason'],
+                $request->user(),
+            );
+        });
     }
 
     public function myContext(Request $request)

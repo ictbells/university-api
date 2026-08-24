@@ -66,6 +66,8 @@ class DatabaseSeeder extends Seeder
 
         Setting::setValue('university_name', 'Bells University of Technology');
         Setting::setValue('university_motto', 'Chords of Knowledge');
+        Setting::setValue('admissions.email', 'admissions@bellsuniversity.edu.ng');
+        Setting::setValue('admissions.phone', '');
         Setting::setValue('maintenance', '0');
         Setting::setValue('security.two_factor_enabled', '0');
         Setting::setValue('security.password_rotation_days', '0');

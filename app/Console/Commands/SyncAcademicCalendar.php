@@ -2,8 +2,10 @@
 
 namespace App\Console\Commands;
 
+use App\Models\AcademicSession;
 use App\Services\AcademicCalendarService;
 use App\Services\AuditWriter;
+use App\Services\SessionCloseService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use InvalidArgumentException;
@@ -12,9 +14,9 @@ class SyncAcademicCalendar extends Command
 {
     protected $signature = 'academic:sync-calendar {--date= : Evaluate as this date (Y-m-d) instead of today}';
 
-    protected $description = 'Auto-close and auto-start semesters based on session and semester dates';
+    protected $description = 'Auto-close semesters and sessions based on configured dates; promote students when sessions close';
 
-    public function handle(AcademicCalendarService $calendar, AuditWriter $audit): int
+    public function handle(AcademicCalendarService $calendar, SessionCloseService $sessionClose, AuditWriter $audit): int
     {
         $today = now()->startOfDay();
         if ($date = $this->option('date')) {
@@ -59,7 +61,40 @@ class SyncAcademicCalendar extends Command
         }
 
         if ($result['closed'] === [] && ! $result['opened']) {
-            $this->comment('No calendar changes for '.$today->toDateString().'.');
+            $this->comment('No semester calendar changes for '.$today->toDateString().'.');
+        }
+
+        $sessionsClosed = 0;
+        $dueSessions = AcademicSession::query()
+            ->where('auto_close_on_end', true)
+            ->whereNull('closed_at')
+            ->whereNotNull('ends_on')
+            ->whereDate('ends_on', '<', $today)
+            ->orderBy('id')
+            ->get();
+
+        foreach ($dueSessions as $session) {
+            try {
+                $resultClose = $sessionClose->close($session, 'auto', null);
+                $sessionsClosed++;
+                $this->info(sprintf(
+                    'Closed session %s — promoted %d students.',
+                    $session->label,
+                    $resultClose['promoted_count'],
+                ));
+                $audit->record(
+                    'session.auto_closed',
+                    'Academic session auto-closed with promotion',
+                    'academic',
+                    'academic_session',
+                    $session->id,
+                    null,
+                    $resultClose['closure']->toArray(),
+                    'Scheduled calendar sync',
+                );
+            } catch (\Throwable $e) {
+                $this->error("Failed to auto-close session {$session->label}: {$e->getMessage()}");
+            }
         }
 
         return self::SUCCESS;

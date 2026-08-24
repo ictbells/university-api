@@ -133,17 +133,19 @@ After apply, open the workflow **job summary** (or `terraform output`) and add:
 |--------------------|------------------|
 | `AWS_ROLE_ARN` | `github_deploy_role_arn` |
 
-| development variable | terraform output / fixed |
-|----------------------|--------------------------|
+| development variable or secret (same name) | terraform output / fixed |
+|--------------------------------------------|--------------------------|
 | `AWS_EC2_INSTANCE_ID` | `api_instance_id` |
 | `AWS_DEPLOY_S3_BUCKET` | `deploy_s3_bucket` |
 | `AWS_EC2_PATH` | `/var/www/api` |
 | `VITE_API_URL` | `https://` + `api_fqdn` |
 | `VITE_STUDENT_URL` | `student_url` |
-| `AWS_S3_BUCKET` | `staff_bucket` (staff workflow) |
-| `AWS_CLOUDFRONT_DISTRIBUTION_ID` | `staff_cloudfront_id` |
+| `AWS_S3_STAFF_BUCKET` | `staff_bucket` (optional; defaults to `bells-sis-staff-<account>`) |
+| `AWS_S3_STUDENT_BUCKET` | `student_bucket` (optional; defaults to `bells-sis-student-<account>`) |
+| `AWS_CLOUDFRONT_STAFF_ID` | `staff_cloudfront_id` |
+| `AWS_CLOUDFRONT_STUDENT_ID` | `student_cloudfront_id` |
 
-For student deploys, point `AWS_S3_BUCKET` / CloudFront id at `student_bucket` / `student_cloudfront_id` (same env or a second env).
+If a GitHub **variable** is empty, the workflow reads the **secret** with the same name.
 
 ### Step 4 — Wait, then deploy
 
@@ -180,10 +182,12 @@ Configure **`production`** separately for VPS when ready — it does not depend 
 | `AWS_DEPLOY_S3_BUCKET` | `terraform output -raw deploy_s3_bucket` |
 | `VITE_API_URL` | `https://bells-api.cycbankease.com` |
 | `VITE_STUDENT_URL` | `https://student.cycbankease.com` |
-| `AWS_S3_BUCKET` | staff or student bucket (set per workflow env if needed) |
-| `AWS_CLOUDFRONT_DISTRIBUTION_ID` | matching CloudFront id |
+| `AWS_S3_STAFF_BUCKET` | `bells-sis-staff-299665806483` (or leave unset to auto-detect) |
+| `AWS_S3_STUDENT_BUCKET` | `bells-sis-student-<account>` |
+| `AWS_CLOUDFRONT_STAFF_ID` | `staff_cloudfront_id` |
+| `AWS_CLOUDFRONT_STUDENT_ID` | `student_cloudfront_id` |
 
-Staff and student share one `development` environment but need **different** `AWS_S3_BUCKET` / CloudFront ids — use separate GitHub environments (`development-staff`, `development-student`) or override via workflow env.
+Staff and student share `development`. Use `AWS_S3_STAFF_BUCKET` / `AWS_S3_STUDENT_BUCKET` (and matching CloudFront ids). If those vars are empty, deploy uses `bells-sis-staff-<account-id>` / `bells-sis-student-<account-id>`.
 
 ### `production` (VPS) — secrets
 
@@ -289,7 +293,7 @@ Each API deploy re-runs `scripts/ensure-https.sh` (skipped on VPS). If the brows
 
 ## Deploy staff / student SPAs
 
-See build commands below, or use `deploy-frontend.yml` / `deploy-student.yml` with `DEPLOY_TARGET=aws`.
+See build commands below, or use the staff workflow in `frontend/.github/workflows/deploy.yml` and `deploy-student.yml` with environment `development` for AWS.
 
 ```bash
 cd frontend

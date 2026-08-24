@@ -162,7 +162,7 @@ class OfficeApprovalService
     public function inbox(User $user, ?string $scope = null)
     {
         $query = OfficeApprovalRequest::query()
-            ->with(['requester:id,name,email', 'department:id,name,code', 'unit:id,name,code'])
+            ->with(['requester:id,name,email', 'department:id,name,code,head_staff_id', 'unit:id,name,code,head_staff_id'])
             ->latest('id');
 
         $scope ??= $this->isReviewer($user) ? 'review' : 'submitted';
@@ -190,14 +190,14 @@ class OfficeApprovalService
                 ->paginate(20),
         };
 
-        $page->getCollection()->transform(fn (OfficeApprovalRequest $row) => $this->serialize($row));
+        $page->getCollection()->transform(fn (OfficeApprovalRequest $row) => $this->serialize($row, $user));
 
         return $page;
     }
 
-    public function serialize(OfficeApprovalRequest $request): array
+    public function serialize(OfficeApprovalRequest $request, ?User $viewer = null): array
     {
-        $request->loadMissing(['requester:id,name,email', 'department:id,name,code', 'unit:id,name,code']);
+        $request->loadMissing(['requester:id,name,email', 'department:id,name,code,head_staff_id', 'unit:id,name,code,head_staff_id']);
 
         return [
             'id' => $request->id,
@@ -224,10 +224,28 @@ class OfficeApprovalService
             'subject_id' => $request->subject_id,
             'unit_comment' => $request->unit_comment,
             'hod_comment' => $request->hod_comment,
+            'unit_reviewed_at' => $request->unit_reviewed_at,
+            'hod_reviewed_at' => $request->hod_reviewed_at,
             'error_message' => $request->error_message,
             'created_at' => $request->created_at,
             'executed_at' => $request->executed_at,
+            'can_review' => $viewer ? $this->canReview($request, $viewer) : false,
         ];
+    }
+
+    public function canReview(OfficeApprovalRequest $request, User $user): bool
+    {
+        if (! $request->isOpen()) {
+            return false;
+        }
+        if ($this->isSuperAdmin($user)) {
+            return true;
+        }
+        if ($request->status === OfficeApprovalRequest::PENDING_UNIT_HEAD) {
+            return $this->isUnitHeadFor($user, $request);
+        }
+
+        return $this->isHodFor($user, $request);
     }
 
     public function openFor(Model $subject, ?string $actionKey = null): ?OfficeApprovalRequest

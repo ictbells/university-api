@@ -28,6 +28,7 @@ class SecuritySettings
             'password_rotation_days' => self::passwordRotationDays(),
             'inactivity_logout_minutes' => self::inactivityLogoutMinutes(),
             'exam_clearance' => ExamClearanceSettings::all(),
+            ...AdmissionsContactSettings::all(),
         ];
     }
 
@@ -59,6 +60,9 @@ class SecuritySettings
         }
         if (array_key_exists('exam_clearance', $data) && is_array($data['exam_clearance'])) {
             ExamClearanceSettings::update($data['exam_clearance']);
+        }
+        if (array_key_exists('admissions_email', $data) || array_key_exists('admissions_phone', $data)) {
+            AdmissionsContactSettings::update($data);
         }
 
         return self::all();

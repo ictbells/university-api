@@ -11,6 +11,8 @@ use Illuminate\Http\Request;
 
 class CourseOfferingController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
+
     public function __construct(private AuditWriter $audit) {}
 
     public function index(Request $request)
@@ -53,10 +55,12 @@ class CourseOfferingController extends Controller
             return response()->json(['message' => 'This section is already offered for the selected course and semester.'], 422);
         }
 
-        $offering = CourseOffering::query()->create($data);
-        $this->audit->record('offering.created', 'Course offering created', 'academic', 'course_offering', $offering->id, null, $offering);
+        return $this->officeGate('academic.store_offering', null, $data, 'Create course offering', function () use ($data) {
+            $offering = CourseOffering::query()->create($data);
+            $this->audit->record('offering.created', 'Course offering created', 'academic', 'course_offering', $offering->id, null, $offering);
 
-        return $offering->load(['course.department', 'term', 'lecturer.user']);
+            return $offering->load(['course.department', 'term', 'lecturer.user']);
+        });
     }
 
     public function update(Request $request, CourseOffering $offering)
@@ -69,10 +73,12 @@ class CourseOfferingController extends Controller
             'section' => 'nullable|string|max:20',
             'capacity' => 'sometimes|integer|min:1|max:1000',
         ]);
-        $offering->update($data);
-        $this->audit->record('offering.updated', 'Course offering updated', 'academic', 'course_offering', $offering->id, $before, $offering);
+        return $this->officeGate('academic.update_offering', $offering, ['offering_id' => $offering->id, ...$data], 'Update course offering', function () use ($offering, $data, $before) {
+            $offering->update($data);
+            $this->audit->record('offering.updated', 'Course offering updated', 'academic', 'course_offering', $offering->id, $before, $offering);
 
-        return $offering->fresh(['course.department', 'term', 'lecturer.user']);
+            return $offering->fresh(['course.department', 'term', 'lecturer.user']);
+        });
     }
 
     public function destroy(CourseOffering $offering)
@@ -81,10 +87,12 @@ class CourseOfferingController extends Controller
             return response()->json(['message' => 'Remove enrolled students before deleting this offering.'], 422);
         }
         $before = $offering->toArray();
-        $offering->delete();
-        $this->audit->record('offering.deleted', 'Course offering deleted', 'academic', 'course_offering', $offering->id, $before, null);
+        return $this->officeGate('academic.destroy_offering', $offering, ['offering_id' => $offering->id], 'Delete course offering', function () use ($offering, $before) {
+            $offering->delete();
+            $this->audit->record('offering.deleted', 'Course offering deleted', 'academic', 'course_offering', $offering->id, $before, null);
 
-        return response()->noContent();
+            return response()->noContent();
+        });
     }
 
     public function lecturers()

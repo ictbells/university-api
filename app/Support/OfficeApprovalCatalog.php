@@ -80,6 +80,7 @@ class OfficeApprovalCatalog
             'academic.store_session' => ['nav_key' => 'sessions', 'label' => 'Create session'],
             'academic.update_session' => ['nav_key' => 'sessions', 'label' => 'Update session'],
             'academic.destroy_session' => ['nav_key' => 'sessions', 'label' => 'Delete session'],
+            'academic.close_session' => ['nav_key' => 'sessions', 'label' => 'Close session and promote students'],
             'academic.store_term' => ['nav_key' => 'sessions', 'label' => 'Create term'],
             'academic.update_term' => ['nav_key' => 'sessions', 'label' => 'Update term'],
             'academic.destroy_term' => ['nav_key' => 'sessions', 'label' => 'Delete term'],

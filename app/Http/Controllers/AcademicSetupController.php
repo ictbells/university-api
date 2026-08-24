@@ -18,6 +18,8 @@ use Illuminate\Http\Request;
 
 class AcademicSetupController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
+
     public function __construct(private AuditWriter $audit) {}
 
     public function index()
@@ -57,11 +59,23 @@ class AcademicSetupController extends Controller
     public function sessions()
     {
         return AcademicSession::query()
-            ->with('semesters')
+            ->with(['semesters', 'latestClosure'])
             ->orderByDesc('id')
             ->get()
             ->map(function (AcademicSession $session) {
                 $session->setAttribute('is_current', $session->semesters->contains(fn ($s) => $s->is_current));
+                $session->setAttribute('is_closed', $session->isClosed());
+                $closure = $session->latestClosure;
+                if ($closure) {
+                    $session->setAttribute('last_closure', [
+                        'promoted_count' => $closure->promoted_count,
+                        'skipped_final_count' => $closure->skipped_final_count,
+                        'skipped_inactive_count' => $closure->skipped_inactive_count,
+                        'skipped_no_program_count' => $closure->skipped_no_program_count,
+                        'trigger' => $closure->trigger,
+                        'ran_at' => $closure->ran_at,
+                    ]);
+                }
 
                 return $session;
             });
@@ -98,74 +112,96 @@ class AcademicSetupController extends Controller
 
     public function storeLevel(Request $request)
     {
-        $level = AcademicLevel::query()->create($request->validate([
+        $data = $request->validate([
             'name' => 'required|string',
             'code' => 'nullable|string',
             'study_level' => 'required|in:undergraduate,postgraduate',
             'sort_order' => 'nullable|integer|min:0',
             'is_active' => 'boolean',
-        ]));
-        $this->audit->record('academic_level.created', 'Academic level created', 'academic', 'academic_level', $level->id, null, $level);
+        ]);
 
-        return $level;
+        return $this->officeGate('academic.store_level', null, $data, 'Create level', function () use ($data) {
+            $level = AcademicLevel::query()->create($data);
+            $this->audit->record('academic_level.created', 'Academic level created', 'academic', 'academic_level', $level->id, null, $level);
+
+            return $level;
+        });
     }
 
     public function updateLevel(Request $request, AcademicLevel $academicLevel)
     {
         $before = $academicLevel->toArray();
-        $academicLevel->update($request->validate([
+        $data = $request->validate([
             'name' => 'sometimes|string',
             'code' => 'nullable|string',
             'study_level' => 'sometimes|in:undergraduate,postgraduate',
             'sort_order' => 'nullable|integer|min:0',
             'is_active' => 'boolean',
-        ]));
-        $this->audit->record('academic_level.updated', 'Academic level updated', 'academic', 'academic_level', $academicLevel->id, $before, $academicLevel);
+        ]);
 
-        return $academicLevel;
+        return $this->officeGate('academic.update_level', $academicLevel, ['academic_level_id' => $academicLevel->id, ...$data], 'Update level', function () use ($academicLevel, $data, $before) {
+            $academicLevel->update($data);
+            $this->audit->record('academic_level.updated', 'Academic level updated', 'academic', 'academic_level', $academicLevel->id, $before, $academicLevel);
+
+            return $academicLevel;
+        });
     }
 
     public function destroyLevel(AcademicLevel $academicLevel)
     {
         $before = $academicLevel->toArray();
-        $academicLevel->delete();
-        $this->audit->record('academic_level.deleted', 'Academic level deleted', 'academic', 'academic_level', $academicLevel->id, $before, null);
 
-        return response()->noContent();
+        return $this->officeGate('academic.destroy_level', $academicLevel, ['academic_level_id' => $academicLevel->id], 'Delete level', function () use ($academicLevel, $before) {
+            $academicLevel->delete();
+            $this->audit->record('academic_level.deleted', 'Academic level deleted', 'academic', 'academic_level', $academicLevel->id, $before, null);
+
+            return response()->noContent();
+        });
     }
 
     public function storeOlevelSubject(Request $request)
     {
-        $subject = OlevelSubject::query()->create($request->validate([
+        $data = $request->validate([
             'name' => 'required|string',
             'code' => 'nullable|string',
             'is_active' => 'boolean',
-        ]));
-        $this->audit->record('olevel_subject.created', "O'level subject created", 'academic', 'olevel_subject', $subject->id, null, $subject);
+        ]);
 
-        return $subject;
+        return $this->officeGate('academic.store_olevel', null, $data, "Create O'level subject", function () use ($data) {
+            $subject = OlevelSubject::query()->create($data);
+            $this->audit->record('olevel_subject.created', "O'level subject created", 'academic', 'olevel_subject', $subject->id, null, $subject);
+
+            return $subject;
+        });
     }
 
     public function updateOlevelSubject(Request $request, OlevelSubject $olevelSubject)
     {
         $before = $olevelSubject->toArray();
-        $olevelSubject->update($request->validate([
+        $data = $request->validate([
             'name' => 'sometimes|string',
             'code' => 'nullable|string',
             'is_active' => 'boolean',
-        ]));
-        $this->audit->record('olevel_subject.updated', "O'level subject updated", 'academic', 'olevel_subject', $olevelSubject->id, $before, $olevelSubject);
+        ]);
 
-        return $olevelSubject;
+        return $this->officeGate('academic.update_olevel', $olevelSubject, ['olevel_subject_id' => $olevelSubject->id, ...$data], "Update O'level subject", function () use ($olevelSubject, $data, $before) {
+            $olevelSubject->update($data);
+            $this->audit->record('olevel_subject.updated', "O'level subject updated", 'academic', 'olevel_subject', $olevelSubject->id, $before, $olevelSubject);
+
+            return $olevelSubject;
+        });
     }
 
     public function destroyOlevelSubject(OlevelSubject $olevelSubject)
     {
         $before = $olevelSubject->toArray();
-        $olevelSubject->delete();
-        $this->audit->record('olevel_subject.deleted', "O'level subject deleted", 'academic', 'olevel_subject', $olevelSubject->id, $before, null);
 
-        return response()->noContent();
+        return $this->officeGate('academic.destroy_olevel', $olevelSubject, ['olevel_subject_id' => $olevelSubject->id], "Delete O'level subject", function () use ($olevelSubject, $before) {
+            $olevelSubject->delete();
+            $this->audit->record('olevel_subject.deleted', "O'level subject deleted", 'academic', 'olevel_subject', $olevelSubject->id, $before, null);
+
+            return response()->noContent();
+        });
     }
 
     public function storeIntake(Request $request)
@@ -181,10 +217,13 @@ class AcademicSetupController extends Controller
             'is_open' => 'sometimes|boolean',
         ]);
         $validated['is_open'] = $request->boolean('is_open', true);
-        $intake = Intake::query()->create($validated);
-        $this->audit->record('intake.created', 'Admission intake created', 'admissions', 'intake', $intake->id, null, $intake);
 
-        return $intake->load('term');
+        return $this->officeGate('academic.store_intake', null, $validated, 'Create application window', function () use ($validated) {
+            $intake = Intake::query()->create($validated);
+            $this->audit->record('intake.created', 'Admission intake created', 'admissions', 'intake', $intake->id, null, $intake);
+
+            return $intake->load('term');
+        });
     }
 
     public function updateIntake(Request $request, Intake $intake)
@@ -203,19 +242,25 @@ class AcademicSetupController extends Controller
         if ($request->has('is_open')) {
             $validated['is_open'] = $request->boolean('is_open');
         }
-        $intake->update($validated);
-        $this->audit->record('intake.updated', 'Admission intake updated', 'admissions', 'intake', $intake->id, $before, $intake);
 
-        return $intake->fresh('term');
+        return $this->officeGate('academic.update_intake', $intake, ['intake_id' => $intake->id, ...$validated], 'Update application window', function () use ($intake, $validated, $before) {
+            $intake->update($validated);
+            $this->audit->record('intake.updated', 'Admission intake updated', 'admissions', 'intake', $intake->id, $before, $intake);
+
+            return $intake->fresh('term');
+        });
     }
 
     public function destroyIntake(Intake $intake)
     {
         $before = $intake->toArray();
-        $intake->delete();
-        $this->audit->record('intake.deleted', 'Admission intake deleted', 'admissions', 'intake', $intake->id, $before, null);
 
-        return response()->noContent();
+        return $this->officeGate('academic.destroy_intake', $intake, ['intake_id' => $intake->id], 'Delete application window', function () use ($intake, $before) {
+            $intake->delete();
+            $this->audit->record('intake.deleted', 'Admission intake deleted', 'admissions', 'intake', $intake->id, $before, null);
+
+            return response()->noContent();
+        });
     }
 
     public function openIntakes()

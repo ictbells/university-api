@@ -51,6 +51,7 @@ Route::post('/two-factor/confirm', [TwoFactorController::class, 'confirm']);
 Route::post('/two-factor/verify', [TwoFactorController::class, 'verify']);
 Route::post('/payments/paystack/webhook', [PaymentController::class, 'webhook']);
 
+Route::get('/portal-info', [InstitutionController::class, 'portalInfo']);
 Route::get('/intakes', [AcademicSetupController::class, 'openIntakes']);
 Route::get('/programs/{program}/supervisors', [AcademicController::class, 'supervisors']);
 Route::get('/workflow-templates', [AcademicController::class, 'workflowTemplates']);
@@ -252,6 +253,8 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::post('/academic/sessions', [InstitutionController::class, 'storeSession']);
         Route::patch('/academic/sessions/{session}', [InstitutionController::class, 'updateSession']);
         Route::delete('/academic/sessions/{session}', [InstitutionController::class, 'destroySession']);
+        Route::get('/academic/sessions/{session}/close-preview', [InstitutionController::class, 'closeSessionPreview']);
+        Route::post('/academic/sessions/{session}/close', [InstitutionController::class, 'closeSession']);
         Route::post('/terms', [InstitutionController::class, 'storeTerm']);
         Route::patch('/terms/{term}', [InstitutionController::class, 'updateTerm']);
         Route::delete('/terms/{term}', [InstitutionController::class, 'destroyTerm']);

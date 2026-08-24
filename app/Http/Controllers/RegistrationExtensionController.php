@@ -8,6 +8,8 @@ use Illuminate\Http\Request;
 
 class RegistrationExtensionController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
+
     public function __construct(private CourseRegistrationService $registration) {}
 
     public function index(Request $request)
@@ -40,12 +42,14 @@ class RegistrationExtensionController extends Controller
             'staff_note' => 'nullable|string|max:500',
         ]);
 
-        return $this->registration->reviewExtension(
-            $extension,
-            $data['decision'],
-            $request->user(),
-            isset($data['approved_units']) ? (int) $data['approved_units'] : null,
-            $data['staff_note'] ?? null,
-        );
+        return $this->officeGate('academic.review_extension', $extension, ['extension_id' => $extension->id, ...$data], 'Review registration extension', function () use ($extension, $data, $request) {
+            return $this->registration->reviewExtension(
+                $extension,
+                $data['decision'],
+                $request->user(),
+                isset($data['approved_units']) ? (int) $data['approved_units'] : null,
+                $data['staff_note'] ?? null,
+            );
+        });
     }
 }

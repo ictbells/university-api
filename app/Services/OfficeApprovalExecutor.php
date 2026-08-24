@@ -204,6 +204,7 @@ class OfficeApprovalExecutor
             'academic.store_session' => [\App\Http\Controllers\InstitutionController::class, 'storeSession', null],
             'academic.update_session' => [\App\Http\Controllers\InstitutionController::class, 'updateSession', ['key' => 'session_id', 'class' => AcademicSession::class]],
             'academic.destroy_session' => [\App\Http\Controllers\InstitutionController::class, 'destroySession', ['key' => 'session_id', 'class' => AcademicSession::class]],
+            'academic.close_session' => [\App\Http\Controllers\InstitutionController::class, 'closeSession', ['key' => 'session_id', 'class' => AcademicSession::class]],
             'academic.store_term' => [\App\Http\Controllers\InstitutionController::class, 'storeTerm', null],
             'academic.update_term' => [\App\Http\Controllers\InstitutionController::class, 'updateTerm', ['key' => 'term_id', 'class' => AcademicTerm::class]],
             'academic.destroy_term' => [\App\Http\Controllers\InstitutionController::class, 'destroyTerm', ['key' => 'term_id', 'class' => AcademicTerm::class]],

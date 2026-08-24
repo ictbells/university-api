@@ -26,7 +26,7 @@ class OfficeApprovalController extends Controller
             403,
         );
 
-        return $this->approvals->serialize($officeApproval);
+        return $this->approvals->serialize($officeApproval, $user);
     }
 
     public function approve(Request $request, OfficeApprovalRequest $officeApproval)

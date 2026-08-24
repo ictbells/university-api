@@ -16,6 +16,8 @@ use Illuminate\Validation\Rule;
 
 class AcademicController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
+
     public function __construct(
         private AuditWriter $audit,
         private CourseCatalogImportService $importer,
@@ -81,13 +83,15 @@ class AcademicController extends Controller
                 WorkflowCatalog::defaultCodeFor(new Program($data))
             );
         }
-        $program = Program::query()->create($data);
-        if ($courseIds !== null) {
-            $program->courses()->sync($courseIds);
-        }
-        $this->audit->record('program.created', 'Programme created', 'academic', 'program', $program->id, null, $program);
+        return $this->officeGate('academic.store_program', null, $data + ['course_ids' => $courseIds], 'Create programme', function () use ($data, $courseIds) {
+            $program = Program::query()->create($data);
+            if ($courseIds !== null) {
+                $program->courses()->sync($courseIds);
+            }
+            $this->audit->record('program.created', 'Programme created', 'academic', 'program', $program->id, null, $program);
 
-        return $program->load(['department.faculty', 'courses', 'workflowTemplate.stages']);
+            return $program->load(['department.faculty', 'courses', 'workflowTemplate.stages']);
+        });
     }
 
     public function updateProgram(Request $request, Program $program)
@@ -110,23 +114,28 @@ class AcademicController extends Controller
             'eligibility' => 'nullable|array',
             'workflow_template_id' => 'nullable|exists:workflow_templates,id',
         ]);
-        if (array_key_exists('course_ids', $data)) {
-            $program->courses()->sync($data['course_ids'] ?? []);
-            unset($data['course_ids']);
-        }
-        $program->update($data);
-        $this->audit->record('program.updated', 'Programme updated', 'academic', 'program', $program->id, $before, $program);
+        return $this->officeGate('academic.update_program', $program, ['program_id' => $program->id, ...$data], 'Update programme', function () use ($program, $data, $before) {
+            if (array_key_exists('course_ids', $data)) {
+                $program->courses()->sync($data['course_ids'] ?? []);
+                unset($data['course_ids']);
+            }
+            $program->update($data);
+            $this->audit->record('program.updated', 'Programme updated', 'academic', 'program', $program->id, $before, $program);
 
-        return $program->load(['department.faculty', 'courses', 'workflowTemplate.stages']);
+            return $program->load(['department.faculty', 'courses', 'workflowTemplate.stages']);
+        });
     }
 
     public function destroyProgram(Program $program)
     {
         $before = $program->toArray();
-        $program->delete();
-        $this->audit->record('program.deleted', 'Programme deleted', 'academic', 'program', $program->id, $before, null);
 
-        return response()->noContent();
+        return $this->officeGate('academic.destroy_program', $program, ['program_id' => $program->id], 'Delete programme', function () use ($program, $before) {
+            $program->delete();
+            $this->audit->record('program.deleted', 'Programme deleted', 'academic', 'program', $program->id, $before, null);
+
+            return response()->noContent();
+        });
     }
 
     public function courses()
@@ -151,11 +160,13 @@ class AcademicController extends Controller
         if ($programIds === [] && $data['course_type'] === 'general') {
             $programIds = Program::query()->where('is_active', true)->pluck('id')->all();
         }
-        $course = Course::query()->create($data);
-        $course->programs()->sync($this->programSync($programIds, $data['course_type']));
-        $this->audit->record('course.created', 'Course created', 'academic', 'course', $course->id, null, $course);
+        return $this->officeGate('academic.store_course', null, $data + ['program_ids' => $programIds], 'Create course', function () use ($data, $programIds) {
+            $course = Course::query()->create($data);
+            $course->programs()->sync($this->programSync($programIds, $data['course_type']));
+            $this->audit->record('course.created', 'Course created', 'academic', 'course', $course->id, null, $course);
 
-        return $course->load(['department', 'programs']);
+            return $course->load(['department', 'programs']);
+        });
     }
 
     public function updateCourse(Request $request, Course $course)
@@ -170,28 +181,33 @@ class AcademicController extends Controller
             'program_ids' => 'sometimes|array',
             'program_ids.*' => 'exists:programs,id',
         ]);
-        $type = $data['course_type'] ?? $course->course_type ?? 'departmental';
-        if (array_key_exists('program_ids', $data)) {
-            $programIds = $data['program_ids'] ?? [];
-            if ($programIds === [] && $type === 'general') {
-                $programIds = Program::query()->where('is_active', true)->pluck('id')->all();
+        return $this->officeGate('academic.update_course', $course, ['course_id' => $course->id, ...$data], 'Update course', function () use ($course, $data, $before) {
+            $type = $data['course_type'] ?? $course->course_type ?? 'departmental';
+            if (array_key_exists('program_ids', $data)) {
+                $programIds = $data['program_ids'] ?? [];
+                if ($programIds === [] && $type === 'general') {
+                    $programIds = Program::query()->where('is_active', true)->pluck('id')->all();
+                }
+                $course->programs()->sync($this->programSync($programIds, $type));
+                unset($data['program_ids']);
             }
-            $course->programs()->sync($this->programSync($programIds, $type));
-            unset($data['program_ids']);
-        }
-        $course->update($data);
-        $this->audit->record('course.updated', 'Course updated', 'academic', 'course', $course->id, $before, $course);
+            $course->update($data);
+            $this->audit->record('course.updated', 'Course updated', 'academic', 'course', $course->id, $before, $course);
 
-        return $course->load(['department', 'programs']);
+            return $course->load(['department', 'programs']);
+        });
     }
 
     public function destroyCourse(Course $course)
     {
         $before = $course->toArray();
-        $course->delete();
-        $this->audit->record('course.deleted', 'Course deleted', 'academic', 'course', $course->id, $before, null);
 
-        return response()->noContent();
+        return $this->officeGate('academic.destroy_course', $course, ['course_id' => $course->id], 'Delete course', function () use ($course, $before) {
+            $course->delete();
+            $this->audit->record('course.deleted', 'Course deleted', 'academic', 'course', $course->id, $before, null);
+
+            return response()->noContent();
+        });
     }
 
     public function importTemplate()

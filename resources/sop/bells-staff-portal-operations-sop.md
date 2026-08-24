@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.2  
+**Version:** 1.3  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -26,6 +26,7 @@ This document covers:
 - Academic catalogue, application windows, candidate lists, and applicant import
 - Applications and registrations pipelines
 - Fees, clinic, hostel, documents, audit, and reports
+- Office heads of department / unit heads and the Approvals inbox
 
 **Out of scope:** Detailed student-portal self-service screens, payment-gateway merchant credentials, and server infrastructure.
 
@@ -187,7 +188,7 @@ When a section (for example Administration) contains a single dropdown whose lab
 
 | Section | Items |
 |---------|-------|
-| **Overview** | Home, Students |
+| **Overview** | Home, Students, Approvals |
 | **Applications** | Undergraduate, JUPEB, Postgraduate |
 | **Registrations** | Undergraduate, JUPEB, Postgraduate |
 | **Academic** | Admission Setup (dropdown), Application Setup (dropdown), Enrolment (dropdown), PG research, Exam clearance |
@@ -242,6 +243,7 @@ Staff placed at that node will see only those links (plus Home), subject to thei
 | Candidate data | `candidate-data` | `/academic/candidate-data` |
 | Import applicants | `import-applicants` | `/academic/import-applicants` |
 | Department Setup | `office-setup` | `/office-setup` |
+| Approvals | `approvals` | `/approvals` |
 
 Academic setup items use the resource keys `campuses`, `colleges`, `departments`, `sessions`, `levels`, `courses`, `programmes`, `intakes`, `olevel`, `offerings`, `course-registration`, `unit-limits`, `registration-extensions`.
 
@@ -259,6 +261,22 @@ If placement points to a deleted or invalid office node, the system clears stale
 ### 6.6 Clearing office placement
 
 On the Users page, use **Clear office placement** to remove a staff member from all office nodes. They retain role permissions but lose scoped sidebar links (Home only, unless Super Admin).
+
+### 6.7 Office heads and the Approvals inbox
+
+Each office **department** can have a **head of department (HOD)**. Each **unit** can have a **unit head**. Assign these on **Department Setup** when creating or editing the row. The picker only lists staff who already work in that office. Users tagged **HOD** or **Unit head** appear on **Administration → Users**.
+
+A sidebar module is **owned** by the office department that has that portal link. The same link cannot be given to two different departments.
+
+When a linked module is owned, ordinary staff mutations do not take effect immediately:
+
+1. **Subunit staff** always go to the parent **unit head** first, then the HOD. If the unit has subunits and no unit head, the action is blocked until a unit head is assigned.
+2. **Unit staff** (not the unit head) go to the unit head, then the HOD. If that unit has no head, the request skips to the HOD.
+3. **Department-level staff** and the **unit head** skip to the HOD.
+4. The **acting HOD** of the owning department, and **Super Admin**, execute immediately.
+5. If the department has **no HOD**, any required unit-head step still runs; after that the action executes so rollout is not frozen.
+
+Pending work returns HTTP **202** with status `pending_approval`. The staff portal shows a notice. Reviewers use **Overview → Approvals** (`/approvals`): **Needs my review**, **Submitted by me**, and **Decided**. Approve or reject with an optional comment. Designation is the review gate; Super Admin can decide any open request.
 
 ---
 
@@ -283,6 +301,7 @@ The last Super Admin role cannot be removed from the last Super Admin account.
 
 - **Home** — Dashboard with welcome message, optional summary stats (`reports.view`), and quick access links
 - **Students** — Student records (`students.view_any`)
+- **Approvals** — Inbox for office unit heads, HODs, and Super Admin. Shown automatically to designated heads. Optional permission `office.approvals.view` does not replace designation.
 
 ### 8.2 Applications
 
@@ -320,11 +339,23 @@ Course registration, unit limits, and registration extensions are under **Academ
 | Campuses | Campus catalogue | `academic.campuses.manage` |
 | Colleges | Colleges / faculties | `academic.colleges.manage` |
 | Departments | Academic departments | `academic.departments.manage` |
-| Sessions & semesters | Academic sessions and terms | `academic.sessions.manage` |
+| Sessions & semesters | Academic sessions, terms, and end-of-session promotion | `academic.sessions.manage`, `academic.sessions.close` |
 | Levels | Study levels (100, 200, …) | `academic.levels.manage` |
 | Courses | Course catalogue; download template and import spreadsheet | `academic.courses.manage` |
 
 Course import columns: `code`, `title`, `units`, `course_type`, `department_code`, `programme_code`, `level_code`.
+
+#### Close session (level promotion)
+
+At the end of an academic year, close the session to promote students and lock the session record.
+
+1. Open **Academic → Admission Setup → Sessions & semesters**.
+2. Confirm programme **duration** values are correct (they define final year: 4-year UG → 400L, 2-year PG → level 2).
+3. Click **Close session** on the target session. Review the preview counts (promoted, final-year unchanged, inactive skipped).
+4. Confirm **Close session and promote**. All **active** students with a programme move up one level (100→200 for UG, +1 for PG) until the programme final year. Students already at final year stay **active** with no level change (graduation is separate).
+5. Optional: enable **Auto-close on end date** when creating or editing a session so the nightly calendar job (`academic:sync-calendar`) closes the session after `ends_on` and runs the same promotion.
+
+Closed sessions cannot be deleted. Re-opening a closed session is not supported.
 
 ### 8.5 Academic — Application Setup
 
@@ -465,6 +496,14 @@ Use the audit trail for compliance reviews and incident investigation.
 3. Check **Department Setup → Links** on the assigned node include expected items (including `candidate-data` or `import-applicants` if those pages are missing).
 4. Confirm the user's role grants the permission for each link (for example `admissions.view` for Applications, `admissions.import` for Candidate data / Import applicants, `registrations.view` for Registrations).
 
+### 10.8 Assign office heads and use Approvals
+
+1. Place the intended head in the office on **Users** (department tree for an HOD; that unit or one of its subunits for a unit head).
+2. On **Department Setup**, edit the department or unit and select **Head of department** or **Unit head**.
+3. Confirm they see **Approvals** in Overview after refresh.
+4. When a staff member in a linked module is told the action is waiting for approval, the unit head and/or HOD opens **Approvals → Needs my review**, reads the summary, and approves or rejects.
+5. After final HOD approval the original action runs. Rejection leaves no change.
+
 ---
 
 ## 11. Troubleshooting
@@ -477,6 +516,9 @@ Use the audit trail for compliance reviews and incident investigation.
 | Applicant cannot sign in with email | Student portal does not accept email as login | Use application number, JAMB registration, or matric number |
 | Import skipped a row | Duplicate email/NIN/JAMB, missing required field, unknown programme code, or NIN verify failed | Download failed rows; fix and re-upload |
 | NIN import created no user | Verify NIN was on and Prembly rejected the NIN | Correct NIN or import with verification off |
+| Action stays pending after approve | Reviewer is not the designated head, or unit-head step still required | Confirm HOD/unit-head assignment; Super Admin can decide any open request |
+| Subunit staff cannot submit | Parent unit has subunits but no unit head | Assign a unit head on Department Setup |
+| “Already waiting for office approval” | Duplicate open request for the same action/subject | Open Approvals and decide or wait for the existing request |
 | 2FA code rejected | Clock drift or wrong secret | Re-sync device time; restart 2FA setup if needed |
 | Signed out unexpectedly | Inactivity policy | Sign in again; adjust policy in Application settings if appropriate |
 | Password change blocked | Rotation policy expired or current password omitted | Enter current password and a new password that meets the rules |
@@ -492,6 +534,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.0 | Aug 2026 | Platform team | Initial release covering staff portal, office nav, and security settings |
 | 1.1 | Aug 2026 | Platform team | Applications/Registrations split, academic setup permissions, registrations API |
 | 1.2 | Aug 2026 | Platform team | Align with live sidebar (Admission / Application / Enrolment setup, Department Setup, finance submenu), candidate data and applicant import, NIN/password import rules, 25% tuition registrations rule, profile current-password requirement |
+| 1.3 | Aug 2026 | Platform team | Office HOD/unit-head assignment, Approvals inbox, 202 pending-approval behaviour, gated module mutations |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

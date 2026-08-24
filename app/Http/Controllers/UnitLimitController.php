@@ -11,6 +11,8 @@ use Illuminate\Http\Request;
 
 class UnitLimitController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
+
     public function __construct(private AuditWriter $audit) {}
 
     public function meta()
@@ -38,28 +40,34 @@ class UnitLimitController extends Controller
     public function store(Request $request)
     {
         $data = $this->validated($request);
-        $limit = UnitLimit::query()->create($data);
-        $this->audit->record('unit_limit.created', 'Unit limit created', 'academic', 'unit_limit', $limit->id, null, $limit);
+        return $this->officeGate('academic.store_unit_limit', null, $data, 'Create unit limit', function () use ($data) {
+            $limit = UnitLimit::query()->create($data);
+            $this->audit->record('unit_limit.created', 'Unit limit created', 'academic', 'unit_limit', $limit->id, null, $limit);
 
-        return $limit->load(['program', 'level', 'term']);
+            return $limit->load(['program', 'level', 'term']);
+        });
     }
 
     public function update(Request $request, UnitLimit $unitLimit)
     {
         $before = $unitLimit->toArray();
-        $unitLimit->update($this->validated($request, false));
-        $this->audit->record('unit_limit.updated', 'Unit limit updated', 'academic', 'unit_limit', $unitLimit->id, $before, $unitLimit);
+        return $this->officeGate('academic.update_unit_limit', $unitLimit, ['unit_limit_id' => $unitLimit->id, ...$this->validated($request, false)], 'Update unit limit', function () use ($unitLimit, $before, $request) {
+            $unitLimit->update($this->validated($request, false));
+            $this->audit->record('unit_limit.updated', 'Unit limit updated', 'academic', 'unit_limit', $unitLimit->id, $before, $unitLimit);
 
-        return $unitLimit->fresh(['program', 'level', 'term']);
+            return $unitLimit->fresh(['program', 'level', 'term']);
+        });
     }
 
     public function destroy(UnitLimit $unitLimit)
     {
         $before = $unitLimit->toArray();
-        $unitLimit->delete();
-        $this->audit->record('unit_limit.deleted', 'Unit limit deleted', 'academic', 'unit_limit', $unitLimit->id, $before, null);
+        return $this->officeGate('academic.destroy_unit_limit', $unitLimit, ['unit_limit_id' => $unitLimit->id], 'Delete unit limit', function () use ($unitLimit, $before) {
+            $unitLimit->delete();
+            $this->audit->record('unit_limit.deleted', 'Unit limit deleted', 'academic', 'unit_limit', $unitLimit->id, $before, null);
 
-        return response()->noContent();
+            return response()->noContent();
+        });
     }
 
     private function validated(Request $request, bool $creating = true): array
