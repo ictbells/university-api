@@ -260,6 +260,19 @@ Health check: `https://bells-api.cycbankease.com/up`
 
 Supervisor logs: `/var/log/bells-sis/queue.log`, `/var/log/bells-sis/scheduler.log`
 
+### `SQLSTATE[HY000] [1045] Access denied for user 'bells_sis_app'@'172.x.x.x'`
+
+That is MySQL auth, not a security-group timeout (you already reached RDS). Usual cause: bootstrap wrote `DB_PASSWORD` unquoted, so `#` or `$` in the Secrets Manager password was truncated by dotenv.
+
+Re-run **Deploy API**. Release now pulls `test/bells-sis/rds/app`, quotes `DB_PASSWORD`, and `GRANT`s `bells_sis_app`@`%` using `prod/bankease/rds/master`. You do not need a Terraform apply for the existing instance.
+
+To confirm after deploy (does not print the password):
+
+```bash
+sudo grep -E '^DB_(USERNAME|PASSWORD)=' /var/www/api/.env
+# DB_PASSWORD must be wrapped in double quotes
+```
+
 ## Deploy staff / student SPAs
 
 See build commands below, or use `deploy-frontend.yml` / `deploy-student.yml` with `DEPLOY_TARGET=aws`.

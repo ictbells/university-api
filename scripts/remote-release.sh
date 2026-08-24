@@ -45,6 +45,10 @@ if [[ ! -f "$ROOT/.env" ]]; then
   exit 1
 fi
 
+# EC2: quote DB password from Secrets Manager and GRANT bells_sis_app@'%'.
+# No-op on VPS. Unquoted #/$ in .env otherwise becomes SQLSTATE 1045.
+bash "$ROOT/scripts/sync-rds-credentials.sh"
+
 if [[ -f "$ROOT/vendor/autoload.php" ]]; then
   php artisan down --retry=60 || true
 fi

@@ -100,17 +100,27 @@ ensure_schema() {
   set -x
 }
 
+quote_env_stdin() {
+  python3 - <<'PY'
+import sys
+v = sys.stdin.read()
+print('"' + v.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("\n", "\\n") + '"')
+PY
+}
+
 write_env() {
   { set +x; } 2>/dev/null
-  local app_json app_user app_pass app_key
+  local app_json app_user app_pass app_key app_pass_q app_key_q
   app_json="$(sm_get "$APP_SECRET_NAME")"
   app_user="$(echo "$app_json" | jq -r '.username')"
   app_pass="$(echo "$app_json" | jq -r '.password')"
   app_key="$(sm_get "$APP_KEY_SECRET_NAME")"
+  app_pass_q="$(printf '%s' "$app_pass" | quote_env_stdin)"
+  app_key_q="$(printf '%s' "$app_key" | quote_env_stdin)"
   cat >/var/www/api/.env <<EOF
 APP_NAME="Bells University of Technology"
 APP_ENV=production
-APP_KEY=$app_key
+APP_KEY=$app_key_q
 APP_DEBUG=false
 APP_URL=$APP_URL
 FRONTEND_URL=$FRONTEND_URL
@@ -125,7 +135,10 @@ DB_HOST=$RDS_HOST_TF
 DB_PORT=$RDS_PORT_TF
 DB_DATABASE=$DB_NAME_TF
 DB_USERNAME=$app_user
-DB_PASSWORD=$app_pass
+DB_PASSWORD=$app_pass_q
+AWS_DEFAULT_REGION=$REGION
+AWS_RDS_APP_SECRET=$APP_SECRET_NAME
+AWS_RDS_MASTER_SECRET=$MASTER_SECRET_NAME
 
 SESSION_DRIVER=cookie
 SESSION_LIFETIME=120
@@ -168,7 +181,7 @@ if [ ! -f /swapfile ]; then
 fi
 
 apt-get update -y
-apt-get install -y software-properties-common curl unzip git jq mysql-client openssl cron
+apt-get install -y software-properties-common curl unzip git jq mysql-client openssl cron python3
 add-apt-repository -y ppa:ondrej/php || true
 apt-get update -y
 apt-get install -y \
