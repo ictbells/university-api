@@ -3,18 +3,21 @@
 namespace App\Services;
 
 use App\Models\Application;
-use App\Models\Document;
 use App\Models\MedicalProfile;
 use App\Models\PgRecord;
 use App\Models\Role;
-use App\Models\Setting;
 use App\Models\Student;
 use App\Models\Wallet;
+use App\Support\ProgrammeEligibility;
 use Illuminate\Support\Facades\DB;
 
 class StudentCreationService
 {
-    public function __construct(private AuditWriter $audit, private Notifier $notifier) {}
+    public function __construct(
+        private AuditWriter $audit,
+        private Notifier $notifier,
+        private WorkflowEngine $workflows,
+    ) {}
 
     public function createFromApplication(Application $application): Student
     {
@@ -55,7 +58,7 @@ class StudentCreationService
                 'sponsor_email' => $biodata['sponsor_email'] ?? null,
                 'sponsor_address' => $biodata['sponsor_address'] ?? null,
                 'study_level' => $application->entry_mode === 'pg' ? 'postgraduate' : 'undergraduate',
-                'current_level' => $application->entry_mode === 'pg' ? 1 : 100,
+                'current_level' => $this->entryLevelFor($application),
                 'status' => 'active',
                 'nin_locked' => true,
             ]);
@@ -75,8 +78,12 @@ class StudentCreationService
             ]);
 
             if ($application->entry_mode === 'pg') {
+                $research = ProgrammeEligibility::step($application, 'pg_research');
+                $prefs = collect($research['supervisor_preferences'] ?? [])->filter()->values();
                 PgRecord::query()->create([
                     'student_id' => $student->id,
+                    'supervisor_staff_id' => $prefs->first() ?: null,
+                    'topic' => $research['proposed_area'] ?? $research['research_interest'] ?? null,
                     'proposal_status' => 'not_started',
                     'thesis_status' => 'not_started',
                 ]);
@@ -93,23 +100,6 @@ class StudentCreationService
 
             $matric = 'BUT/'.$year.'/M/'.str_pad((string) $count, 4, '0', STR_PAD_LEFT);
             $student->update(['matric_number' => $matric]);
-
-            $html = $this->idHtml($student->fresh());
-            $doc = Document::query()->create([
-                'student_id' => $student->id,
-                'user_id' => $application->user_id,
-                'type' => 'id_card',
-                'title' => 'Student Digital ID',
-                'html_body' => $html,
-                'status' => 'issued',
-            ]);
-            $wallet->credentials()->create([
-                'type' => 'id_card',
-                'document_id' => $doc->id,
-                'title' => 'Campus Digital ID',
-                'payload' => $student->student_number,
-                'issued_at' => now(),
-            ]);
 
             $application->update([
                 'stage' => 'matriculated',
@@ -128,20 +118,44 @@ class StudentCreationService
             );
             $this->notifier->send($application->user, 'student_created', 'Welcome to Bells University', 'Your student record and wallet are now active. Matric number: '.$matric, 'sis', $student->id);
 
+            $this->workflows->startEnrolment($student->fresh(), $application);
+            if ($application->entry_mode === 'pg') {
+                $record = PgRecord::query()->where('student_id', $student->id)->first();
+                if ($record) {
+                    $this->workflows->startResearch($record, $application);
+                }
+            }
+
             return $student->fresh(['wallet', 'program', 'user']);
         });
     }
 
-    private function idHtml(Student $student): string
+    private function entryLevelFor(Application $application): int
     {
-        $name = Setting::getValue('university_name', 'Bells University of Technology');
-        $motto = Setting::getValue('university_motto', 'Chords of Knowledge');
+        if ($application->entry_mode === 'pg') {
+            return 1;
+        }
+        if ($application->entry_mode === 'transfer') {
+            $assessed = ProgrammeEligibility::step($application, 'credit_assessment')['approved_entry_level'] ?? null;
 
-        return '<div style="font-family:sans-serif;border:2px solid #0EA5E9;padding:16px;max-width:420px">'
-            .'<h2 style="color:#0EA5E9;margin:0">'.$name.'</h2>'
-            .'<p style="margin:4px 0;color:#166534">'.$motto.'</p>'
-            .'<p><strong>'.$student->first_name.' '.$student->last_name.'</strong></p>'
-            .'<p>Student No: '.$student->student_number.'<br>Matric: '.$student->matric_number.'</p>'
-            .'<p>QR: '.$student->student_number.'</p></div>';
+            return $this->normalizeUgLevel($assessed) ?: 200;
+        }
+        if ($application->entry_mode === 'de') {
+            $requested = ProgrammeEligibility::step($application, 'direct_entry')['requested_entry_level'] ?? null;
+
+            return $this->normalizeUgLevel($requested) ?: 200;
+        }
+
+        return 100;
+    }
+
+    private function normalizeUgLevel(mixed $value): ?int
+    {
+        $n = (int) $value;
+        if ($n <= 0) {
+            return null;
+        }
+
+        return $n < 100 ? $n * 100 : $n;
     }
 }

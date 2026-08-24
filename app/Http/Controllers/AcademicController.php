@@ -4,17 +4,26 @@ namespace App\Http\Controllers;
 
 use App\Models\Course;
 use App\Models\Program;
+use App\Models\Staff;
 use App\Models\Student;
+use App\Models\WorkflowTemplate;
 use App\Services\AuditWriter;
+use App\Services\CourseCatalogImportService;
+use App\Support\ProgrammeEligibility;
+use App\Support\WorkflowCatalog;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class AcademicController extends Controller
 {
-    public function __construct(private AuditWriter $audit) {}
+    public function __construct(
+        private AuditWriter $audit,
+        private CourseCatalogImportService $importer,
+    ) {}
 
     public function programs(Request $request)
     {
-        $query = Program::query()->with('department.faculty')->where('is_active', true);
+        $query = Program::query()->with(['department.faculty', 'workflowTemplate.stages'])->where('is_active', true);
 
         $modes = [];
         if ($request->filled('entry_modes')) {
@@ -34,7 +43,16 @@ class AcademicController extends Controller
             });
         }
 
-        return $query->orderBy('name')->get();
+        $programs = $query->orderBy('name')->get();
+        $application = $request->user()?->latestApplication;
+        if ($application && $application->entry_mode === 'pg') {
+            $application->loadMissing(['steps', 'documents', 'refereeInvites']);
+            $programs->each(function (Program $program) use ($application) {
+                $program->setAttribute('eligibility', ProgrammeEligibility::evaluate($program, $application));
+            });
+        }
+
+        return $programs;
     }
 
     public function storeProgram(Request $request)
@@ -51,16 +69,25 @@ class AcademicController extends Controller
             'tuition_amount' => 'nullable|numeric|min:0',
             'course_ids' => 'nullable|array',
             'course_ids.*' => 'exists:courses,id',
+            'is_research_degree' => 'boolean',
+            'eligibility' => 'nullable|array',
+            'workflow_template_id' => 'nullable|exists:workflow_templates,id',
         ]);
         $courseIds = $data['course_ids'] ?? null;
         unset($data['course_ids']);
+        $data['is_research_degree'] = (bool) ($data['is_research_degree'] ?? false);
+        if (empty($data['workflow_template_id'])) {
+            $data['workflow_template_id'] = WorkflowCatalog::idByCode(
+                WorkflowCatalog::defaultCodeFor(new Program($data))
+            );
+        }
         $program = Program::query()->create($data);
         if ($courseIds !== null) {
             $program->courses()->sync($courseIds);
         }
         $this->audit->record('program.created', 'Programme created', 'academic', 'program', $program->id, null, $program);
 
-        return $program->load(['department.faculty', 'courses']);
+        return $program->load(['department.faculty', 'courses', 'workflowTemplate.stages']);
     }
 
     public function updateProgram(Request $request, Program $program)
@@ -79,6 +106,9 @@ class AcademicController extends Controller
             'is_active' => 'boolean',
             'course_ids' => 'nullable|array',
             'course_ids.*' => 'exists:courses,id',
+            'is_research_degree' => 'boolean',
+            'eligibility' => 'nullable|array',
+            'workflow_template_id' => 'nullable|exists:workflow_templates,id',
         ]);
         if (array_key_exists('course_ids', $data)) {
             $program->courses()->sync($data['course_ids'] ?? []);
@@ -87,7 +117,7 @@ class AcademicController extends Controller
         $program->update($data);
         $this->audit->record('program.updated', 'Programme updated', 'academic', 'program', $program->id, $before, $program);
 
-        return $program->load(['department.faculty', 'courses']);
+        return $program->load(['department.faculty', 'courses', 'workflowTemplate.stages']);
     }
 
     public function destroyProgram(Program $program)
@@ -111,13 +141,18 @@ class AcademicController extends Controller
             'code' => 'required|string',
             'title' => 'required|string',
             'units' => 'required|integer|min:1',
-            'program_ids' => 'required|array|min:1',
+            'course_type' => ['nullable', Rule::in(Course::TYPES)],
+            'program_ids' => 'required_unless:course_type,general|array|min:1',
             'program_ids.*' => 'exists:programs,id',
         ]);
-        $programIds = $data['program_ids'];
+        $data['course_type'] = $data['course_type'] ?? 'departmental';
+        $programIds = $data['program_ids'] ?? [];
         unset($data['program_ids']);
+        if ($programIds === [] && $data['course_type'] === 'general') {
+            $programIds = Program::query()->where('is_active', true)->pluck('id')->all();
+        }
         $course = Course::query()->create($data);
-        $course->programs()->sync($programIds);
+        $course->programs()->sync($this->programSync($programIds, $data['course_type']));
         $this->audit->record('course.created', 'Course created', 'academic', 'course', $course->id, null, $course);
 
         return $course->load(['department', 'programs']);
@@ -131,11 +166,17 @@ class AcademicController extends Controller
             'code' => 'sometimes|string',
             'title' => 'sometimes|string',
             'units' => 'sometimes|integer|min:1',
-            'program_ids' => 'sometimes|array|min:1',
+            'course_type' => ['nullable', Rule::in(Course::TYPES)],
+            'program_ids' => 'sometimes|array',
             'program_ids.*' => 'exists:programs,id',
         ]);
+        $type = $data['course_type'] ?? $course->course_type ?? 'departmental';
         if (array_key_exists('program_ids', $data)) {
-            $course->programs()->sync($data['program_ids']);
+            $programIds = $data['program_ids'] ?? [];
+            if ($programIds === [] && $type === 'general') {
+                $programIds = Program::query()->where('is_active', true)->pluck('id')->all();
+            }
+            $course->programs()->sync($this->programSync($programIds, $type));
             unset($data['program_ids']);
         }
         $course->update($data);
@@ -151,6 +192,40 @@ class AcademicController extends Controller
         $this->audit->record('course.deleted', 'Course deleted', 'academic', 'course', $course->id, $before, null);
 
         return response()->noContent();
+    }
+
+    public function importTemplate()
+    {
+        return $this->importer->template();
+    }
+
+    public function importCourses(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:xlsx,xls,csv|max:10240',
+        ]);
+        try {
+            $result = $this->importer->import($request->file('file'));
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+        $this->audit->record('course.imported', 'Course catalogue imported', 'academic', 'course', null, null, $result);
+
+        return $result;
+    }
+
+    /**
+     * @param  list<int>  $programIds
+     * @return array<int, array{bucket: string}>
+     */
+    private function programSync(array $programIds, string $type): array
+    {
+        $sync = [];
+        foreach ($programIds as $id) {
+            $sync[(int) $id] = ['bucket' => $type];
+        }
+
+        return $sync;
     }
 
     public function myEnrollments(Request $request)
@@ -190,5 +265,22 @@ class AcademicController extends Controller
             'gpa' => $units ? round($points / $units, 2) : 0,
             'rows' => $rows,
         ];
+    }
+
+    public function workflowTemplates()
+    {
+        return WorkflowTemplate::query()->with('stages')->orderBy('name')->get();
+    }
+
+    public function supervisors(Program $program)
+    {
+        $program->loadMissing('department');
+        abort_unless($program->department_id, 422, 'This programme has no department.');
+
+        return Staff::query()
+            ->where('department_id', $program->department_id)
+            ->with('user:id,name,email')
+            ->orderBy('id')
+            ->get(['id', 'user_id', 'department_id', 'staff_number', 'title']);
     }
 }

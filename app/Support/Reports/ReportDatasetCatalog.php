@@ -151,7 +151,7 @@ class ReportDatasetCatalog
             key: 'registrations',
             label: 'Registrations',
             category: 'Registrations',
-            description: 'Matriculated students with paid tuition.',
+            description: 'Matriculated students with at least 25% tuition paid.',
             permissions: ['registrations.view'],
             columns: [
                 self::col('matric_number', 'Matric no.', 'string', 'students.matric_number'),

@@ -130,8 +130,21 @@ class CandidateEligibility
                 $candidate->subj ? ['subject' => $candidate->subj, 'score' => null] : null,
             ])),
             'course_choice' => $candidate->co_name,
+            'exam_year' => self::examYearFromAcademicYear($candidate->academic_year),
             'state' => $candidate->state_name,
             'lga' => $candidate->lga_name,
         ];
+    }
+
+    public static function examYearFromAcademicYear(?string $academicYear): ?string
+    {
+        if (! $academicYear) {
+            return null;
+        }
+        if (preg_match('/(20\d{2}|19\d{2})/', $academicYear, $match)) {
+            return $match[1];
+        }
+
+        return $academicYear;
     }
 }

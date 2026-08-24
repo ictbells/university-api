@@ -9,6 +9,7 @@ use App\Models\Document;
 use App\Models\FeeItem;
 use App\Models\Intake;
 use App\Models\Program;
+use App\Models\RefereeInvite;
 use App\Services\ApplicationDocumentService;
 use App\Services\ApplicationExportService;
 use App\Services\ApplicationStaffUpdateService;
@@ -16,11 +17,17 @@ use App\Services\AuditWriter;
 use App\Services\InvoiceService;
 use App\Services\Notifier;
 use App\Services\PremblyService;
+use App\Services\RefereeInviteService;
+use App\Services\WorkflowEngine;
 use App\Support\AdmissionEntryRules;
+use App\Support\ApplicantPassport;
+use App\Support\ApplicationFormSteps;
 use App\Support\ApplicationListQuery;
 use App\Support\ApplicationReference;
-use App\Support\ApplicantPassport;
 use App\Support\CandidateEligibility;
+use App\Support\ProgrammeEligibility;
+use App\Support\RegistrationCriteria;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Storage;
@@ -31,6 +38,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ApplicationController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
     public function __construct(
         private InvoiceService $invoices,
         private AuditWriter $audit,
@@ -39,6 +47,8 @@ class ApplicationController extends Controller
         private ApplicationExportService $exports,
         private ApplicationDocumentService $documents,
         private ApplicationStaffUpdateService $staffUpdates,
+        private WorkflowEngine $workflows,
+        private RefereeInviteService $referees,
     ) {}
 
     public function index(Request $request)
@@ -52,6 +62,18 @@ class ApplicationController extends Controller
 
         $payload = $paginator->toArray();
         $payload['summary'] = ApplicationListQuery::stageSummary($request);
+        $payload['data'] = collect($paginator->items())->map(function ($application) {
+            $row = $application->toArray();
+            $row['eligibility'] = ProgrammeEligibility::forApplication($application);
+            $row['workflow'] = $this->workflows->snapshot($application);
+            if ($application->entry_mode === 'transfer') {
+                $transfer = ProgrammeEligibility::step($application, 'transfer_background');
+                $row['previous_university'] = $transfer['previous_university'] ?? null;
+                $row['credit_assessment_complete'] = $application->transferAssessmentComplete();
+            }
+
+            return $row;
+        })->all();
 
         return response()->json($payload);
     }
@@ -110,16 +132,16 @@ class ApplicationController extends Controller
     public function show(Request $request, Application $application)
     {
         $this->authorizeView($request, $application);
+        $application->ensureFormSteps();
         $this->prembly->syncUserVerificationToApplication($request->user(), $application);
         $this->staffUpdates->refreshJambStatus($application);
 
-        return $this->staffUpdates->freshFile($application);
+        return $this->decorateFile($this->staffUpdates->freshFile($application));
     }
 
     public function staffUpdate(Request $request, Application $application)
     {
-        abort_unless($request->user()->hasPermission('admissions.view'), 403);
-        $this->authorizeView($request, $application);
+        $this->authorizeStaffEdit($request, $application);
 
         $data = $request->validate([
             'email' => 'required|email|max:190',
@@ -156,15 +178,30 @@ class ApplicationController extends Controller
             'utme' => 'nullable|array',
             'first_sitting' => 'nullable|array',
             'second_sitting' => 'nullable|array',
+            'prior_degrees' => 'nullable|array',
+            'nysc_status' => 'nullable|string',
+            'nysc_number' => 'nullable|string|max:80',
+            'nysc_year' => 'nullable|string|max:10',
+            'nysc_exemption_reason' => 'nullable|string|max:500',
+            'professional_qualifications' => 'nullable|array',
+            'research_interest' => 'nullable|string|max:2000',
+            'proposed_area' => 'nullable|string|max:500',
+            'statement_of_purpose' => 'nullable|string|max:8000',
+            'publications' => 'nullable|array',
+            'supervisor_preferences' => 'nullable|array',
+            'referees' => 'nullable|array',
             'first_choice_college_id' => 'nullable|integer',
             'first_choice_department_id' => 'nullable|integer',
             'first_choice_program_id' => 'required|integer|exists:programs,id',
             'second_choice_college_id' => 'nullable|integer',
             'second_choice_department_id' => 'nullable|integer',
             'second_choice_program_id' => 'nullable|integer|exists:programs,id',
+            'direct_entry' => 'nullable|array',
+            'transfer_background' => 'nullable|array',
+            'credit_assessment' => 'nullable|array',
         ]);
 
-        return $this->staffUpdates->update($application, $data);
+        return $this->decorateFile($this->staffUpdates->update($application, $data));
     }
 
     public function formPrint(Request $request, Application $application): Response
@@ -253,7 +290,7 @@ class ApplicationController extends Controller
             $request->user()->update(['jamb_registration' => $data['jamb_registration']]);
         }
 
-        foreach (Application::FORM_STEPS as $step) {
+        foreach (Application::formSteps($data['entry_mode']) as $step) {
             $application->steps()->create(['step_key' => $step, 'status' => 'pending', 'payload' => []]);
         }
         $invoice = $this->invoices->createApplicationFeeInvoice($request->user(), $intake, $application->id);
@@ -270,8 +307,10 @@ class ApplicationController extends Controller
         if (! in_array($application->stage, ['fee_paid', 'form_in_progress'], true)) {
             return response()->json(['message' => 'This application is no longer editable.'], 422);
         }
+        $application->ensureFormSteps();
+        $allowedSteps = Application::formSteps($application->entry_mode);
         $data = $request->validate([
-            'step_key' => 'required|in:'.implode(',', Application::FORM_STEPS),
+            'step_key' => 'required|in:'.implode(',', $allowedSteps),
             'payload' => 'required|array',
         ]);
         $step = $application->steps()->where('step_key', $data['step_key'])->firstOrFail();
@@ -406,6 +445,13 @@ class ApplicationController extends Controller
                 }
             }
         }
+        if ($data['step_key'] === 'academic_qualifications') {
+            if ($application->entry_mode === 'utme') {
+                $payload = ApplicationFormSteps::validateUtme($request, $payload, true);
+            } elseif (array_key_exists('utme', $payload)) {
+                $payload = ApplicationFormSteps::validateUtme($request, $payload, false);
+            }
+        }
         if ($data['step_key'] === 'programme_selection') {
             $request->merge(['payload' => $payload]);
             $payload = $request->validate([
@@ -430,6 +476,29 @@ class ApplicationController extends Controller
                 );
             }
         }
+        if ($data['step_key'] === 'direct_entry') {
+            $payload = ApplicationFormSteps::validateDirectEntry($request, $payload);
+            if (! empty($payload['jamb_de_number']) && ! $application->jamb_registration) {
+                $application->update([
+                    'jamb_registration' => $payload['jamb_de_number'],
+                    'jamb_status' => CandidateEligibility::findByJamb($payload['jamb_de_number']) ? 'validated' : 'pending',
+                ]);
+            }
+        }
+        if ($data['step_key'] === 'transfer_background') {
+            $payload = ApplicationFormSteps::validateTransferBackground($request, $payload);
+        }
+        if ($data['step_key'] === 'pg_background') {
+            $payload = ApplicationFormSteps::validatePgBackground($request, $payload);
+        }
+        if ($data['step_key'] === 'pg_research') {
+            $choiceId = ProgrammeEligibility::firstChoiceId($application);
+            $program = Program::query()->find($choiceId);
+            $payload = ApplicationFormSteps::validatePgResearch($request, $payload, $program);
+        }
+        if ($data['step_key'] === 'pg_referees') {
+            $payload = ApplicationFormSteps::validatePgReferees($request, $payload);
+        }
         $before = $step->payload;
         $step->update(['payload' => $payload, 'status' => 'saved']);
         $application->update([
@@ -439,12 +508,17 @@ class ApplicationController extends Controller
         ]);
         $this->audit->record('application.step_saved', 'Saved '.$data['step_key'], 'admissions', 'application', $application->id, $before, $payload);
 
-        return $application->fresh(['steps', 'applicationFeeInvoice', 'program', 'intake.term']);
+        if ($data['step_key'] === 'pg_referees') {
+            $this->referees->sync($application, $payload['referees'] ?? []);
+        }
+
+        return $this->decorateFile($application->fresh(['steps', 'applicationFeeInvoice', 'program', 'intake.term', 'refereeInvites']));
     }
 
     public function submit(Request $request, Application $application)
     {
         $this->authorizeOwner($request, $application);
+        $application->ensureFormSteps();
         if (! $application->ninVerified()) {
             return response()->json(['message' => 'Verify your NIN before submitting your application.'], 422);
         }
@@ -467,8 +541,9 @@ class ApplicationController extends Controller
         ]);
         $this->audit->record('application.submitted', 'Application submitted for screening', 'admissions', 'application', $application->id);
         $this->notifier->send($application->user, 'application_submitted', 'Application submitted', 'Your file is now in screening.', 'admissions', $application->id);
+        $this->workflows->ensureAdmissionRun($application->fresh());
 
-        return $application->fresh();
+        return $this->decorateFile($application->fresh());
     }
 
     public function uploadDocument(Request $request, Application $application)
@@ -480,7 +555,7 @@ class ApplicationController extends Controller
         if (! $application->ninVerified()) {
             return response()->json(['message' => 'Verify your NIN before uploading documents.'], 422);
         }
-        $allowed = collect(AdmissionEntryRules::requiredDocuments((string) $application->entry_mode))
+        $allowed = collect(AdmissionEntryRules::requiredDocuments((string) $application->entry_mode, $application))
             ->pluck('key')
             ->push('supporting')
             ->unique()
@@ -568,34 +643,32 @@ class ApplicationController extends Controller
             'acceptance_fee_amount' => 'nullable|numeric|min:0',
         ]);
         $to = $data['to_stage'];
-        $map = Application::STAFF_STAGES;
-        $expected = $map[$application->stage] ?? null;
-        if (($data['decision'] ?? null) === 'rejected') {
-            $to = 'rejected';
-        }
-        $permission = Application::STAGE_PERMISSION[$to] ?? 'admissions.view';
-        if ($to !== 'rejected' && ! $request->user()->hasPermission($permission)) {
-            return response()->json(['message' => 'You cannot move the file to this stage.'], 403);
-        }
-        if ($to !== 'rejected' && $expected && $to !== $expected) {
-            return response()->json(['message' => 'Invalid stage transition.'], 422);
-        }
         $before = $application->stage;
-        $application->reviews()->create([
-            'reviewer_id' => $request->user()->id,
-            'from_stage' => $before,
-            'to_stage' => $to,
-            'decision' => $data['decision'] ?? 'advanced',
-            'reason' => $data['reason'] ?? null,
-        ]);
-        $application->update(['stage' => $to]);
-        if ($to === 'offer_issued') {
-            $this->issueOffer($application, isset($data['acceptance_fee_amount']) ? (float) $data['acceptance_fee_amount'] : null);
-        }
-        $this->audit->record('application.stage', "Moved from {$before} to {$to}", 'admissions', 'application', $application->id, ['stage' => $before], ['stage' => $to], $data['reason'] ?? null);
-        $this->notifier->send($application->user, 'application_stage', 'Application update', 'Your application is now at '.str_replace('_', ' ', $to).'.', 'admissions', $application->id);
+        $navKey = \App\Support\OfficeApprovalCatalog::admissionsNavKey($application->entry_mode ?? $application->channel ?? null);
 
-        return $application->fresh(['acceptanceFeeInvoice', 'reviews']);
+        return $this->officeGate(
+            'admissions.transition',
+            $application,
+            $data + ['application_id' => $application->id],
+            'Advance application to '.$to,
+            function () use ($application, $to, $before, $data, $request) {
+                $application = $this->workflows->advanceApplication(
+                    $application,
+                    $to,
+                    $request->user(),
+                    $data['decision'] ?? null,
+                    $data['reason'] ?? null,
+                );
+                if ($this->workflows->issuesOffer($application->stage)) {
+                    $this->issueOffer($application, isset($data['acceptance_fee_amount']) ? (float) $data['acceptance_fee_amount'] : null);
+                }
+                $this->audit->record('application.stage', "Moved from {$before} to {$application->stage}", 'admissions', 'application', $application->id, ['stage' => $before], ['stage' => $application->stage], $data['reason'] ?? null);
+                $this->notifier->send($application->user, 'application_stage', 'Application update', 'Your application is now at '.str_replace('_', ' ', $application->stage).'.', 'admissions', $application->id);
+
+                return $this->decorateFile($application->fresh(['acceptanceFeeInvoice', 'reviews']));
+            },
+            $navKey,
+        );
     }
 
     public function updateAcceptanceFee(Request $request, Application $application)
@@ -688,9 +761,57 @@ class ApplicationController extends Controller
         );
     }
 
+    public function eligibility(Request $request, Application $application)
+    {
+        $this->authorizeView($request, $application);
+        $application->loadMissing(['steps', 'program', 'refereeInvites']);
+        $programId = $request->integer('program_id') ?: ProgrammeEligibility::firstChoiceId($application);
+        $programs = Program::query()
+            ->where('is_active', true)
+            ->whereJsonContains('entry_modes', $application->entry_mode)
+            ->when($programId, fn ($q) => $q->orWhere('id', $programId))
+            ->orderBy('name')
+            ->get();
+
+        return response()->json([
+            'current' => ProgrammeEligibility::forApplication($application),
+            'programs' => $programs->map(fn (Program $program) => [
+                'id' => $program->id,
+                'name' => $program->name,
+                ...ProgrammeEligibility::evaluate($program, $application),
+            ])->values(),
+        ]);
+    }
+
+    public function resendReferee(Request $request, Application $application, RefereeInvite $invite)
+    {
+        $this->authorizeOwner($request, $application);
+        abort_unless((int) $invite->application_id === (int) $application->id, 404);
+        $this->referees->resend($application, $invite);
+
+        return response()->json(['referees' => $this->referees->statusFor($application->fresh('refereeInvites'))]);
+    }
+
+    /**
+     * @return JsonResponse|Application
+     */
+    private function decorateFile(Application $application)
+    {
+        $application->loadMissing(['program.workflowTemplate.stages', 'steps', 'refereeInvites', 'documents']);
+        $application->setAttribute('eligibility', ProgrammeEligibility::forApplication($application));
+        $application->setAttribute('workflow', $this->workflows->snapshot($application));
+        $application->setAttribute('referee_invites', $this->referees->statusFor($application));
+        $application->setAttribute(
+            'required_documents',
+            AdmissionEntryRules::requiredDocuments((string) $application->entry_mode, $application),
+        );
+
+        return $application;
+    }
+
     private function authorizeOwner(Request $request, Application $application): void
     {
-        if ($application->user_id !== $request->user()->id && ! $request->user()->hasPermission('admissions.view')) {
+        if ($application->user_id !== $request->user()->id && ! $this->canStaffAccessFile($request, $application)) {
             abort(403);
         }
     }
@@ -698,5 +819,31 @@ class ApplicationController extends Controller
     private function authorizeView(Request $request, Application $application): void
     {
         $this->authorizeOwner($request, $application);
+    }
+
+    private function authorizeStaffEdit(Request $request, Application $application): void
+    {
+        abort_unless($this->canStaffAccessFile($request, $application), 403);
+    }
+
+    private function canStaffAccessFile(Request $request, Application $application): bool
+    {
+        $user = $request->user();
+        if (! $user) {
+            return false;
+        }
+        if ($user->hasPermission('admissions.view')) {
+            return true;
+        }
+
+        return $user->hasPermission('registrations.view')
+            && RegistrationCriteria::studentsQuery()
+                ->where(function ($query) use ($application) {
+                    $query->where('students.application_id', $application->id);
+                    if ($application->student_id) {
+                        $query->orWhere('students.id', $application->student_id);
+                    }
+                })
+                ->exists();
     }
 }

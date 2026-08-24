@@ -25,6 +25,7 @@ class CourseRegistrationService
         private InvoiceService $invoices,
         private AuditWriter $audit,
         private Notifier $notifier,
+        private WorkflowEngine $workflows,
     ) {}
 
     public function currentTerm(): ?AcademicTerm
@@ -32,7 +33,7 @@ class CourseRegistrationService
         return AcademicTerm::current();
     }
 
-    public function context(Student $student, ?AcademicTerm $term = null, bool $ensureCarryOvers = true): array
+    public function context(Student $student, ?AcademicTerm $term = null, bool $ensureCarryOvers = true, bool $forStaff = false): array
     {
         $student->loadMissing(['program.department.faculty', 'user']);
         $term ??= $this->currentTerm();
@@ -93,7 +94,7 @@ class CourseRegistrationService
             'roster_status' => $this->rosterStatus($units, $limits),
             'extension' => $extension ? $this->serializeExtension($extension) : null,
             'enrollments' => $enrolled->map(fn (Enrollment $row) => $this->serializeEnrollment($row))->values(),
-            'available' => $canSelfRegister ? $this->availableOfferings($student, $term) : [],
+            'available' => ($canSelfRegister || $forStaff) ? $this->availableOfferings($student, $term) : [],
             'carry_overs' => $enrolled->where('is_carry_over', true)
                 ->map(fn (Enrollment $row) => $this->serializeEnrollment($row))
                 ->values(),
@@ -231,6 +232,9 @@ class CourseRegistrationService
                 $enrollment->id,
             );
         }
+
+        $context = $this->context($student, $term, ensureCarryOvers: false);
+        $this->workflows->completeEnrolmentIfRegistered($student, (string) ($context['roster_status'] ?? ''));
 
         return $enrollment;
     }
@@ -554,6 +558,7 @@ class CourseRegistrationService
                 if (! $row->is_carry_over) {
                     $row->update(['is_carry_over' => true]);
                 }
+
                 continue;
             }
             $row->fill([
@@ -586,9 +591,11 @@ class CourseRegistrationService
         $code = (string) $student->current_level;
 
         return AcademicLevel::query()
-            ->where('code', $code)
-            ->orWhere('code', $code.'L')
-            ->orWhere('name', 'like', $code.'%')
+            ->where(function ($query) use ($code) {
+                $query->where('code', $code)
+                    ->orWhere('code', $code.'L')
+                    ->orWhere('name', 'like', $code.'%');
+            })
             ->orderBy('sort_order')
             ->first();
     }

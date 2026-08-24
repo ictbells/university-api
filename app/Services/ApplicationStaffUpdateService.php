@@ -7,7 +7,9 @@ use App\Models\Program;
 use App\Models\Student;
 use App\Models\User;
 use App\Support\AdmissionEntryRules;
+use App\Support\ApplicationFormSteps;
 use App\Support\CandidateEligibility;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -43,6 +45,12 @@ class ApplicationStaffUpdateService
         $this->assertUniqueEmail($user, (string) $data['email']);
         if ($jamb) {
             $this->assertUniqueJamb($user, $application, $jamb);
+        }
+
+        if (($application->entry_mode ?? '') === 'transfer' && is_array($data['credit_assessment'] ?? null)
+            && filled($data['credit_assessment']['decision'] ?? null)) {
+            $nested = Request::create('/', 'POST', ['payload' => $data['credit_assessment']]);
+            $data['credit_assessment'] = ApplicationFormSteps::validateCreditAssessment($nested, $data['credit_assessment']);
         }
 
         $jambStatus = $jamb ? $this->jambStatusFor($jamb) : null;
@@ -319,6 +327,42 @@ class ApplicationStaffUpdateService
             $academic['jamb_registration'] = $jamb;
         }
         $this->mergeStep($application, 'academic_qualifications', $academic);
+
+        if (($application->entry_mode ?? '') === 'de' && is_array($data['direct_entry'] ?? null)) {
+            $this->mergeStep($application, 'direct_entry', $data['direct_entry']);
+        }
+        if (($application->entry_mode ?? '') === 'transfer') {
+            if (is_array($data['transfer_background'] ?? null)) {
+                $this->mergeStep($application, 'transfer_background', $data['transfer_background']);
+            }
+            if (is_array($data['credit_assessment'] ?? null)) {
+                $this->mergeStep($application, 'credit_assessment', $data['credit_assessment']);
+            }
+        }
+
+        if (($application->entry_mode ?? '') === 'pg') {
+            $this->mergeStep($application, 'pg_background', [
+                'prior_degrees' => $data['prior_degrees'] ?? null,
+                'nysc_status' => $data['nysc_status'] ?? null,
+                'nysc_number' => $data['nysc_number'] ?? null,
+                'nysc_year' => $data['nysc_year'] ?? null,
+                'nysc_exemption_reason' => $data['nysc_exemption_reason'] ?? null,
+                'professional_qualifications' => $data['professional_qualifications'] ?? null,
+                'other_qualifications' => $data['other_qualifications'] ?? null,
+            ]);
+            $this->mergeStep($application, 'pg_research', [
+                'research_interest' => $data['research_interest'] ?? null,
+                'proposed_area' => $data['proposed_area'] ?? null,
+                'statement_of_purpose' => $data['statement_of_purpose'] ?? null,
+                'publications' => $data['publications'] ?? null,
+                'supervisor_preferences' => $data['supervisor_preferences'] ?? null,
+            ]);
+            if (array_key_exists('referees', $data)) {
+                $this->mergeStep($application, 'pg_referees', [
+                    'referees' => $data['referees'],
+                ]);
+            }
+        }
 
         $this->mergeStep($application, 'programme_selection', [
             'first_choice_college_id' => $data['first_choice_college_id'] ?? null,

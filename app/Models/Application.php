@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Support\ApplicationFormSteps;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Application extends BaseModel
 {
-    public const FORM_STEPS = [
+    public const SHARED_FORM_STEPS = [
         'biodata',
         'personal_details',
         'health_information',
@@ -18,6 +19,60 @@ class Application extends BaseModel
         'programme_selection',
         'required_documents',
     ];
+
+    public const DE_FORM_STEPS = [
+        'direct_entry',
+    ];
+
+    public const TRANSFER_FORM_STEPS = [
+        'transfer_background',
+    ];
+
+    public const PG_FORM_STEPS = [
+        'pg_background',
+        'pg_research',
+        'pg_referees',
+    ];
+
+    public const FORM_STEPS = [
+        ...self::SHARED_FORM_STEPS,
+        ...self::DE_FORM_STEPS,
+        ...self::TRANSFER_FORM_STEPS,
+        ...self::PG_FORM_STEPS,
+    ];
+
+    /**
+     * @return list<string>
+     */
+    public static function formSteps(?string $entryMode = null): array
+    {
+        $steps = [
+            'biodata',
+            'personal_details',
+            'health_information',
+            'next_of_kin',
+            'sponsor',
+            'application_form',
+            'academic_qualifications',
+        ];
+        if ($entryMode === 'de') {
+            $steps[] = 'direct_entry';
+        }
+        if ($entryMode === 'transfer') {
+            $steps[] = 'transfer_background';
+        }
+        if ($entryMode === 'pg') {
+            $steps[] = 'pg_background';
+        }
+        $steps[] = 'programme_selection';
+        if ($entryMode === 'pg') {
+            $steps[] = 'pg_research';
+            $steps[] = 'pg_referees';
+        }
+        $steps[] = 'required_documents';
+
+        return $steps;
+    }
 
     /** Steps that hold applicant profile fields used for printouts and student creation. */
     public const PROFILE_STEPS = [
@@ -38,15 +93,64 @@ class Application extends BaseModel
         'approved' => 'offer_issued',
     ];
 
+    public const TRANSFER_STAFF_STAGES = [
+        'submitted' => 'screening',
+        'screening' => 'verification',
+        'verification' => 'credit_assessment',
+        'credit_assessment' => 'shortlisting',
+        'shortlisting' => 'recommended',
+        'recommended' => 'approved',
+        'approved' => 'offer_issued',
+    ];
+
     public const STAGE_PERMISSION = [
         'screening' => 'admissions.screen',
         'verification' => 'admissions.verify',
+        'credit_assessment' => 'admissions.credit_assess',
         'shortlisting' => 'admissions.shortlist',
         'recommended' => 'admissions.recommend',
         'approved' => 'admissions.approve',
         'offer_issued' => 'admissions.offer',
         'matriculated' => 'admissions.matriculate',
     ];
+
+    /**
+     * @return array<string, string>
+     */
+    public static function staffStagesFor(?string $entryMode): array
+    {
+        return $entryMode === 'transfer' ? self::TRANSFER_STAFF_STAGES : self::STAFF_STAGES;
+    }
+
+    public function ensureFormSteps(): void
+    {
+        $this->loadMissing('steps');
+        $existing = $this->steps->pluck('step_key')->all();
+        $editable = in_array($this->stage, ['awaiting_application_fee', 'fee_paid', 'form_in_progress'], true);
+        foreach (self::formSteps($this->entry_mode) as $key) {
+            if (in_array($key, $existing, true)) {
+                continue;
+            }
+            $this->steps()->create([
+                'step_key' => $key,
+                'status' => $editable ? 'pending' : 'saved',
+                'payload' => [],
+            ]);
+        }
+        $this->unsetRelation('steps');
+        $this->load('steps');
+    }
+
+    public function transferAssessmentComplete(): bool
+    {
+        if ($this->entry_mode !== 'transfer') {
+            return true;
+        }
+        $this->loadMissing('steps');
+        $payload = $this->steps->firstWhere('step_key', 'credit_assessment')?->payload;
+
+        return ApplicationFormSteps::assessmentAcceptsTransfer(is_array($payload) ? $payload : null);
+    }
 
     protected $guarded = [];
 
@@ -95,6 +199,11 @@ class Application extends BaseModel
     public function reviews(): HasMany
     {
         return $this->hasMany(ApplicationReview::class);
+    }
+
+    public function refereeInvites(): HasMany
+    {
+        return $this->hasMany(RefereeInvite::class)->orderBy('position');
     }
 
     public function student(): BelongsTo

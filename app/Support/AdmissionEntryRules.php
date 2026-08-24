@@ -10,7 +10,7 @@ class AdmissionEntryRules
     public const ENTRY_MODE_ORDER = ['utme', 'de', 'jupeb', 'transfer', 'pg'];
 
     /** @var list<string> */
-    public const JAMB_ENTRY_MODES = ['utme'];
+    public const JAMB_ENTRY_MODES = ['utme', 'de'];
 
     /**
      * Required application upload checklist by entry mode.
@@ -18,7 +18,11 @@ class AdmissionEntryRules
      *
      * @return list<array{key: string, label: string, required: bool, description?: string}>
      */
-    public static function requiredDocuments(string $entryMode): array
+    /**
+     * @param  array<string, mixed>|null  $context  Optional application context (NYSC status for PG).
+     * @return list<array{key: string, label: string, required: bool, description?: string}>
+     */
+    public static function requiredDocuments(string $entryMode, ?Application $application = null): array
     {
         if (in_array($entryMode, ['utme', 'jupeb'], true)) {
             return [
@@ -79,7 +83,13 @@ class AdmissionEntryRules
                     'key' => 'de_qualification',
                     'label' => 'Direct Entry qualification',
                     'required' => true,
-                    'description' => 'A-Level, diploma, JUPEB, NCE, or equivalent result.',
+                    'description' => 'A-Level, diploma, JUPEB, NCE, or equivalent certificate.',
+                ],
+                [
+                    'key' => 'de_transcript',
+                    'label' => 'Direct Entry transcript',
+                    'required' => true,
+                    'description' => 'Official transcript or statement of result for the qualifying award.',
                 ],
                 [
                     'key' => 'supporting',
@@ -117,6 +127,12 @@ class AdmissionEntryRules
                     'description' => 'Official transcript or result from the previous institution.',
                 ],
                 [
+                    'key' => 'transfer_approval',
+                    'label' => 'Transfer approval letter',
+                    'required' => false,
+                    'description' => 'Optional approval or release letter from the previous institution.',
+                ],
+                [
                     'key' => 'supporting',
                     'label' => 'Supporting document',
                     'required' => false,
@@ -126,6 +142,11 @@ class AdmissionEntryRules
         }
 
         if ($entryMode === 'pg') {
+            $nyscStatus = $application
+                ? (ProgrammeEligibility::step($application, 'pg_background')['nysc_status'] ?? null)
+                : null;
+            $nyscRequired = $nyscStatus !== 'not_applicable';
+
             return [
                 [
                     'key' => 'passport',
@@ -148,8 +169,20 @@ class AdmissionEntryRules
                 [
                     'key' => 'nysc_certificate',
                     'label' => 'NYSC certificate or exemption',
-                    'required' => true,
-                    'description' => 'NYSC discharge or exemption certificate.',
+                    'required' => $nyscRequired,
+                    'description' => 'NYSC discharge or exemption certificate. Not required if NYSC does not apply.',
+                ],
+                [
+                    'key' => 'statement_of_purpose',
+                    'label' => 'Statement of purpose (optional file)',
+                    'required' => false,
+                    'description' => 'Optional extra copy of your statement of purpose.',
+                ],
+                [
+                    'key' => 'olevel_first_sitting',
+                    'label' => "O'Level Result (1st sitting)",
+                    'required' => false,
+                    'description' => "Optional scan of your first sitting O'Level result.",
                 ],
                 [
                     'key' => 'supporting',
@@ -186,7 +219,7 @@ class AdmissionEntryRules
         $biodata = $application->steps->firstWhere('step_key', 'biodata')?->payload ?? [];
         $missing = [];
 
-        foreach (self::requiredDocuments((string) $application->entry_mode) as $doc) {
+        foreach (self::requiredDocuments((string) $application->entry_mode, $application) as $doc) {
             if (! ($doc['required'] ?? false)) {
                 continue;
             }

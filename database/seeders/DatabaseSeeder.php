@@ -44,6 +44,7 @@ use App\Services\StudentCreationService;
 use App\Support\ApplicationReference;
 use App\Support\ClinicSettings;
 use App\Support\PermissionCatalog;
+use App\Support\WorkflowCatalog;
 use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
@@ -53,6 +54,7 @@ class DatabaseSeeder extends Seeder
         foreach (PermissionCatalog::all() as $perm) {
             Permission::query()->updateOrCreate(['key' => $perm['key']], $perm);
         }
+        WorkflowCatalog::seed();
         $allIds = Permission::query()->pluck('id');
 
         $roles = [
@@ -73,7 +75,17 @@ class DatabaseSeeder extends Seeder
             'finance' => ['Finance', true, Permission::query()->whereIn('module', ['fees', 'payments', 'wallet'])->pluck('id')],
             'medical' => ['Medical', true, Permission::query()->where('module', 'medical')->pluck('id')],
             'faculty' => ['Faculty', true, Permission::query()->whereIn('key', ['students.view_any'])->pluck('id')],
-            'pg-coordinator' => ['PG Coordinator', true, Permission::query()->where('module', 'postgraduate')->orWhereIn('key', ['admissions.view', 'students.view_any'])->pluck('id')],
+            'pg-coordinator' => ['PG Coordinator', true, Permission::query()->where('module', 'postgraduate')->orWhereIn('key', [
+                'admissions.view',
+                'admissions.pg.screen',
+                'admissions.pg.proposal',
+                'admissions.pg.supervisor',
+                'admissions.pg.panel',
+                'admissions.recommend',
+                'admissions.approve',
+                'admissions.offer',
+                'students.view_any',
+            ])->pluck('id')],
             'hostel-officer' => ['Hostel Officer', true, Permission::query()->where('module', 'hostel')->pluck('id')],
             'student' => ['Student', true, Permission::query()->whereIn('key', [
                 'students.view_own', 'wallet.view_own', 'medical.view_own', 'documents.view_own', 'admissions.apply',
@@ -100,6 +112,8 @@ class DatabaseSeeder extends Seeder
         $nat = Faculty::query()->firstOrCreate(['code' => 'COLNAS'], ['campus_id' => $campus->id, 'name' => 'College of Natural and Applied Sciences']);
         $cse = Department::query()->firstOrCreate(['code' => 'CPE'], ['faculty_id' => $eng->id, 'name' => 'Computer Engineering']);
         $csc = Department::query()->firstOrCreate(['code' => 'CSC'], ['faculty_id' => $nat->id, 'name' => 'Computer Science']);
+        $ugTemplateId = WorkflowCatalog::idByCode(WorkflowCatalog::UG_STANDARD);
+        $pgTaughtId = WorkflowCatalog::idByCode(WorkflowCatalog::PG_TAUGHT);
         $bsc = Program::query()->firstOrCreate(['code' => 'CPE'], [
             'department_id' => $cse->id,
             'name' => 'B.Eng Computer Engineering',
@@ -107,6 +121,7 @@ class DatabaseSeeder extends Seeder
             'study_level' => 'undergraduate',
             'entry_modes' => ['utme', 'de', 'jupeb', 'transfer'],
             'duration_years' => 5,
+            'workflow_template_id' => $ugTemplateId,
         ]);
         $msc = Program::query()->firstOrCreate(['code' => 'CSC-MSC'], [
             'department_id' => $csc->id,
@@ -115,6 +130,8 @@ class DatabaseSeeder extends Seeder
             'study_level' => 'postgraduate',
             'entry_modes' => ['pg'],
             'duration_years' => 2,
+            'is_research_degree' => false,
+            'workflow_template_id' => $pgTaughtId,
         ]);
 
         $session = AcademicSession::query()->firstOrCreate(
@@ -570,7 +587,7 @@ class DatabaseSeeder extends Seeder
         $app = $this->startUnpaidApplication($user, $mode, $program, $invoices);
         $app->applicationFeeInvoice->update(['status' => 'paid', 'balance' => 0]);
         $app->update(['stage' => 'fee_paid', 'current_step' => 'application_form']);
-        foreach (Application::FORM_STEPS as $step) {
+        foreach (Application::formSteps($mode) as $step) {
             $app->steps()->firstOrCreate(['step_key' => $step], ['status' => 'pending', 'payload' => []]);
         }
 
@@ -594,7 +611,7 @@ class DatabaseSeeder extends Seeder
             'jamb_registration' => $user->jamb_registration,
             'stage' => 'awaiting_application_fee',
         ]);
-        foreach (Application::FORM_STEPS as $step) {
+        foreach (Application::formSteps($mode) as $step) {
             $app->steps()->create(['step_key' => $step, 'status' => 'pending', 'payload' => []]);
         }
         $invoice = $invoices->createApplicationFeeInvoice($user, $intake, $app->id);

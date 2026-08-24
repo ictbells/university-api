@@ -13,7 +13,7 @@ class OpenApiGenerator
         'Auth' => 'Authentication, session, profile, and two-factor flows.',
         'Applications' => 'Admissions application pipeline. Staff list endpoints exclude applicants who are already matriculated with paid tuition (see Registrations).',
         'Candidate data' => 'JAMB candidate list upload and lookup used before applicant signup.',
-        'Registrations' => 'Enrolled students who completed admission (matriculated) and have paid tuition. Filter by entry mode channel.',
+        'Registrations' => 'Enrolled students who completed admission (matriculated) and have paid at least 25% of current-session tuition. Filter by entry mode channel.',
         'Students' => 'Student records.',
         'Academic' => 'Academic catalogue setup (campuses, programmes, courses, sessions, intakes, levels, O\'level) and student academic self-service.',
         'Finance' => 'Fees, invoices, payments, and wallets.',

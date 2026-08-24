@@ -3,13 +3,20 @@
 namespace App\Http\Controllers;
 
 use App\Models\AcademicSession;
+use App\Models\AcademicTerm;
+use App\Models\Student;
+use App\Services\CourseRegistrationService;
 use App\Services\RegistrationExportService;
 use App\Support\RegistrationListQuery;
+use App\Support\TuitionProgress;
 use Illuminate\Http\Request;
 
 class RegistrationController extends Controller
 {
-    public function __construct(private RegistrationExportService $exports) {}
+    public function __construct(
+        private RegistrationExportService $exports,
+        private CourseRegistrationService $registration,
+    ) {}
 
     public function index(Request $request)
     {
@@ -17,6 +24,8 @@ class RegistrationController extends Controller
 
         $perPage = min(100, max(10, (int) $request->input('per_page', 25)));
         $paginator = RegistrationListQuery::fromRequest($request)->paginate($perPage);
+        $term = AcademicTerm::current();
+        $paginator->getCollection()->transform(fn (Student $student) => $this->decorate($student, $term));
         $payload = $paginator->toArray();
         $payload['summary'] = RegistrationListQuery::summary($request);
 
@@ -54,11 +63,14 @@ class RegistrationController extends Controller
             'program_id' => 'nullable|integer|exists:programs,id',
             'search' => 'nullable|string',
             'show_entry_mode' => 'nullable|boolean',
+            'course_reg_status' => 'nullable|in:not_started,in_progress,registered',
         ]);
 
+        $term = AcademicTerm::current();
         $students = RegistrationListQuery::fromRequest($request)
             ->limit(RegistrationExportService::MAX_ROWS)
-            ->get();
+            ->get()
+            ->map(fn (Student $student) => $this->decorate($student, $term));
 
         $showEntryMode = array_key_exists('show_entry_mode', $data)
             ? (bool) $data['show_entry_mode']
@@ -71,5 +83,16 @@ class RegistrationController extends Controller
             RegistrationListQuery::filterSummary($request),
             $showEntryMode,
         );
+    }
+
+    private function decorate(Student $student, ?AcademicTerm $term): Student
+    {
+        $roster = $this->registration->rosterStatusFor($student, $term);
+        $student->setAttribute('tuition_percent', TuitionProgress::percentPaid($student));
+        $student->setAttribute('course_reg_status', $roster['status']);
+        $student->setAttribute('enrolled_units', $roster['enrolled_units']);
+        $student->setAttribute('extension_status', $roster['extension_status']);
+
+        return $student;
     }
 }

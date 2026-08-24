@@ -18,22 +18,14 @@ class RegistrationCriteria
     {
         return Student::query()
             ->whereHas('application', fn (Builder $application) => self::completedApplication($application))
-            ->whereHas('invoices', function (Builder $invoiceQuery) {
-                $invoiceQuery
-                    ->where('category', 'tuition')
-                    ->where('status', 'paid');
-            });
+            ->whereHas('invoices', TuitionProgress::tuitionConstraint());
     }
 
     public static function excludeRegisteredApplications(Builder $query): Builder
     {
         return $query->whereNot(function (Builder $registered) {
             self::completedApplication($registered)
-                ->whereHas('user.invoices', function (Builder $invoiceQuery) {
-                    $invoiceQuery
-                        ->where('category', 'tuition')
-                        ->where('status', 'paid');
-                });
+                ->whereHas('user.invoices', TuitionProgress::tuitionConstraint());
         });
     }
 }

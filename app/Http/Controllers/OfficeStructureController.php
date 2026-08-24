@@ -5,19 +5,25 @@ namespace App\Http\Controllers;
 use App\Models\OfficeDepartment;
 use App\Models\OfficeSubunit;
 use App\Models\OfficeUnit;
+use App\Models\Staff;
 use App\Services\AuditWriter;
+use App\Services\OfficeNavOwnerResolver;
 use App\Support\StaffNavCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class OfficeStructureController extends Controller
 {
-    public function __construct(private AuditWriter $audit) {}
+    public function __construct(
+        private AuditWriter $audit,
+        private OfficeNavOwnerResolver $navOwners,
+    ) {}
 
     public function index()
     {
         return OfficeDepartment::query()
-            ->with(['units.subunits.navLinks', 'units.navLinks', 'navLinks'])
+            ->with(['units.subunits.navLinks', 'units.navLinks', 'units.headStaff.user', 'navLinks', 'headStaff.user'])
             ->orderBy('name')
             ->get()
             ->map(fn (OfficeDepartment $dept) => $this->formatDepartment($dept));
@@ -56,6 +62,8 @@ class OfficeStructureController extends Controller
             ->values()
             ->all();
 
+        $this->navOwners->assertKeysUniqueToDepartment($model, $keys);
+
         $before = $model->navKeys();
         $model->syncNavKeys($keys);
         $this->audit->record($action, 'Office navigation links updated', 'institution', $entityType, $entityId, $before, $keys);
@@ -68,9 +76,13 @@ class OfficeStructureController extends Controller
         return [
             ...$dept->toArray(),
             'nav_keys' => $dept->navKeys(),
+            'head_staff' => $this->formatHeadStaff($dept->headStaff),
+            'needs_hod' => $dept->navKeys() !== [] && ! $dept->head_staff_id,
             'units' => $dept->units->map(fn (OfficeUnit $unit) => [
                 ...$unit->toArray(),
                 'nav_keys' => $unit->navKeys(),
+                'head_staff' => $this->formatHeadStaff($unit->headStaff),
+                'needs_unit_head' => $unit->subunits->isNotEmpty() && ! $unit->head_staff_id,
                 'subunits' => $unit->subunits->map(fn (OfficeSubunit $sub) => [
                     ...$sub->toArray(),
                     'nav_keys' => $sub->navKeys(),
@@ -86,12 +98,16 @@ class OfficeStructureController extends Controller
             'code' => 'nullable|string|max:50|unique:office_departments,code',
             'description' => 'nullable|string',
             'is_active' => 'boolean',
+            'head_staff_id' => ['nullable', 'integer', 'exists:staff,id', Rule::unique('office_departments', 'head_staff_id')],
         ]);
+        if (! empty($data['head_staff_id'])) {
+            $this->assertDepartmentHead((int) $data['head_staff_id']);
+        }
 
         $department = OfficeDepartment::query()->create($data);
         $this->audit->record('office.department.created', 'Office department created', 'institution', 'office_department', $department->id, null, $department);
 
-        return $department->load('units.subunits');
+        return $this->formatDepartment($department->load(['units.subunits', 'headStaff.user']));
     }
 
     public function storeUnit(Request $request)
@@ -102,12 +118,16 @@ class OfficeStructureController extends Controller
             'code' => 'nullable|string|max:50',
             'description' => 'nullable|string',
             'is_active' => 'boolean',
+            'head_staff_id' => ['nullable', 'integer', 'exists:staff,id', Rule::unique('office_units', 'head_staff_id')],
         ]);
+        if (! empty($data['head_staff_id'])) {
+            $this->assertUnitHead((int) $data['head_staff_id'], (int) $data['office_department_id']);
+        }
 
         $unit = OfficeUnit::query()->create($data);
         $this->audit->record('office.unit.created', 'Office unit created', 'institution', 'office_unit', $unit->id, null, $unit);
 
-        return $unit->load('subunits');
+        return $unit->load(['subunits', 'headStaff.user']);
     }
 
     public function storeSubunit(Request $request)
@@ -133,7 +153,11 @@ class OfficeStructureController extends Controller
             'code' => ['nullable', 'string', 'max:50', Rule::unique('office_departments', 'code')->ignore($officeDepartment->id)],
             'description' => 'nullable|string',
             'is_active' => 'boolean',
+            'head_staff_id' => ['nullable', 'integer', 'exists:staff,id', Rule::unique('office_departments', 'head_staff_id')->ignore($officeDepartment->id)],
         ]);
+        if (array_key_exists('head_staff_id', $data) && $data['head_staff_id']) {
+            $this->assertDepartmentHead((int) $data['head_staff_id'], $officeDepartment->id);
+        }
 
         $before = $officeDepartment->toArray();
         $officeDepartment->update($data);
@@ -157,7 +181,15 @@ class OfficeStructureController extends Controller
             ],
             'description' => 'nullable|string',
             'is_active' => 'boolean',
+            'head_staff_id' => ['nullable', 'integer', 'exists:staff,id', Rule::unique('office_units', 'head_staff_id')->ignore($officeUnit->id)],
         ]);
+        if (array_key_exists('head_staff_id', $data) && $data['head_staff_id']) {
+            $this->assertUnitHead(
+                (int) $data['head_staff_id'],
+                (int) ($data['office_department_id'] ?? $officeUnit->office_department_id),
+                $officeUnit->id,
+            );
+        }
 
         $before = $officeUnit->toArray();
         $officeUnit->update($data);
@@ -215,5 +247,105 @@ class OfficeStructureController extends Controller
         $this->audit->record('office.subunit.deleted', 'Office subunit deleted', 'institution', 'office_subunit', $before['id'], $before, null);
 
         return response()->json(['message' => 'Subunit deleted.']);
+    }
+
+    public function staffOptions(Request $request)
+    {
+        $departmentId = $request->integer('office_department_id') ?: null;
+        $unitId = $request->integer('office_unit_id') ?: null;
+
+        $staff = Staff::query()
+            ->with('user:id,name,email')
+            ->whereHas('user', fn ($q) => $q->where('status', 'active'))
+            ->when($unitId, function ($query) use ($unitId) {
+                $query->where(function ($inner) use ($unitId) {
+                    $inner->where('office_unit_id', $unitId)
+                        ->orWhereHas('officeSubunit', fn ($sub) => $sub->where('office_unit_id', $unitId));
+                });
+            })
+            ->when($departmentId && ! $unitId, function ($query) use ($departmentId) {
+                $query->where(function ($inner) use ($departmentId) {
+                    $inner->where('office_department_id', $departmentId)
+                        ->orWhereHas('officeUnit', fn ($unit) => $unit->where('office_department_id', $departmentId))
+                        ->orWhereHas('officeSubunit.unit', fn ($unit) => $unit->where('office_department_id', $departmentId));
+                });
+            })
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Staff $row) => [
+                'id' => $row->id,
+                'name' => $row->user?->name,
+                'email' => $row->user?->email,
+                'staff_number' => $row->staff_number,
+                'office_department_id' => $row->office_department_id,
+                'office_unit_id' => $row->office_unit_id,
+            ]);
+
+        return ['data' => $staff];
+    }
+
+    private function formatHeadStaff(?Staff $staff): ?array
+    {
+        if (! $staff) {
+            return null;
+        }
+
+        return [
+            'id' => $staff->id,
+            'name' => $staff->user?->name,
+            'staff_number' => $staff->staff_number,
+        ];
+    }
+
+    private function assertDepartmentHead(int $staffId, ?int $departmentId = null): void
+    {
+        abort_if(OfficeUnit::query()->where('head_staff_id', $staffId)->exists(), 422, 'That staff member is already a unit head.');
+        if ($departmentId) {
+            abort_unless(
+                (int) $this->departmentIdForStaff($staffId) === (int) $departmentId,
+                422,
+                'Head of department must belong to this office department.',
+            );
+        }
+    }
+
+    private function assertUnitHead(int $staffId, int $departmentId, ?int $unitId = null): void
+    {
+        abort_if(OfficeDepartment::query()->where('head_staff_id', $staffId)->exists(), 422, 'That staff member is already a head of department.');
+        abort_unless(
+            (int) $this->departmentIdForStaff($staffId) === (int) $departmentId,
+            422,
+            'Unit head must belong to this office department.',
+        );
+        if ($unitId) {
+            abort_unless(
+                (int) $this->unitIdForStaff($staffId) === (int) $unitId,
+                422,
+                'Unit head must be placed in this unit or one of its subunits.',
+            );
+        }
+    }
+
+    private function departmentIdForStaff(int $staffId): ?int
+    {
+        $staff = Staff::query()->with(['officeUnit', 'officeSubunit.unit'])->findOrFail($staffId);
+        if ($staff->office_subunit_id) {
+            return $staff->officeSubunit?->unit?->office_department_id;
+        }
+        if ($staff->office_unit_id) {
+            return $staff->officeUnit?->office_department_id;
+        }
+
+        return $staff->office_department_id ? (int) $staff->office_department_id : null;
+    }
+
+    private function unitIdForStaff(int $staffId): ?int
+    {
+        $staff = Staff::query()->with('officeSubunit')->findOrFail($staffId);
+        if ($staff->office_subunit_id) {
+            return $staff->officeSubunit?->office_unit_id;
+        }
+
+        return $staff->office_unit_id ? (int) $staff->office_unit_id : null;
     }
 }

@@ -359,6 +359,10 @@ class InvoiceService
                 ->update(['status' => $invoice->status]);
         }
 
+        if ($invoice->category === 'course_registration_extension' && $invoice->status === 'paid') {
+            app(CourseRegistrationService::class)->markExtensionPaid($invoice);
+        }
+
         return $invoice->fresh();
     }
 }

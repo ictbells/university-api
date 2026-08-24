@@ -87,7 +87,14 @@ class RegistrationExportService
             'entry_mode' => strtoupper((string) ($student->application?->entry_mode ?: '—')),
             'programme' => $student->program?->name ?: ($student->program?->code ?: '—'),
             'session' => $student->application?->intake?->term?->session_label ?: '—',
-            'tuition' => 'Paid',
+            'tuition' => number_format((float) ($student->getAttribute('tuition_percent') ?? 0), 0).'%',
+            'course_reg' => match ((string) ($student->getAttribute('course_reg_status') ?? 'not_started')) {
+                'registered' => 'Registered',
+                'in_progress' => 'In progress',
+                default => 'Not started',
+            },
+            'units' => (string) ($student->getAttribute('enrolled_units') ?? 0),
+            'extension' => (string) ($student->getAttribute('extension_status') ?: '—'),
         ];
     }
 
@@ -151,7 +158,10 @@ class RegistrationExportService
         $sheet->setTitle('Registrations');
 
         $headers = $this->headers($showEntryMode);
-        $columns = array_slice(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'], 0, count($headers));
+        $columns = [];
+        for ($i = 0; $i < count($headers); $i++) {
+            $columns[] = chr(ord('A') + $i);
+        }
         $lastCol = $columns[count($columns) - 1];
 
         $row = 1;
@@ -346,7 +356,7 @@ class RegistrationExportService
      */
     private function headers(bool $showEntryMode): array
     {
-        $headers = ['S/N', 'Student', 'Email', 'Matric no.', 'Programme', 'Session', 'Tuition'];
+        $headers = ['S/N', 'Student', 'Email', 'Matric no.', 'Programme', 'Session', 'Tuition %', 'Course reg.', 'Units', 'Extension'];
         if ($showEntryMode) {
             array_splice($headers, 4, 0, ['Entry mode']);
         }
@@ -368,6 +378,9 @@ class RegistrationExportService
             $row['programme'],
             $row['session'],
             $row['tuition'],
+            $row['course_reg'],
+            $row['units'],
+            $row['extension'],
         ];
         if ($showEntryMode) {
             array_splice($values, 4, 0, [$row['entry_mode']]);

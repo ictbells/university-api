@@ -4,7 +4,9 @@ namespace App\Services;
 
 use App\Models\Application;
 use App\Models\NinVerification;
+use App\Models\Student;
 use App\Models\User;
+use App\Support\NinCipher;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -32,11 +34,15 @@ class PremblyService
     public function assertNinAvailable(string $nin, ?int $exceptUserId = null): void
     {
         $nin = $this->normalizeNin($nin);
-        $query = NinVerification::query()->where('nin', $nin);
+        $hash = NinCipher::hash($nin);
+        $query = NinVerification::query()->where('nin_hash', $hash);
         if ($exceptUserId) {
             $query->where('user_id', '!=', $exceptUserId);
         }
-        if ($query->exists()) {
+        if ($query->exists() || Student::query()->where('nin_hash', $hash)->when(
+            $exceptUserId,
+            fn ($builder) => $builder->where('user_id', '!=', $exceptUserId)
+        )->exists()) {
             throw ValidationException::withMessages(['nin' => 'This NIN is already linked to an account.']);
         }
     }
@@ -142,7 +148,7 @@ class PremblyService
 
         $existing = NinVerification::query()
             ->where('user_id', $user->id)
-            ->where('nin', $nin)
+            ->where('nin_hash', NinCipher::hash($nin))
             ->latest('id')
             ->first();
         if ($existing) {
@@ -174,7 +180,7 @@ class PremblyService
             $this->applyToApplication($application, $record);
         }
 
-        $this->audit->record('identity.nin.verify', 'NIN verified via Prembly', 'identity', 'nin_verification', $record->id, null, ['nin' => $nin], null, $user);
+        $this->audit->record('identity.nin.verify', 'NIN verified via Prembly', 'identity', 'nin_verification', $record->id, null, ['nin' => NinCipher::redact($nin)], null, $user);
 
         return $record;
     }

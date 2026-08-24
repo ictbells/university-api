@@ -8,7 +8,10 @@ use App\Http\Controllers\AuditController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CandidateDataController;
 use App\Http\Controllers\ClinicController;
+use App\Http\Controllers\CourseOfferingController;
+use App\Http\Controllers\CourseRegistrationController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\ExamClearanceController;
 use App\Http\Controllers\FinanceController;
 use App\Http\Controllers\HostelController;
 use App\Http\Controllers\InstitutionController;
@@ -21,13 +24,16 @@ use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PgController;
 use App\Http\Controllers\ProgrammeFeeController;
 use App\Http\Controllers\RebateController;
+use App\Http\Controllers\RefereePortalController;
 use App\Http\Controllers\RegistrationController;
+use App\Http\Controllers\RegistrationExtensionController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\ResourceController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SecuritySettingsController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\TwoFactorController;
+use App\Http\Controllers\UnitLimitController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WalletController;
 use App\Support\CandidateEligibility;
@@ -44,7 +50,10 @@ Route::post('/two-factor/verify', [TwoFactorController::class, 'verify']);
 Route::post('/payments/paystack/webhook', [PaymentController::class, 'webhook']);
 
 Route::get('/intakes', [AcademicSetupController::class, 'openIntakes']);
-Route::get('/programs', [AcademicController::class, 'programs']);
+Route::get('/programs/{program}/supervisors', [AcademicController::class, 'supervisors']);
+Route::get('/workflow-templates', [AcademicController::class, 'workflowTemplates']);
+Route::get('/referee/{token}', [RefereePortalController::class, 'show']);
+Route::post('/referee/{token}', [RefereePortalController::class, 'store']);
 Route::get('/academic-levels', [AcademicSetupController::class, 'levels']);
 Route::get('/olevel-subjects', [AcademicSetupController::class, 'olevelSubjects']);
 Route::get('/states', [LocationController::class, 'states']);
@@ -73,6 +82,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::post('/candidate-data/upload', [CandidateDataController::class, 'upload'])
         ->middleware('permission:admissions.import');
 
+    Route::get('/programs', [AcademicController::class, 'programs']);
     Route::get('/applications', [ApplicationController::class, 'index']);
     Route::get('/applications/export', [ApplicationController::class, 'export'])
         ->middleware('permission:admissions.view');
@@ -85,6 +95,8 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/applications/{application}/offer-letter', [ApplicationController::class, 'offerLetter']);
     Route::post('/applications/{application}/steps', [ApplicationController::class, 'saveStep']);
     Route::post('/applications/{application}/submit', [ApplicationController::class, 'submit']);
+    Route::get('/applications/{application}/eligibility', [ApplicationController::class, 'eligibility']);
+    Route::post('/applications/{application}/referees/{invite}/resend', [ApplicationController::class, 'resendReferee']);
     Route::post('/applications/{application}/documents', [ApplicationController::class, 'uploadDocument']);
     Route::get('/applications/{application}/documents/{document}/file', [ApplicationController::class, 'streamDocument']);
     Route::get('/applications/{application}/passport', [ApplicationController::class, 'streamPassport']);
@@ -120,9 +132,17 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/payments/{payment}/receipt', [FinanceController::class, 'paymentReceipt']);
 
     Route::get('/academic/courses', [AcademicController::class, 'courses'])
-        ->middleware('academic.resource:courses,programmes');
+        ->middleware('academic.resource:courses,programmes,offerings,course-registration');
     Route::get('/academic/my-enrollments', [AcademicController::class, 'myEnrollments']);
+    Route::get('/academic/my-registration-context', [CourseRegistrationController::class, 'myContext']);
+    Route::post('/academic/my-enrollments', [CourseRegistrationController::class, 'myRegister']);
+    Route::delete('/academic/my-enrollments/{enrollment}', [CourseRegistrationController::class, 'myDrop']);
+    Route::get('/academic/my-registration-extension', [CourseRegistrationController::class, 'myExtension']);
+    Route::post('/academic/my-registration-extension', [CourseRegistrationController::class, 'requestExtension']);
     Route::get('/academic/transcript/{student?}', [AcademicController::class, 'transcript']);
+    Route::get('/exam-clearance', [ExamClearanceController::class, 'mine']);
+    Route::get('/exam-clearance/students', [ExamClearanceController::class, 'index']);
+    Route::get('/exam-clearance/students/{student}', [ExamClearanceController::class, 'show']);
 
     Route::get('/documents', [DocumentController::class, 'index']);
     Route::get('/hostels', [HostelController::class, 'index']);
@@ -202,9 +222,9 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::delete('/departments/{department}', [InstitutionController::class, 'destroyDepartment']);
     });
     Route::get('/academic/terms', [AcademicSetupController::class, 'terms'])
-        ->middleware('academic.resource:sessions,intakes');
+        ->middleware('academic.resource:sessions,intakes,offerings,course-registration,unit-limits,registration-extensions');
     Route::get('/academic/sessions', [AcademicSetupController::class, 'sessions'])
-        ->middleware('academic.resource:sessions,intakes');
+        ->middleware('academic.resource:sessions,intakes,offerings,course-registration,unit-limits,registration-extensions');
     Route::middleware('academic.resource:sessions')->group(function () {
         Route::post('/academic/sessions', [InstitutionController::class, 'storeSession']);
         Route::patch('/academic/sessions/{session}', [InstitutionController::class, 'updateSession']);
@@ -214,7 +234,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::delete('/terms/{term}', [InstitutionController::class, 'destroyTerm']);
     });
     Route::get('/academic/levels', [AcademicSetupController::class, 'levelsList'])
-        ->middleware('academic.resource:levels');
+        ->middleware('academic.resource:levels,unit-limits,course-registration');
     Route::middleware('academic.resource:levels')->group(function () {
         Route::post('/academic/levels', [AcademicSetupController::class, 'storeLevel']);
         Route::patch('/academic/levels/{academicLevel}', [AcademicSetupController::class, 'updateLevel']);
@@ -235,16 +255,81 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::delete('/olevel-subjects/{olevelSubject}', [AcademicSetupController::class, 'destroyOlevelSubject']);
     });
     Route::get('/academic/programs', [AcademicSetupController::class, 'programs'])
-        ->middleware('academic.resource:programmes,courses');
+        ->middleware('academic.resource:programmes,courses,offerings,course-registration,unit-limits');
+    Route::get('/academic/workflow-templates', [AcademicController::class, 'workflowTemplates'])
+        ->middleware('academic.resource:programmes');
     Route::middleware('academic.resource:programmes')->group(function () {
         Route::post('/programs', [AcademicController::class, 'storeProgram']);
         Route::patch('/programs/{program}', [AcademicController::class, 'updateProgram']);
         Route::delete('/programs/{program}', [AcademicController::class, 'destroyProgram']);
     });
     Route::middleware('academic.resource:courses')->group(function () {
+        Route::get('/academic/courses/import-template', [AcademicController::class, 'importTemplate']);
+        Route::post('/academic/courses/import', [AcademicController::class, 'importCourses']);
         Route::post('/academic/courses', [AcademicController::class, 'storeCourse']);
         Route::patch('/academic/courses/{course}', [AcademicController::class, 'updateCourse']);
         Route::delete('/academic/courses/{course}', [AcademicController::class, 'destroyCourse']);
+    });
+
+    Route::get('/academic/offerings', [CourseOfferingController::class, 'index'])
+        ->middleware('academic.resource:offerings,course-registration');
+    Route::get('/academic/lecturers', [CourseOfferingController::class, 'lecturers'])
+        ->middleware('academic.resource:offerings');
+    Route::middleware('academic.resource:offerings')->group(function () {
+        Route::post('/academic/offerings', [CourseOfferingController::class, 'store']);
+        Route::patch('/academic/offerings/{offering}', [CourseOfferingController::class, 'update']);
+        Route::delete('/academic/offerings/{offering}', [CourseOfferingController::class, 'destroy']);
+    });
+
+    Route::middleware('academic.resource:course-registration')->group(function () {
+        Route::get('/academic/course-registration', [CourseRegistrationController::class, 'context']);
+        Route::get('/academic/course-registration/students', [CourseRegistrationController::class, 'searchStudents']);
+        Route::post('/academic/course-registration/enroll', [CourseRegistrationController::class, 'staffRegister']);
+        Route::delete('/academic/course-registration/enrollments/{enrollment}', [CourseRegistrationController::class, 'staffDrop']);
+        Route::post('/academic/course-registration/grace', [CourseRegistrationController::class, 'grantGrace']);
+    });
+
+    Route::middleware('academic.resource:unit-limits')->group(function () {
+        Route::get('/academic/unit-limits/meta', [UnitLimitController::class, 'meta']);
+        Route::get('/academic/unit-limits', [UnitLimitController::class, 'index']);
+        Route::post('/academic/unit-limits', [UnitLimitController::class, 'store']);
+        Route::patch('/academic/unit-limits/{unitLimit}', [UnitLimitController::class, 'update']);
+        Route::delete('/academic/unit-limits/{unitLimit}', [UnitLimitController::class, 'destroy']);
+    });
+
+    Route::middleware('academic.resource:registration-extensions')->group(function () {
+        Route::get('/academic/registration-extensions', [RegistrationExtensionController::class, 'index']);
+        Route::post('/academic/registration-extensions/{extension}/review', [RegistrationExtensionController::class, 'review']);
+    });
+
+    Route::middleware('permission:academic.offerings.manage')->group(function () {
+        Route::get('/course-offerings', [CourseOfferingController::class, 'index']);
+        Route::post('/course-offerings', [CourseOfferingController::class, 'store']);
+        Route::patch('/course-offerings/{offering}', [CourseOfferingController::class, 'update']);
+        Route::delete('/course-offerings/{offering}', [CourseOfferingController::class, 'destroy']);
+        Route::get('/course-offerings/meta/lecturers', [CourseOfferingController::class, 'lecturers']);
+        Route::get('/course-offerings/meta/courses', [CourseOfferingController::class, 'courses']);
+        Route::get('/course-offerings/meta/terms', [CourseOfferingController::class, 'terms']);
+    });
+    Route::middleware('permission:academic.enrollments.manage')->group(function () {
+        Route::get('/course-registration/students', [CourseRegistrationController::class, 'searchStudents']);
+        Route::get('/course-registration/context', [CourseRegistrationController::class, 'context']);
+        Route::post('/course-registration/register', [CourseRegistrationController::class, 'staffRegister']);
+        Route::post('/course-registration/enrollments/{enrollment}/drop', [CourseRegistrationController::class, 'staffDrop']);
+        Route::post('/course-registration/grace', [CourseRegistrationController::class, 'grantGrace']);
+        Route::get('/unit-limits/meta', [UnitLimitController::class, 'meta']);
+        Route::get('/unit-limits', [UnitLimitController::class, 'index']);
+        Route::post('/unit-limits', [UnitLimitController::class, 'store']);
+        Route::patch('/unit-limits/{unitLimit}', [UnitLimitController::class, 'update']);
+        Route::delete('/unit-limits/{unitLimit}', [UnitLimitController::class, 'destroy']);
+    });
+    Route::get('/academic/my-registration', [CourseRegistrationController::class, 'myContext']);
+    Route::post('/academic/my-registration', [CourseRegistrationController::class, 'myRegister']);
+    Route::post('/academic/my-registration/enrollments/{enrollment}/drop', [CourseRegistrationController::class, 'myDrop']);
+    Route::post('/academic/my-registration/extension', [CourseRegistrationController::class, 'requestExtension']);
+    Route::middleware('permission:academic.extensions.review')->group(function () {
+        Route::get('/registration-extensions', [RegistrationExtensionController::class, 'index']);
+        Route::post('/registration-extensions/{extension}/review', [RegistrationExtensionController::class, 'review']);
     });
 
     Route::middleware('permission:finance.invoices.manage')->group(function () {

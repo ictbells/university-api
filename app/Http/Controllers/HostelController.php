@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\AuthorizesOfficeApprovals;
 use App\Models\Hostel;
 use App\Models\HostelAllocation;
 use App\Models\HostelBed;
@@ -19,6 +20,7 @@ use Illuminate\Support\Carbon;
 
 class HostelController extends Controller
 {
+    use AuthorizesOfficeApprovals;
     public function __construct(
         private AuditWriter $audit,
         private InvoiceService $invoices,
@@ -51,31 +53,38 @@ class HostelController extends Controller
     public function store(Request $request)
     {
         $data = $this->validatedHostel($request, true);
-        $hostel = Hostel::query()->create($data);
-        $this->audit->record('hostel.created', 'Hostel created', 'hostel', 'hostel', $hostel->id, null, $hostel);
 
-        return $this->formatHostel($hostel->load(['blocks' => fn ($query) => $query->withCount('rooms')->orderBy('name')]));
+        return $this->officeGate('hostel.store', null, $data, 'Create hostel '.$data['name'], function () use ($data) {
+            $hostel = Hostel::query()->create($data);
+            $this->audit->record('hostel.created', 'Hostel created', 'hostel', 'hostel', $hostel->id, null, $hostel);
+
+            return $this->formatHostel($hostel->load(['blocks' => fn ($query) => $query->withCount('rooms')->orderBy('name')]));
+        });
     }
 
     public function update(Request $request, Hostel $hostel)
     {
         $data = $this->validatedHostel($request, false);
-        $before = $hostel->toArray();
-        $hostel->update($data);
-        $this->audit->record('hostel.updated', 'Hostel updated', 'hostel', 'hostel', $hostel->id, $before, $hostel->fresh());
 
-        $hostel = $hostel->fresh(['blocks' => fn ($query) => $query->withCount('rooms')->orderBy('name')]);
+        return $this->officeGate('hostel.update', $hostel, ['hostel_id' => $hostel->id, ...$data], 'Update hostel '.$hostel->name, function () use ($data, $hostel) {
+            $before = $hostel->toArray();
+            $hostel->update($data);
+            $this->audit->record('hostel.updated', 'Hostel updated', 'hostel', 'hostel', $hostel->id, $before, $hostel->fresh());
+            $hostel = $hostel->fresh(['blocks' => fn ($query) => $query->withCount('rooms')->orderBy('name')]);
 
-        return $this->formatHostel($hostel, $this->hostels->hostelBedCounts()->get($hostel->id));
+            return $this->formatHostel($hostel, $this->hostels->hostelBedCounts()->get($hostel->id));
+        });
     }
 
     public function destroy(Hostel $hostel)
     {
-        $before = $hostel->toArray();
-        $this->rooms->deleteHostel($hostel);
-        $this->audit->record('hostel.deleted', 'Hostel deleted', 'hostel', 'hostel', $hostel->id, $before, null);
+        return $this->officeGate('hostel.destroy', $hostel, ['hostel_id' => $hostel->id], 'Delete hostel '.$hostel->name, function () use ($hostel) {
+            $before = $hostel->toArray();
+            $this->rooms->deleteHostel($hostel);
+            $this->audit->record('hostel.deleted', 'Hostel deleted', 'hostel', 'hostel', $hostel->id, $before, null);
 
-        return response()->noContent();
+            return response()->noContent();
+        });
     }
 
     public function levelWindows(Request $request)
@@ -154,12 +163,19 @@ class HostelController extends Controller
         $student = Student::query()->with(['application', 'user'])->findOrFail($data['student_id']);
         $termId = $data['academic_term_id'] ?? $this->hostels->currentTermId();
 
-        $allocation = $this->hostels->allocateBed($student, $bed, $termId);
+        return $this->officeGate(
+            'hostel.allocate',
+            $student,
+            $data,
+            'Allocate hostel bed',
+            function () use ($student, $bed, $termId) {
+                $allocation = $this->hostels->allocateBed($student, $bed, $termId);
+                $this->audit->record('hostel.allocate', 'Bed allocated', 'hostel', 'hostel_allocation', $allocation->id, null, $allocation);
+                $this->notifier->send($student->user, 'hostel', 'Hostel allocated', 'A bed has been assigned to you.', 'hostel', $allocation->id);
 
-        $this->audit->record('hostel.allocate', 'Bed allocated', 'hostel', 'hostel_allocation', $allocation->id, null, $allocation);
-        $this->notifier->send($student->user, 'hostel', 'Hostel allocated', 'A bed has been assigned to you.', 'hostel', $allocation->id);
-
-        return $allocation;
+                return $allocation;
+            },
+        );
     }
 
     public function autoAllocate(Request $request)
@@ -191,59 +207,66 @@ class HostelController extends Controller
     public function vacate(HostelAllocation $allocation)
     {
         abort_unless($allocation->status === 'allocated', 422, 'Only allocated beds can be vacated.');
-        $allocation->load('bed.room.block.hostel');
-        $allocation->update(['status' => 'vacated', 'vacated_at' => now()]);
-        $allocation->bed->update(['status' => 'available']);
-        if ($allocation->bed?->room && $allocation->bed->room->block?->hostel) {
-            $this->rooms->resetRoomGenderIfEmpty($allocation->bed->room, $allocation->bed->room->block->hostel);
-            $this->rooms->applyRoomAvailability($allocation->bed->room->fresh('beds'));
-        }
-        $this->audit->record('hostel.vacate', 'Bed vacated', 'hostel', 'hostel_allocation', $allocation->id, null, $allocation);
 
-        return $allocation->load(['bed.room.block.hostel', 'student']);
+        return $this->officeGate('hostel.vacate', $allocation, ['allocation_id' => $allocation->id], 'Vacate hostel bed', function () use ($allocation) {
+            $allocation->load('bed.room.block.hostel');
+            $allocation->update(['status' => 'vacated', 'vacated_at' => now()]);
+            $allocation->bed->update(['status' => 'available']);
+            if ($allocation->bed?->room && $allocation->bed->room->block?->hostel) {
+                $this->rooms->resetRoomGenderIfEmpty($allocation->bed->room, $allocation->bed->room->block->hostel);
+                $this->rooms->applyRoomAvailability($allocation->bed->room->fresh('beds'));
+            }
+            $this->audit->record('hostel.vacate', 'Bed vacated', 'hostel', 'hostel_allocation', $allocation->id, null, $allocation);
+
+            return $allocation->load(['bed.room.block.hostel', 'student']);
+        });
     }
 
     public function approve(HostelAllocation $allocation)
     {
-        $allocation = $this->hostels->approveAllocation($allocation);
-        $student = $allocation->student;
-        $hostel = $allocation->bed?->room?->block?->hostel;
+        return $this->officeGate('hostel.approve', $allocation, ['allocation_id' => $allocation->id], 'Approve hostel bed request', function () use ($allocation) {
+            $allocation = $this->hostels->approveAllocation($allocation);
+            $student = $allocation->student;
+            $hostel = $allocation->bed?->room?->block?->hostel;
 
-        $this->audit->record('hostel.approve', 'Hostel bed request approved', 'hostel', 'hostel_allocation', $allocation->id, null, $allocation);
-        if ($student?->user) {
-            $this->notifier->send(
-                $student->user,
-                'hostel',
-                'Hostel bed approved',
-                $hostel?->chargesDue()
-                    ? 'Your hostel bed request has been approved. A hostel due invoice has been raised. Pay it from your wallet.'
-                    : 'Your hostel bed request has been approved.',
-                'hostel',
-                $allocation->id
-            );
-        }
+            $this->audit->record('hostel.approve', 'Hostel bed request approved', 'hostel', 'hostel_allocation', $allocation->id, null, $allocation);
+            if ($student?->user) {
+                $this->notifier->send(
+                    $student->user,
+                    'hostel',
+                    'Hostel bed approved',
+                    $hostel?->chargesDue()
+                        ? 'Your hostel bed request has been approved. A hostel due invoice has been raised. Pay it from your wallet.'
+                        : 'Your hostel bed request has been approved.',
+                    'hostel',
+                    $allocation->id
+                );
+            }
 
-        return $this->hostels->formatStaffAllocation($allocation);
+            return $this->hostels->formatStaffAllocation($allocation);
+        });
     }
 
     public function reject(HostelAllocation $allocation)
     {
-        $allocation = $this->hostels->rejectAllocation($allocation);
-        $student = $allocation->student;
+        return $this->officeGate('hostel.reject', $allocation, ['allocation_id' => $allocation->id], 'Reject hostel bed request', function () use ($allocation) {
+            $allocation = $this->hostels->rejectAllocation($allocation);
+            $student = $allocation->student;
 
-        $this->audit->record('hostel.reject', 'Hostel bed request rejected', 'hostel', 'hostel_allocation', $allocation->id, null, $allocation);
-        if ($student?->user) {
-            $this->notifier->send(
-                $student->user,
-                'hostel',
-                'Hostel bed request rejected',
-                'Your hostel bed request was not approved. You may select another bed while the window is open.',
-                'hostel',
-                $allocation->id
-            );
-        }
+            $this->audit->record('hostel.reject', 'Hostel bed request rejected', 'hostel', 'hostel_allocation', $allocation->id, null, $allocation);
+            if ($student?->user) {
+                $this->notifier->send(
+                    $student->user,
+                    'hostel',
+                    'Hostel bed request rejected',
+                    'Your hostel bed request was not approved. You may select another bed while the window is open.',
+                    'hostel',
+                    $allocation->id
+                );
+            }
 
-        return $this->hostels->formatStaffAllocation($allocation);
+            return $this->hostels->formatStaffAllocation($allocation);
+        });
     }
 
     public function rooms(Request $request)
@@ -277,29 +300,37 @@ class HostelController extends Controller
     public function storeBlock(Request $request, Hostel $hostel)
     {
         $data = $request->validate(['name' => 'required|string|max:120']);
-        $block = $this->rooms->storeBlock($hostel, $data);
-        $this->audit->record('hostel.block.created', 'Hostel block created', 'hostel', 'hostel_block', $block->id, null, $block);
 
-        return $block;
+        return $this->officeGate('hostel.store_block', $hostel, ['hostel_id' => $hostel->id, ...$data], 'Create hostel block', function () use ($hostel, $data) {
+            $block = $this->rooms->storeBlock($hostel, $data);
+            $this->audit->record('hostel.block.created', 'Hostel block created', 'hostel', 'hostel_block', $block->id, null, $block);
+
+            return $block;
+        });
     }
 
     public function updateBlock(Request $request, HostelBlock $hostelBlock)
     {
         $data = $request->validate(['name' => 'required|string|max:120']);
-        $before = $hostelBlock->toArray();
-        $block = $this->rooms->updateBlock($hostelBlock, $data);
-        $this->audit->record('hostel.block.updated', 'Hostel block updated', 'hostel', 'hostel_block', $block->id, $before, $block);
 
-        return $block;
+        return $this->officeGate('hostel.update_block', $hostelBlock, ['hostel_block_id' => $hostelBlock->id, ...$data], 'Update hostel block', function () use ($hostelBlock, $data) {
+            $before = $hostelBlock->toArray();
+            $block = $this->rooms->updateBlock($hostelBlock, $data);
+            $this->audit->record('hostel.block.updated', 'Hostel block updated', 'hostel', 'hostel_block', $block->id, $before, $block);
+
+            return $block;
+        });
     }
 
     public function destroyBlock(HostelBlock $hostelBlock)
     {
-        $before = $hostelBlock->toArray();
-        $this->rooms->deleteBlock($hostelBlock);
-        $this->audit->record('hostel.block.deleted', 'Hostel block deleted', 'hostel', 'hostel_block', $hostelBlock->id, $before, null);
+        return $this->officeGate('hostel.destroy_block', $hostelBlock, ['hostel_block_id' => $hostelBlock->id], 'Delete hostel block', function () use ($hostelBlock) {
+            $before = $hostelBlock->toArray();
+            $this->rooms->deleteBlock($hostelBlock);
+            $this->audit->record('hostel.block.deleted', 'Hostel block deleted', 'hostel', 'hostel_block', $hostelBlock->id, $before, null);
 
-        return response()->noContent();
+            return response()->noContent();
+        });
     }
 
     public function storeRoom(Request $request, HostelBlock $hostelBlock)

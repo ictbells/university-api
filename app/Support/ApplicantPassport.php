@@ -11,31 +11,9 @@ class ApplicantPassport
 {
     public static function relativePathForApplication(Application $application): ?string
     {
-        $application->loadMissing(['documents', 'steps', 'user.student', 'user.latestNinVerification']);
-
-        $paths = [];
-        $passport = $application->documents->firstWhere('doc_type', 'passport');
-        if (! empty($passport?->path)) {
-            $paths[] = (string) $passport->path;
-        }
-
-        $biodata = $application->steps->firstWhere('step_key', 'biodata')?->payload ?? [];
-        if (! empty($biodata['photo_path'])) {
-            $paths[] = (string) $biodata['photo_path'];
-        }
-
-        if (! empty($application->user?->student?->photo_path)) {
-            $paths[] = (string) $application->user->student->photo_path;
-        }
-
-        $mapped = $application->user?->latestNinVerification?->mapped_fields ?? [];
-        if (! empty($mapped['photo_path'])) {
-            $paths[] = (string) $mapped['photo_path'];
-        }
-
-        foreach ($paths as $path) {
-            if (self::absolutePath($path)) {
-                return self::normalize($path);
+        foreach (self::candidatesForApplication($application) as $value) {
+            if (self::absolutePath($value)) {
+                return self::normalize($value);
             }
         }
 
@@ -57,9 +35,10 @@ class ApplicantPassport
             }
         }
 
-        $mapped = $user->latestNinVerification?->mapped_fields ?? [];
-        if (! empty($mapped['photo_path']) && self::absolutePath($mapped['photo_path'])) {
-            return self::normalize($mapped['photo_path']);
+        foreach (self::payloadPhotoValues($user->latestNinVerification?->mapped_fields ?? []) as $value) {
+            if (self::absolutePath($value)) {
+                return self::normalize($value);
+            }
         }
 
         return null;
@@ -67,16 +46,25 @@ class ApplicantPassport
 
     public static function dataUriForApplication(Application $application): ?string
     {
-        return self::dataUri(self::relativePathForApplication($application));
+        foreach (self::candidatesForApplication($application) as $value) {
+            $uri = self::dataUri($value);
+            if ($uri) {
+                return $uri;
+            }
+        }
+
+        return null;
     }
 
     public static function dataUri(?string $path): ?string
     {
-        if (! $path) {
+        if (! is_string($path) || trim($path) === '') {
             return null;
         }
-        if (str_starts_with($path, 'data:image')) {
-            return $path;
+
+        $embedded = self::embeddedDataUri($path);
+        if ($embedded) {
+            return $embedded;
         }
 
         $absolute = self::absolutePath($path);
@@ -91,26 +79,44 @@ class ApplicantPassport
 
     public static function fileResponseForApplication(Application $application): BinaryFileResponse
     {
-        return self::fileResponse(self::relativePathForApplication($application));
+        foreach (self::candidatesForApplication($application) as $value) {
+            $response = self::tryFileResponse($value);
+            if ($response) {
+                return $response;
+            }
+        }
+
+        abort(404, 'Passport photograph not found.');
     }
 
     public static function fileResponseForUser(User $user): BinaryFileResponse
     {
-        return self::fileResponse(self::relativePathForUser($user));
+        $user->loadMissing(['student', 'latestNinVerification', 'latestApplication.documents', 'latestApplication.steps']);
+
+        $values = array_filter([
+            $user->student?->photo_path,
+        ]);
+        if ($user->latestApplication) {
+            $values = array_merge($values, self::candidatesForApplication($user->latestApplication));
+        }
+        $values = array_merge($values, self::payloadPhotoValues($user->latestNinVerification?->mapped_fields ?? []));
+
+        foreach ($values as $value) {
+            $response = self::tryFileResponse((string) $value);
+            if ($response) {
+                return $response;
+            }
+        }
+
+        abort(404, 'Passport photograph not found.');
     }
 
     public static function fileResponse(?string $path): BinaryFileResponse
     {
-        $absolute = self::absolutePath($path);
-        abort_unless($absolute, 404, 'Passport photograph not found.');
+        $response = self::tryFileResponse($path);
+        abort_unless($response, 404, 'Passport photograph not found.');
 
-        $mime = mime_content_type($absolute) ?: 'image/jpeg';
-
-        return response()->file($absolute, [
-            'Content-Type' => $mime,
-            'Content-Disposition' => 'inline; filename="passport.jpg"',
-            'Cache-Control' => 'private, max-age=3600',
-        ]);
+        return $response;
     }
 
     public static function absolutePath(?string $path): ?string
@@ -141,12 +147,122 @@ class ApplicantPassport
         return null;
     }
 
+    /**
+     * @return list<string>
+     */
+    private static function candidatesForApplication(Application $application): array
+    {
+        $application->loadMissing(['documents', 'steps', 'user.student', 'user.latestNinVerification']);
+
+        $values = [];
+        $passport = $application->documents->firstWhere('doc_type', 'passport');
+        if (! empty($passport?->path)) {
+            $values[] = (string) $passport->path;
+        }
+
+        $biodata = $application->steps->firstWhere('step_key', 'biodata')?->payload ?? [];
+        $values = array_merge($values, self::payloadPhotoValues(is_array($biodata) ? $biodata : []));
+
+        if (! empty($application->user?->student?->photo_path)) {
+            $values[] = (string) $application->user->student->photo_path;
+        }
+
+        $mapped = $application->user?->latestNinVerification?->mapped_fields ?? [];
+        $values = array_merge($values, self::payloadPhotoValues(is_array($mapped) ? $mapped : []));
+
+        return array_values(array_unique(array_filter($values, fn ($value) => is_string($value) && trim($value) !== '')));
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return list<string>
+     */
+    private static function payloadPhotoValues(array $payload): array
+    {
+        $values = [];
+        foreach (['photo_path', 'photo', 'photograph', 'image'] as $key) {
+            if (! empty($payload[$key]) && is_string($payload[$key])) {
+                $values[] = $payload[$key];
+            }
+        }
+
+        return $values;
+    }
+
+    private static function tryFileResponse(?string $path): ?BinaryFileResponse
+    {
+        if (! is_string($path) || trim($path) === '') {
+            return null;
+        }
+
+        $embedded = self::embeddedDataUri($path);
+        if ($embedded && preg_match('/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s', $embedded, $matches)) {
+            $binary = base64_decode($matches[2], true);
+            if ($binary === false || $binary === '') {
+                return null;
+            }
+            $extension = str_contains($matches[1], 'png') ? 'png' : 'jpg';
+            $tmp = tempnam(sys_get_temp_dir(), 'passport');
+            $file = $tmp.'.'.$extension;
+            @rename($tmp, $file);
+            file_put_contents($file, $binary);
+
+            return response()->file($file, [
+                'Content-Type' => $matches[1],
+                'Content-Disposition' => 'inline; filename="passport.'.$extension.'"',
+                'Cache-Control' => 'private, max-age=3600',
+            ])->deleteFileAfterSend(true);
+        }
+
+        $absolute = self::absolutePath($path);
+        if (! $absolute) {
+            return null;
+        }
+
+        $mime = mime_content_type($absolute) ?: 'image/jpeg';
+
+        return response()->file($absolute, [
+            'Content-Type' => $mime,
+            'Content-Disposition' => 'inline; filename="passport.jpg"',
+            'Cache-Control' => 'private, max-age=3600',
+        ]);
+    }
+
+    private static function embeddedDataUri(string $value): ?string
+    {
+        $value = trim($value);
+        if (str_starts_with($value, 'data:image')) {
+            return $value;
+        }
+
+        if (strlen($value) < 64) {
+            return null;
+        }
+        if (str_contains($value, 'nin-photos/') || str_contains($value, 'applications/') || preg_match('/\.(jpe?g|png|gif|webp)$/i', $value)) {
+            return null;
+        }
+
+        $binary = base64_decode($value, true);
+        if ($binary === false || strlen($binary) < 32) {
+            return null;
+        }
+        if (! str_starts_with($binary, "\xff\xd8") && ! str_starts_with($binary, "\x89PNG")) {
+            return null;
+        }
+
+        $mime = str_starts_with($binary, "\x89PNG") ? 'image/png' : 'image/jpeg';
+
+        return 'data:'.$mime.';base64,'.base64_encode($binary);
+    }
+
     private static function normalize(string $path): string
     {
         $path = str_replace('\\', '/', trim($path));
         $path = ltrim($path, '/');
-        if (str_starts_with($path, 'storage/')) {
-            $path = substr($path, strlen('storage/'));
+        foreach (['storage/', 'public/', 'app/public/'] as $prefix) {
+            if (str_starts_with($path, $prefix)) {
+                $path = substr($path, strlen($prefix));
+            }
         }
 
         return $path;

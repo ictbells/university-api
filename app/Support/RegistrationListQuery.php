@@ -17,7 +17,7 @@ class RegistrationListQuery
                 'user',
                 'program.department',
                 'application.intake.term',
-                'invoices' => fn ($q) => $q->where('category', 'tuition')->where('status', 'paid')->latest(),
+                'invoices' => fn ($q) => $q->where('category', 'tuition')->whereIn('status', ['paid', 'partial'])->latest(),
             ]);
 
         if ($request->filled('entry_mode') && ! in_array('entry_mode', $except, true)) {
@@ -43,6 +43,18 @@ class RegistrationListQuery
         }
         if ($request->filled('program_id')) {
             $query->where('program_id', (int) $request->program_id);
+        }
+        if ($request->filled('course_reg_status') && ! in_array('course_reg_status', $except, true)) {
+            $term = AcademicTerm::current();
+            $status = (string) $request->course_reg_status;
+            if ($term) {
+                $enrolledThisTerm = fn ($q) => $q->enrolled()->whereHas('offering', fn ($o) => $o->where('academic_term_id', $term->id));
+                if ($status === 'not_started') {
+                    $query->whereDoesntHave('enrollments', $enrolledThisTerm);
+                } elseif (in_array($status, ['in_progress', 'registered'], true)) {
+                    $query->whereHas('enrollments', $enrolledThisTerm);
+                }
+            }
         }
         if ($request->filled('search')) {
             $search = trim((string) $request->search);
@@ -108,6 +120,9 @@ class RegistrationListQuery
         if ($request->filled('program_id')) {
             $program = Program::query()->where('id', (int) $request->program_id)->first(['name', 'code']);
             $parts[] = 'Programme: '.($program?->name ?: ($program?->code ?: '#'.$request->program_id));
+        }
+        if ($request->filled('course_reg_status')) {
+            $parts[] = 'Course registration: '.str_replace('_', ' ', (string) $request->course_reg_status);
         }
 
         return $parts;

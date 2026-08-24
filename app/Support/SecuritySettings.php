@@ -27,6 +27,7 @@ class SecuritySettings
             'two_factor_enabled' => self::twoFactorEnabled(),
             'password_rotation_days' => self::passwordRotationDays(),
             'inactivity_logout_minutes' => self::inactivityLogoutMinutes(),
+            'exam_clearance' => ExamClearanceSettings::all(),
         ];
     }
 
@@ -55,6 +56,9 @@ class SecuritySettings
         }
         if (array_key_exists('inactivity_logout_minutes', $data)) {
             Setting::setValue(self::INACTIVITY_LOGOUT_MINUTES, (string) max(0, (int) $data['inactivity_logout_minutes']));
+        }
+        if (array_key_exists('exam_clearance', $data) && is_array($data['exam_clearance'])) {
+            ExamClearanceSettings::update($data['exam_clearance']);
         }
 
         return self::all();

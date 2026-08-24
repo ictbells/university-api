@@ -112,8 +112,11 @@
                     <th style="width: 10%;">Entry mode</th>
                 @endif
                 <th style="width: {{ $showEntryMode ? '18%' : '26%' }};">Programme</th>
-                <th style="width: 12%;">Session</th>
-                <th style="width: 9%;">Tuition</th>
+                <th style="width: 10%;">Session</th>
+                <th style="width: 8%;">Tuition %</th>
+                <th style="width: 10%;">Course reg.</th>
+                <th style="width: 6%;">Units</th>
+                <th style="width: 8%;">Extension</th>
             </tr>
         </thead>
         <tbody>
@@ -129,6 +132,9 @@
                     <td>{{ $row['programme'] }}</td>
                     <td>{{ $row['session'] }}</td>
                     <td>{{ $row['tuition'] }}</td>
+                    <td>{{ $row['course_reg'] ?? '—' }}</td>
+                    <td>{{ $row['units'] ?? '—' }}</td>
+                    <td>{{ $row['extension'] ?? '—' }}</td>
                 </tr>
             @empty
                 <tr>

@@ -20,9 +20,12 @@ class ApplicationListQuery
         $query = Application::query()->with([
             'user',
             'program.department.faculty',
+            'program.workflowTemplate.stages',
             'intake.term',
             'applicationFeeInvoice',
             'acceptanceFeeInvoice',
+            'steps',
+            'refereeInvites',
         ]);
 
         if ($request->filled('stage') && ! in_array('stage', $except, true)) {

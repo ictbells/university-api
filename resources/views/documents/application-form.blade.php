@@ -52,14 +52,16 @@
     table { width: 100%; border-collapse: collapse; }
     th, td { text-align: left; padding: 7px 0; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
     th { color: #64748b; font-weight: 500; width: 38%; }
+    .identity { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 18px; }
+    .identity .meta { flex: 1; margin-bottom: 0; }
     .photo {
-      float: right;
-      width: 96px;
-      height: 112px;
+      width: 110px;
+      height: 130px;
       object-fit: cover;
       border: 1px solid #cbd5e1;
       border-radius: 6px;
-      margin: 0 0 12px 16px;
+      background: #f1f5f9;
+      flex-shrink: 0;
     }
     .footer {
       clear: both;
@@ -96,11 +98,11 @@
       <p class="doc-title">Application Form Printout</p>
     </div>
 
-    @if ($photoUri)
-      <img class="photo" src="{{ $photoUri }}" alt="Passport photograph">
-    @endif
-
-    <div class="meta">
+    <div class="identity">
+      @if ($photoUri)
+        <img class="photo" src="{{ $photoUri }}" alt="Passport photograph">
+      @endif
+      <div class="meta">
       <div><span class="label">Application number:</span> <span class="value">{{ $application->application_number ?: '—' }}</span></div>
       <div><span class="label">JAMB registration:</span> <span class="value">{{ $application->jamb_registration ?: $application->user?->jamb_registration ?: '—' }}</span></div>
       <div><span class="label">Entry mode:</span> <span class="value">{{ strtoupper((string) $application->entry_mode) }}</span></div>
@@ -114,6 +116,7 @@
         <div><span class="label">2nd college:</span> <span class="value">{{ $second_choice_college ?: '—' }}</span></div>
         <div><span class="label">2nd department:</span> <span class="value">{{ $second_choice_department ?: '—' }}</span></div>
       @endif
+      </div>
     </div>
 
     <h2>Personal Details</h2>
@@ -190,6 +193,126 @@
         @endforeach
       </table>
     @endforeach
+
+    @php $utme = $academic['utme'] ?? []; @endphp
+    @if (!empty($utme['aggregate']) || !empty($utme['course_choice']) || !empty($utme['subjects']) || !empty($utme['institution_choices']))
+      <h2>UTME / JAMB</h2>
+      <table>
+        <tr><th>Examination year</th><td>{{ $utme['exam_year'] ?? '—' }}</td></tr>
+        <tr><th>Aggregate</th><td>{{ $utme['aggregate'] ?? '—' }}</td></tr>
+        <tr><th>Course choice</th><td>{{ $utme['course_choice'] ?? '—' }}</td></tr>
+      </table>
+      @if (!empty($utme['subjects']))
+        <table>
+          @foreach ($utme['subjects'] as $row)
+            <tr>
+              <th>{{ $row['subject'] ?? 'Subject' }}</th>
+              <td>{{ $row['score'] ?? '—' }}</td>
+            </tr>
+          @endforeach
+        </table>
+      @endif
+      @if (!empty($utme['institution_choices']))
+        <h2>JAMB institution choices</h2>
+        <table>
+          @foreach ($utme['institution_choices'] as $choice)
+            <tr>
+              <th>Choice {{ $choice['choice_order'] ?? '' }}</th>
+              <td>{{ $choice['institution_name'] ?? '—' }}{{ !empty($choice['programme_name']) ? ' — '.$choice['programme_name'] : '' }}</td>
+            </tr>
+          @endforeach
+        </table>
+      @endif
+    @endif
+
+    @if (!empty($direct_entry['previous_institution']) || !empty($direct_entry['qualification_title']))
+      <h2>Direct Entry</h2>
+      <table>
+        <tr><th>JAMB DE number</th><td>{{ $direct_entry['jamb_de_number'] ?? ($application->jamb_registration ?: '—') }}</td></tr>
+        <tr><th>Previous institution</th><td>{{ $direct_entry['previous_institution'] ?? '—' }}</td></tr>
+        <tr><th>Qualification</th><td>{{ $direct_entry['qualification_title'] ?? '—' }} ({{ str_replace('_', ' ', $direct_entry['qualification_type'] ?? '') }})</td></tr>
+        <tr><th>Class</th><td>{{ str_replace('_', ' ', $direct_entry['qualification_class'] ?? '—') }}</td></tr>
+        <tr><th>Year</th><td>{{ $direct_entry['qualification_year'] ?? '—' }}</td></tr>
+        <tr><th>Programme</th><td>{{ $direct_entry['programme'] ?? '—' }}</td></tr>
+        <tr><th>Requested entry level</th><td>{{ $direct_entry['requested_entry_level'] ?? '—' }}</td></tr>
+      </table>
+    @endif
+
+    @if (!empty($transfer_background['previous_university']))
+      <h2>Transfer background</h2>
+      <table>
+        <tr><th>Previous university</th><td>{{ $transfer_background['previous_university'] ?? '—' }}</td></tr>
+        <tr><th>Previous programme</th><td>{{ $transfer_background['previous_programme'] ?? '—' }}</td></tr>
+        <tr><th>Previous student ID</th><td>{{ $transfer_background['previous_student_id'] ?? '—' }}</td></tr>
+        <tr><th>Credits earned</th><td>{{ $transfer_background['credits_earned'] ?? '—' }}</td></tr>
+        <tr><th>CGPA</th><td>{{ $transfer_background['cgpa'] ?? '—' }}</td></tr>
+        <tr><th>Requested entry level</th><td>{{ $transfer_background['requested_entry_level'] ?? '—' }}</td></tr>
+        <tr><th>Transfer approval</th><td>{{ !empty($transfer_background['has_transfer_approval']) ? 'Yes' : 'No' }}{{ !empty($transfer_background['approval_reference']) ? ' — '.$transfer_background['approval_reference'] : '' }}</td></tr>
+        <tr><th>Reason</th><td>{{ $transfer_background['reason_for_transfer'] ?? '—' }}</td></tr>
+      </table>
+    @endif
+
+    @if (!empty($credit_assessment['decision']))
+      <h2>Credit transfer assessment</h2>
+      <table>
+        <tr><th>Decision</th><td>{{ str_replace('_', ' ', $credit_assessment['decision'] ?? '—') }}</td></tr>
+        <tr><th>Approved entry level</th><td>{{ $credit_assessment['approved_entry_level'] ?? '—' }}</td></tr>
+        <tr><th>Credits accepted</th><td>{{ $credit_assessment['credits_accepted'] ?? '—' }}</td></tr>
+        <tr><th>Credits waived</th><td>{{ $credit_assessment['credits_waived'] ?? '—' }}</td></tr>
+        <tr><th>Assessor notes</th><td>{{ $credit_assessment['assessor_notes'] ?? '—' }}</td></tr>
+      </table>
+      @if (!empty($credit_assessment['course_mappings']))
+        <table>
+          @foreach ($credit_assessment['course_mappings'] as $map)
+            <tr>
+              <th>{{ $map['previous_course'] ?? 'Course' }}</th>
+              <td>{{ $map['equivalent_course'] ?? '—' }} · {{ $map['credits'] ?? '' }} · {{ $map['decision'] ?? '' }}</td>
+            </tr>
+          @endforeach
+        </table>
+      @endif
+    @endif
+
+    @if (!empty($pg_background['prior_degrees']))
+      <h2>Prior degrees</h2>
+      @foreach ($pg_background['prior_degrees'] as $degree)
+        <table>
+          <tr><th>Degree</th><td>{{ $degree['degree_title'] ?? '—' }}</td></tr>
+          <tr><th>Institution</th><td>{{ $degree['institution'] ?? '—' }}</td></tr>
+          <tr><th>Field of study</th><td>{{ $degree['field_of_study'] ?? '—' }}</td></tr>
+          <tr><th>Classification</th><td>{{ $degree['class'] ?? '—' }}</td></tr>
+          <tr><th>Year</th><td>{{ $degree['year_awarded'] ?? '—' }}</td></tr>
+        </table>
+      @endforeach
+      <h2>NYSC</h2>
+      <table>
+        <tr><th>Status</th><td>{{ $pg_background['nysc_status'] ?? '—' }}</td></tr>
+        <tr><th>Number</th><td>{{ $pg_background['nysc_number'] ?? '—' }}</td></tr>
+        <tr><th>Year</th><td>{{ $pg_background['nysc_year'] ?? '—' }}</td></tr>
+        <tr><th>Exemption reason</th><td>{{ $pg_background['nysc_exemption_reason'] ?? '—' }}</td></tr>
+      </table>
+    @endif
+
+    @if (!empty($pg_research))
+      <h2>Research</h2>
+      <table>
+        <tr><th>Research interest</th><td>{{ $pg_research['research_interest'] ?? '—' }}</td></tr>
+        <tr><th>Proposed area</th><td>{{ $pg_research['proposed_area'] ?? '—' }}</td></tr>
+        <tr><th>Statement of purpose</th><td>{{ $pg_research['statement_of_purpose'] ?? '—' }}</td></tr>
+      </table>
+    @endif
+
+    @if (!empty($pg_referees['referees']))
+      <h2>Referees</h2>
+      @foreach ($pg_referees['referees'] as $referee)
+        <table>
+          <tr><th>Name</th><td>{{ $referee['name'] ?? '—' }}</td></tr>
+          <tr><th>Email</th><td>{{ $referee['email'] ?? '—' }}</td></tr>
+          <tr><th>Institution</th><td>{{ $referee['institution'] ?? '—' }}</td></tr>
+          <tr><th>Position</th><td>{{ $referee['position'] ?? '—' }}</td></tr>
+        </table>
+      @endforeach
+    @endif
 
     @if (($documents ?? collect())->isNotEmpty())
       <h2>Uploaded documents</h2>

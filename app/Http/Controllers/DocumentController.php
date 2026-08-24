@@ -13,7 +13,7 @@ class DocumentController extends Controller
 
     public function index(Request $request)
     {
-        $query = Document::query()->latest();
+        $query = Document::query()->where('type', '!=', 'id_card')->latest();
         if (! $request->user()->hasPermission('documents.manage') && ! $request->user()->hasPermission('documents.issue')) {
             $query->where(function ($q) use ($request) {
                 $q->where('user_id', $request->user()->id);
@@ -30,7 +30,7 @@ class DocumentController extends Controller
     {
         $data = $request->validate([
             'student_id' => 'required|exists:students,id',
-            'type' => 'required|string',
+            'type' => 'required|string|not_in:id_card',
             'title' => 'required|string',
             'html_body' => 'nullable|string',
         ]);
@@ -39,12 +39,6 @@ class DocumentController extends Controller
             ...$data,
             'user_id' => $student->user_id,
             'status' => 'issued',
-        ]);
-        $student->wallet?->credentials()->create([
-            'type' => $doc->type,
-            'document_id' => $doc->id,
-            'title' => $doc->title,
-            'issued_at' => now(),
         ]);
         $this->audit->record('document.issued', $doc->title, 'documents', 'document', $doc->id, null, $doc);
 

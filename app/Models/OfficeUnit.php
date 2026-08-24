@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class OfficeUnit extends BaseModel
 {
     use HasOfficeNavLinks;
-    protected $fillable = ['office_department_id', 'name', 'code', 'description', 'is_active'];
+    protected $fillable = ['office_department_id', 'name', 'code', 'description', 'is_active', 'head_staff_id'];
 
     protected function casts(): array
     {
@@ -26,6 +26,11 @@ class OfficeUnit extends BaseModel
     public function subunits(): HasMany
     {
         return $this->hasMany(OfficeSubunit::class)->orderBy('name');
+    }
+
+    public function headStaff(): BelongsTo
+    {
+        return $this->belongsTo(Staff::class, 'head_staff_id');
     }
 
     protected static function booted(): void

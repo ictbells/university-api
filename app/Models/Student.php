@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\NinCipher;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -14,12 +15,23 @@ class Student extends BaseModel
 
     protected $guarded = [];
 
+    protected $hidden = ['nin_hash'];
+
     protected function casts(): array
     {
         return [
             'date_of_birth' => 'date:Y-m-d',
             'nin_locked' => 'boolean',
+            'nin' => 'encrypted',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (Student $student) {
+            $plain = is_string($student->nin) ? NinCipher::normalize($student->nin) : '';
+            $student->nin_hash = $plain !== '' ? NinCipher::hash($plain) : null;
+        });
     }
 
     public function user(): BelongsTo

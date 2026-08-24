@@ -38,6 +38,7 @@ class FeeSchedule
             'acceptance_fee',
             'hostel',
             'sundry',
+            'course_registration_extension',
         ];
     }
 
@@ -92,6 +93,7 @@ class FeeSchedule
             'development' => 'Development levy',
             'hostel' => 'Hostel',
             'sundry' => 'Sundry',
+            'course_registration_extension' => 'Course registration extension',
             'other' => 'Other',
             'application_fee' => 'Application fee',
             default => ucfirst(str_replace('_', ' ', $category)),
