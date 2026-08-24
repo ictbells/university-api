@@ -279,6 +279,14 @@ Shared RDS (`prod-bankease`) has binary logging on. The app user cannot have SUP
 
 Migrate now skips that trigger on 1419. Audit rows stay immutable in `App\Models\AuditLog`. Optional: ask whoever owns BankEase RDS to set `log_bin_trust_function_creators=1` if you want the database trigger as well.
 
+### HTTPS
+
+The API is `https://bells-api.cycbankease.com` (nginx + Let's Encrypt). HTTP on port 80 redirects to HTTPS. Use the hostname, not the Elastic IP — the certificate will not match `https://<eip>/`.
+
+Each API deploy re-runs `scripts/ensure-https.sh` (skipped on VPS). If the browser still shows a certificate warning, Certbot never issued a trusted cert (empty `LETSENCRYPT_EMAIL` at first Terraform apply, or DNS was not pointing at the EIP yet). Re-run **Deploy API**; check `/var/log/bells-sis-user-data.log` for `certbot`.
+
+`https://staff.cycbankease.com` and `https://student.cycbankease.com` are CloudFront. TLS is on; an empty S3 bucket looks like HTTP 403 `AccessDenied`. Deploy the staff and student workflows (`DEPLOY_TARGET=aws`) so `index.html` is uploaded.
+
 ## Deploy staff / student SPAs
 
 See build commands below, or use `deploy-frontend.yml` / `deploy-student.yml` with `DEPLOY_TARGET=aws`.

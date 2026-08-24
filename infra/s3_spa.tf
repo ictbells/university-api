@@ -84,6 +84,40 @@ resource "aws_cloudfront_origin_access_control" "student" {
   signing_protocol                  = "sigv4"
 }
 
+resource "aws_s3_object" "staff_index" {
+  bucket       = aws_s3_bucket.staff.id
+  key          = "index.html"
+  content_type = "text/html; charset=utf-8"
+  content      = <<-HTML
+    <!doctype html>
+    <html lang="en"><head><meta charset="utf-8"><title>Staff portal</title></head>
+    <body>
+      <p>Staff SPA is not uploaded yet. Run the frontend deploy workflow (AWS target).</p>
+    </body></html>
+  HTML
+
+  lifecycle {
+    ignore_changes = [content, etag, content_type]
+  }
+}
+
+resource "aws_s3_object" "student_index" {
+  bucket       = aws_s3_bucket.student.id
+  key          = "index.html"
+  content_type = "text/html; charset=utf-8"
+  content      = <<-HTML
+    <!doctype html>
+    <html lang="en"><head><meta charset="utf-8"><title>Student portal</title></head>
+    <body>
+      <p>Student SPA is not uploaded yet. Run the student deploy workflow (AWS target).</p>
+    </body></html>
+  HTML
+
+  lifecycle {
+    ignore_changes = [content, etag, content_type]
+  }
+}
+
 resource "aws_s3_bucket_policy" "staff_oac" {
   bucket = aws_s3_bucket.staff.id
 
