@@ -62,6 +62,15 @@ runs:
         REMOTE_SCRIPT="${WORK}/remote.sh"
         mkdir -p "$WORK"
 
+        if [[ -z "$BUCKET" ]]; then
+          echo "s3-bucket is empty. Set AWS_DEPLOY_S3_BUCKET to terraform output deploy_s3_bucket (or let the workflow default to {project}-bootstrap-{account-id})." >&2
+          exit 1
+        fi
+        if [[ ! "$BUCKET" =~ ^[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]$ ]]; then
+          echo "Invalid S3 bucket name: '$BUCKET'" >&2
+          exit 1
+        fi
+
         EXCLUDE_ARGS=()
         if [[ -n "$EXCLUDE_FROM" && -f "$EXCLUDE_FROM" ]]; then
           EXCLUDE_ARGS+=(--exclude-from="$EXCLUDE_FROM")

@@ -70,6 +70,33 @@ jobs:
           secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           region: ${{ vars.AWS_REGION || 'us-east-1' }}
 
+      - name: Resolve deploy bucket
+        id: bucket
+        if: ${{ steps.target.outputs.target == 'aws' }}
+        env:
+          FROM_VARS: ${{ vars.AWS_DEPLOY_S3_BUCKET }}
+          FROM_SECRETS: ${{ secrets.AWS_DEPLOY_S3_BUCKET }}
+          PROJECT: ${{ vars.PROJECT_NAME || 'bells-sis' }}
+        run: |
+          set -euo pipefail
+          BUCKET="${FROM_VARS:-}"
+          SOURCE="vars"
+          if [[ -z "$BUCKET" && -n "${AWS_DEPLOY_S3_BUCKET:-}" ]]; then
+            BUCKET="$AWS_DEPLOY_S3_BUCKET"
+            SOURCE="runner-env"
+          fi
+          if [[ -z "$BUCKET" && -n "${FROM_SECRETS:-}" ]]; then
+            BUCKET="$FROM_SECRETS"
+            SOURCE="secret"
+          fi
+          if [[ -z "$BUCKET" ]]; then
+            ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
+            BUCKET="${PROJECT}-bootstrap-${ACCOUNT}"
+            SOURCE="account-default"
+          fi
+          echo "Using deploy bucket s3://${BUCKET}/ (source=${SOURCE})"
+          echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
+
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
@@ -85,7 +112,7 @@ jobs:
         with:
           instance-id: ${{ vars.AWS_EC2_INSTANCE_ID }}
           region: ${{ vars.AWS_REGION || 'us-east-1' }}
-          s3-bucket: ${{ vars.AWS_DEPLOY_S3_BUCKET }}
+          s3-bucket: ${{ steps.bucket.outputs.bucket }}
           s3-prefix: deploys/api
           local-path: .
           remote-path: ${{ vars.AWS_EC2_PATH || '/var/www/api' }}

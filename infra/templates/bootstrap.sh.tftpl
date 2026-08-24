@@ -287,7 +287,14 @@ SUP
 
 systemctl enable supervisor
 systemctl restart supervisor
-supervisorctl reread
+# supervisorctl can fail if the socket is not ready immediately after install.
+for i in $(seq 1 30); do
+  if supervisorctl status >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+supervisorctl reread || true
 supervisorctl update || true
 
 # TLS: self-signed first, then certbot with retries
