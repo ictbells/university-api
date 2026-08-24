@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.3  
+**Version:** 1.4  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -23,7 +23,7 @@ This document covers:
 - Department / office structure and portal link assignment
 - User management and office placement
 - Global application security settings (2FA, password rotation, inactivity logout)
-- Academic catalogue, application windows, candidate lists, and applicant import
+- Academic catalogue, application windows, candidate lists, applicant import, and continuing-student import
 - Applications and registrations pipelines
 - Fees, clinic, hostel, documents, audit, and reports
 - Office heads of department / unit heads and the Approvals inbox
@@ -162,6 +162,9 @@ Users with `settings.manage` configure policies under **System → Application s
 | **Two-factor authentication** | On / Off | When on, every staff member must use TOTP at sign-in |
 | **Password rotation** | Off, 30, 60, 90, or 180 days | Staff must change password when the interval expires |
 | **Inactivity logout** | Off, 15, 30, 60, or 120 minutes | Staff are signed out after idle time |
+| **Studentship after graduation** | 1–10 years (default 2) | Years after registrar conferment before graduates become alumni and student-portal login is locked |
+| **Admissions contact** | Email, phone | Shown on student login and signup |
+| **Staff login support** | Label, email, phone | Shown on staff sign-in (default label: ICT & Registry support) |
 
 **Operational notes:**
 
@@ -196,13 +199,15 @@ When a section (for example Administration) contains a single dropdown whose lab
 | **Administration** | Users, Roles, Permissions, Department Setup |
 | **System** | Audit, Reports, Announcements, Integrations, Application settings, Resources |
 
-**Admission Setup** contains: Campuses, Colleges, Departments, Sessions & semesters, Levels, Courses.
+**Admission Setup** contains: Campuses, Colleges, Departments, Sessions & semesters, Graduation, Levels, Courses.
 
 **Application Setup** contains: Programmes, Application windows, Candidate data, Import applicants, O'level.
 
-**Enrolment** contains: Offerings, Course registration, Unit limits, Registration extensions.
+**Enrolment** contains: Offerings, Course registration, Unit limits, Registration extensions, Import students.
 
-**Fees & payments** contains: Fee catalog, Sundry fees, Rebates, Programme fees, Generate invoice, Invoices, Students Financial Status.
+**Results** contains: Results dashboard, Result entry, CSV import, Approvals, Board, Release, Grading scale, Results audit.
+
+**Fees & payments** contains: Fee catalog, Sundry fees, Rebates, Programme fees, Generate invoice, Invoices, Students Financial Status, Import invoices, Import wallet history.
 
 ### 6.3 Office hierarchy
 
@@ -242,6 +247,9 @@ Staff placed at that node will see only those links (plus Home), subject to thei
 | Registrations → Postgraduate | `registrations-postgraduate` | `/registrations/postgraduate` |
 | Candidate data | `candidate-data` | `/academic/candidate-data` |
 | Import applicants | `import-applicants` | `/academic/import-applicants` |
+| Import students | `import-students` | `/academic/import-students` |
+| Import invoices | `import-invoices` | `/finance/import-invoices` |
+| Import wallet history | `import-wallet` | `/finance/import-wallet` |
 | Department Setup | `office-setup` | `/office-setup` |
 | Approvals | `approvals` | `/approvals` |
 
@@ -413,12 +421,51 @@ After import, the applicant signs in on the student portal with **application nu
 - **Course registration** — Staff view of student enrolments (`academic.enrollments.manage`). Students must have paid at least 25% tuition before self-registering. Staff can still register below that threshold when they provide a reason.
 - **Unit limits** — Credit-unit caps (`academic.enrollments.manage`)
 - **Registration extensions** — Review late-registration requests (`academic.extensions.review`)
+- **Import students** — Create continuing students with a supplied matric number (`students.import`). Import invoices and wallet history first. Login uses matric number. They appear under Registrations only when tuition invoices show at least 25% paid (same rule as other students).
 - **PG research** — Postgraduate research records (`pg.view`)
 - **Exam clearance** — Exam clearance lists (`exam_clearance.view`)
 
+### 8.6a Academic — Results processing
+
+Result entry follows a controlled workflow before students can see grades on the student portal.
+
+**Statuses:** `draft` → `submitted` → `board_ready` (via faculty approval) → `board_cleared` → `released`. Returns use `correction_required`. Only `draft` and `correction_required` rows are editable. Students see only **released** grades; CGPA uses released rows only. Carry-over detection also ignores unreleased grades.
+
+| Page | Purpose | Permission |
+|------|---------|------------|
+| Results dashboard | Counts by status | `results.read` |
+| Result entry | Search students, enter CA/exam/total | `results.read` + `results.write` / `results.submit` |
+| CSV import | Bulk draft import (`matric,score` or ca/exam columns) | `results.import` |
+| Approvals | Submit queue, faculty approve/return, printable dept/faculty lists | `results.submit` or `results.faculty_approve` |
+| Board | Board clear / request corrections, printable board lists | `results.board` |
+| Release | Release board-cleared grades to students | `results.release` |
+| Grading scale | Edit letter boundaries (seeded default 5.0 scale) | `scales.manage` |
+| Results audit | Status/score change log | `results.read` |
+
+**Typical flow**
+
+1. Assign Results portal links under Department Setup (`results`, `results-students`, `results-approvals`, `results-board`, `results-release`, etc.) and grant the matching permissions.
+2. Review **Grading scale** before first use.
+3. Enter or import drafts on Result entry / CSV import.
+4. Submit → faculty approve (or return) on Approvals. Download printable lists as needed.
+5. Board clear on Board (may require office approval).
+6. Release on Release (may require office approval). Students then see letter grades and CGPA.
+
+E-exam sync is not included in this release.
+
 ### 8.7 Services
 
-- **Fees & payments** — Fee catalogue, sundry fees, rebates, programme fees, invoice generation, invoices, and student financial status (`finance.invoices.manage`)
+- **Fees & payments** — Fee catalogue, sundry fees, rebates, programme fees, invoice generation, invoices, student financial status, **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted)
+
+#### Import invoices and wallet history
+
+Use these when moving continuing students from another portal. **Do not** invent a “legacy registered” flag or auto-credit wallets from invoice `paid_amount`.
+
+1. **Fees & payments → Import invoices.** Spreadsheet keyed by `matric_number`. One row is one invoice. Extra rows with the same `invoice_number` add extra payments. Tuition requires `installment_percent` (25/50/75/100). `paid_amount` records money received on the invoice. If the student does not exist yet, rows stay **pending** until Import students runs.
+2. **Fees & payments → Import wallet history.** One row is one credit or debit. Replay is in `occurred_at` order. Wallet credit does **not** count as tuition paid. If a debit would take the wallet below zero, that row and remaining rows for the same matric are skipped.
+3. **Academic → Enrolment → Import students.** Select an application window and category. Required: email, phone, nin, first_name, last_name, programme_code, matric_number, current_level. Creates a user (student role), a historical application at stage `matriculated`, and a student record with the **supplied** matric (not an auto-generated `BUT/{year}/M/{####}`). Then posts pending invoices and wallet rows for that matric.
+
+If an old payment was wallet-funded, record `paid_amount` on the invoice sheet **and** a matching **debit** on the wallet sheet. These imports do not call Paystack and do not settle invoices from the wallet automatically.
 - **Clinic** — Queue, student charts, encounters, prescriptions, sick notes, NHIS-aware billing (`medical.view_any` / `medical.manage` / `medical.billing`)
 - **Hostel** — Hostel allocation (`hostel.view`)
 - **Documents** — Issue documents (`documents.issue`)
@@ -525,6 +572,10 @@ Use the audit trail for compliance reviews and incident investigation.
 | “Student portal required” on staff URL | Account has applicant/student role only | Use student portal or assign a staff role and staff record |
 | Only Home visible | No office links configured or stale placement | Assign office and configure links |
 | Candidate data or Import applicants missing | Office link or `admissions.import` missing | Tick `candidate-data` / `import-applicants` and grant `admissions.import` |
+| Import students missing | Office link or `students.import` missing | Tick `import-students` and grant `students.import` |
+| Import invoices / wallet missing | Office link or finance permission missing | Tick `import-invoices` / `import-wallet` and grant `finance.invoices.manage` (or `finance.invoices.import`) |
+| Imported student cannot sign in | Used email or JAMB after matriculation | Sign in with the supplied **matric number** |
+| Imported student not on Registrations | Tuition invoices below 25% paid | Import invoices with tuition `paid_amount` / `installment_percent`; wallet credit alone does not qualify |
 | Applicant cannot sign in with email | Student portal does not accept email as login | Use application number, JAMB registration, or matric number |
 | Import skipped a row | Duplicate email/NIN/JAMB, missing required field, unknown programme code, or NIN verify failed | Download failed rows; fix and re-upload |
 | NIN import created no user | Verify NIN was on and Prembly rejected the NIN | Correct NIN or import with verification off |

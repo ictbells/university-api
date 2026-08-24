@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
             Permission::query()->updateOrCreate(['key' => $perm['key']], $perm);
         }
         WorkflowCatalog::seed();
+        $this->call(GradingScaleSeeder::class);
         $allIds = Permission::query()->pluck('id');
 
         $roles = [
@@ -68,6 +69,9 @@ class DatabaseSeeder extends Seeder
         Setting::setValue('university_motto', 'Chords of Knowledge');
         Setting::setValue('admissions.email', 'admissions@bellsuniversity.edu.ng');
         Setting::setValue('admissions.phone', '');
+        Setting::setValue('staff_support.label', 'ICT & Registry support');
+        Setting::setValue('staff_support.email', 'ict@bellsuniversity.edu.ng');
+        Setting::setValue('staff_support.phone', '+234 801 000 0000');
         Setting::setValue('maintenance', '0');
         Setting::setValue('security.two_factor_enabled', '0');
         Setting::setValue('security.password_rotation_days', '0');

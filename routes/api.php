@@ -4,6 +4,7 @@ use App\Http\Controllers\AcademicController;
 use App\Http\Controllers\AcademicSetupController;
 use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\ApplicantImportController;
+use App\Http\Controllers\InvoiceImportController;
 use App\Http\Controllers\ApplicationController;
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\AuthController;
@@ -32,13 +33,16 @@ use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\RegistrationExtensionController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\ResourceController;
+use App\Http\Controllers\ResultsController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SecuritySettingsController;
 use App\Http\Controllers\StudentController;
+use App\Http\Controllers\StudentImportController;
 use App\Http\Controllers\TwoFactorController;
 use App\Http\Controllers\UnitLimitController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WalletController;
+use App\Http\Controllers\WalletImportController;
 use App\Support\CandidateEligibility;
 use Illuminate\Support\Facades\Route;
 
@@ -102,6 +106,12 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/applicants/import/{importId}/errors', [ApplicantImportController::class, 'errors'])
         ->middleware('permission:admissions.import');
 
+    Route::get('/students/import-options', [StudentImportController::class, 'options']);
+    Route::get('/students/import-template', [StudentImportController::class, 'template']);
+    Route::post('/students/import', [StudentImportController::class, 'import']);
+    Route::get('/students/import/{importId}', [StudentImportController::class, 'status']);
+    Route::get('/students/import/{importId}/errors', [StudentImportController::class, 'errors']);
+
     Route::get('/programs', [AcademicController::class, 'programs']);
     Route::get('/applications', [ApplicationController::class, 'index']);
     Route::get('/applications/export', [ApplicationController::class, 'export'])
@@ -143,6 +153,16 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/invoices', [FinanceController::class, 'invoices']);
     Route::get('/invoices/export', [FinanceController::class, 'exportInvoices'])
         ->middleware('permission:finance.invoices.manage');
+    Route::get('/invoices/import-template', [InvoiceImportController::class, 'template']);
+    Route::get('/invoices/import-pending', [InvoiceImportController::class, 'pending']);
+    Route::post('/invoices/import', [InvoiceImportController::class, 'import']);
+    Route::get('/invoices/import/{importId}', [InvoiceImportController::class, 'status']);
+    Route::get('/invoices/import/{importId}/errors', [InvoiceImportController::class, 'errors']);
+    Route::get('/wallet/import-template', [WalletImportController::class, 'template']);
+    Route::get('/wallet/import-pending', [WalletImportController::class, 'pending']);
+    Route::post('/wallet/import', [WalletImportController::class, 'import']);
+    Route::get('/wallet/import/{importId}', [WalletImportController::class, 'status']);
+    Route::get('/wallet/import/{importId}/errors', [WalletImportController::class, 'errors']);
     Route::get('/invoices/{invoice}/receipt', [FinanceController::class, 'receipt']);
     Route::get('/transactions', [FinanceController::class, 'history']);
     Route::get('/my-programme-fees', [FinanceController::class, 'myProgrammeFeeSchedule']);
@@ -332,6 +352,31 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::middleware('academic.resource:registration-extensions')->group(function () {
         Route::get('/academic/registration-extensions', [RegistrationExtensionController::class, 'index']);
         Route::post('/academic/registration-extensions/{extension}/review', [RegistrationExtensionController::class, 'review']);
+    });
+
+    Route::middleware('academic.resource:results,results-students,results-import,results-approvals,results-board,results-release,results-grading-scale,results-audit')->group(function () {
+        Route::get('/academic/results/dashboard', [ResultsController::class, 'dashboard']);
+        Route::get('/academic/results/grades', [ResultsController::class, 'index']);
+        Route::post('/academic/results/grades', [ResultsController::class, 'store']);
+        Route::patch('/academic/results/grades/{grade}', [ResultsController::class, 'update']);
+        Route::delete('/academic/results/grades/{grade}', [ResultsController::class, 'destroy']);
+        Route::post('/academic/results/submit', [ResultsController::class, 'submit']);
+        Route::post('/academic/results/faculty-approve', [ResultsController::class, 'facultyApprove']);
+        Route::post('/academic/results/faculty-return', [ResultsController::class, 'facultyReturn']);
+        Route::post('/academic/results/board-scopes/clear', [ResultsController::class, 'boardClear']);
+        Route::post('/academic/results/board-scopes/request-corrections', [ResultsController::class, 'boardRequestCorrections']);
+        Route::post('/academic/results/release', [ResultsController::class, 'release']);
+        Route::post('/academic/results/import', [ResultsController::class, 'import']);
+        Route::get('/academic/results/students', [ResultsController::class, 'students']);
+        Route::get('/academic/results/students/{student}', [ResultsController::class, 'studentGrades']);
+        Route::get('/academic/results/students/{student}/transcript', [ResultsController::class, 'staffTranscript']);
+        Route::get('/academic/results/audit', [ResultsController::class, 'audit']);
+        Route::get('/academic/results/grading-scales', [ResultsController::class, 'gradingScales']);
+        Route::put('/academic/results/grading-scales/{gradingScale}', [ResultsController::class, 'updateGradingScale']);
+        Route::get('/academic/results/reports/submission-list/{scope}', [ResultsController::class, 'submissionList'])
+            ->whereIn('scope', ['department', 'faculty', 'board']);
+        Route::get('/academic/results/board-lists/{scope}', [ResultsController::class, 'submissionList'])
+            ->whereIn('scope', ['department', 'faculty']);
     });
 
     Route::middleware('permission:academic.offerings.manage')->group(function () {

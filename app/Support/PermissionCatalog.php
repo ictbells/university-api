@@ -27,6 +27,7 @@ class PermissionCatalog
             ['key' => 'students.view_own', 'module' => 'sis', 'label' => 'View own student record'],
             ['key' => 'students.view_any', 'module' => 'sis', 'label' => 'View any student record'],
             ['key' => 'students.manage', 'module' => 'sis', 'label' => 'Manage student records'],
+            ['key' => 'students.import', 'module' => 'sis', 'label' => 'Import continuing students'],
             ['key' => 'admissions.view', 'module' => 'admissions', 'label' => 'View applications'],
             ['key' => 'admissions.apply', 'module' => 'admissions', 'label' => 'Start and complete an application'],
             ['key' => 'admissions.screen', 'module' => 'admissions', 'label' => 'Screen applications'],
@@ -47,6 +48,7 @@ class PermissionCatalog
             ['key' => 'pg.view', 'module' => 'postgraduate', 'label' => 'View postgraduate records'],
             ['key' => 'pg.manage', 'module' => 'postgraduate', 'label' => 'Manage postgraduate records'],
             ['key' => 'finance.invoices.manage', 'module' => 'fees', 'label' => 'Manage invoices'],
+            ['key' => 'finance.invoices.import', 'module' => 'fees', 'label' => 'Import invoices and wallet history'],
             ['key' => 'finance.payments.record', 'module' => 'payments', 'label' => 'Record payments'],
             ['key' => 'wallet.topup', 'module' => 'wallet', 'label' => 'Fund wallets'],
             ['key' => 'wallet.view_own', 'module' => 'wallet', 'label' => 'View own wallet'],
@@ -73,6 +75,14 @@ class PermissionCatalog
             ['key' => 'integrations.view', 'module' => 'integrations', 'label' => 'View integrations'],
             ['key' => 'identity.verify_nin', 'module' => 'identity', 'label' => 'Re-verify NIN'],
             ['key' => 'exam_clearance.view', 'module' => 'academic', 'label' => 'View exam clearance'],
+            ['key' => 'results.read', 'module' => 'academic', 'label' => 'View results and printable lists'],
+            ['key' => 'results.write', 'module' => 'academic', 'label' => 'Enter and edit draft results'],
+            ['key' => 'results.submit', 'module' => 'academic', 'label' => 'Submit results for approval'],
+            ['key' => 'results.faculty_approve', 'module' => 'academic', 'label' => 'Faculty approve or return results'],
+            ['key' => 'results.board', 'module' => 'academic', 'label' => 'Board clear or request corrections'],
+            ['key' => 'results.release', 'module' => 'academic', 'label' => 'Release results to students'],
+            ['key' => 'results.import', 'module' => 'academic', 'label' => 'Import results from CSV'],
+            ['key' => 'scales.manage', 'module' => 'academic', 'label' => 'Manage grading scales'],
         ];
     }
 }

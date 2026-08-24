@@ -206,6 +206,8 @@ class OfficeApprovalExecutor
             'academic.destroy_session' => [\App\Http\Controllers\InstitutionController::class, 'destroySession', ['key' => 'session_id', 'class' => AcademicSession::class]],
             'academic.close_session' => [\App\Http\Controllers\InstitutionController::class, 'closeSession', ['key' => 'session_id', 'class' => AcademicSession::class]],
             'academic.graduate' => [\App\Http\Controllers\GraduationController::class, 'confer', null],
+            'results.board_clear' => [\App\Http\Controllers\ResultsController::class, 'boardClear', null],
+            'results.release' => [\App\Http\Controllers\ResultsController::class, 'release', null],
             'academic.store_term' => [\App\Http\Controllers\InstitutionController::class, 'storeTerm', null],
             'academic.update_term' => [\App\Http\Controllers\InstitutionController::class, 'updateTerm', ['key' => 'term_id', 'class' => AcademicTerm::class]],
             'academic.destroy_term' => [\App\Http\Controllers\InstitutionController::class, 'destroyTerm', ['key' => 'term_id', 'class' => AcademicTerm::class]],

@@ -20,6 +20,14 @@ class AcademicResourceCatalog
         'programmes' => 'academic.programmes.manage',
         'intakes' => 'academic.intakes.manage',
         'olevel' => 'academic.olevel.manage',
+        'results' => 'results.read',
+        'results-students' => 'results.read',
+        'results-import' => 'results.import',
+        'results-approvals' => 'results.submit',
+        'results-board' => 'results.board',
+        'results-release' => 'results.release',
+        'results-grading-scale' => 'scales.manage',
+        'results-audit' => 'results.read',
     ];
 
     public static function permission(string $resourceKey): ?string

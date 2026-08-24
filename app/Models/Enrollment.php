@@ -42,7 +42,7 @@ class Enrollment extends BaseModel
 
     public function grade(): HasOne
     {
-        return $this->hasOne(Grade::class)->where('sitting', 'main')->latestOfMany();
+        return $this->hasOne(Grade::class)->where('sitting', 'main');
     }
 
     public function grades(): HasMany

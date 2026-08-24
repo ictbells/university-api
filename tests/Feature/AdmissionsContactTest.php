@@ -47,6 +47,26 @@ class AdmissionsContactTest extends TestCase
             ->assertJsonPath('admissions_email', 'hello@bellsuniversity.edu.ng');
     }
 
+    public function test_staff_can_update_staff_login_support_from_application_settings(): void
+    {
+        Sanctum::actingAs($this->staffUser(['settings.manage']));
+
+        $this->putJson('/api/security-settings', [
+            'staff_support_label' => 'Helpdesk',
+            'staff_support_email' => 'helpdesk@bellsuniversity.edu.ng',
+            'staff_support_phone' => '+234 809 000 1111',
+        ])
+            ->assertOk()
+            ->assertJsonPath('staff_support_label', 'Helpdesk')
+            ->assertJsonPath('staff_support_email', 'helpdesk@bellsuniversity.edu.ng')
+            ->assertJsonPath('staff_support_phone', '+234 809 000 1111');
+
+        $this->getJson('/api/portal-info')
+            ->assertOk()
+            ->assertJsonPath('staff_support_label', 'Helpdesk')
+            ->assertJsonPath('staff_support_email', 'helpdesk@bellsuniversity.edu.ng');
+    }
+
     public function test_updating_admissions_contact_requires_settings_manage(): void
     {
         Sanctum::actingAs($this->staffUser([]));

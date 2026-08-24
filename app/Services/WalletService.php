@@ -30,7 +30,7 @@ class WalletService
         $this->audit->record('wallet.credit', $description, 'wallet', 'wallet', $wallet->id, $before, $wallet->fresh());
     }
 
-    public function debit(Wallet $wallet, float $amount, string $description, string $module, ?int $relatedId = null): void
+    public function debit(Wallet $wallet, float $amount, string $description, string $module, ?int $relatedId = null, ?string $reference = null): void
     {
         if ((float) $wallet->balance < $amount) {
             throw new RuntimeException('Insufficient wallet balance.');
@@ -41,7 +41,7 @@ class WalletService
         $wallet->transactions()->create([
             'type' => 'debit',
             'amount' => $amount,
-            'reference' => 'WLT-'.Str::upper(Str::random(8)),
+            'reference' => $reference ?: 'WLT-'.Str::upper(Str::random(8)),
             'source_module' => $module,
             'related_id' => $relatedId,
             'description' => $description,

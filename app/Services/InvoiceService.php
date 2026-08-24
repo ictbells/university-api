@@ -11,6 +11,7 @@ use App\Models\Student;
 use App\Models\User;
 use App\Support\FeeSchedule;
 use App\Support\ProgrammeFeeResolver;
+use App\Support\Studentship;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -261,6 +262,12 @@ class InvoiceService
     {
         if (! in_array($percent, FeeSchedule::INSTALLMENT_PERCENTS, true)) {
             throw new InvalidArgumentException('Tuition installment must be 25%, 50%, 75%, or 100%.');
+        }
+
+        if (! Studentship::canRegisterCourses($student)) {
+            throw new RuntimeException($student->status === Studentship::STATUS_GRADUATED
+                ? 'Graduated students cannot generate a new tuition invoice.'
+                : 'Studentship is not current; tuition billing is closed.');
         }
 
         $student->loadMissing(['user', 'program']);

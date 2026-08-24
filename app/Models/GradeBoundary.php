@@ -2,9 +2,10 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class GradeBoundary extends BaseModel
+class GradeBoundary extends Model
 {
     protected $fillable = [
         'grading_scale_id',

@@ -11,6 +11,7 @@ use App\Models\Setting;
 use App\Services\AuditWriter;
 use App\Services\SessionCloseService;
 use App\Support\AdmissionsContactSettings;
+use App\Support\StaffSupportContactSettings;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -36,7 +37,10 @@ class InstitutionController extends Controller
 
     public function portalInfo()
     {
-        return response()->json(AdmissionsContactSettings::all());
+        return response()->json([
+            ...AdmissionsContactSettings::all(),
+            ...StaffSupportContactSettings::all(),
+        ]);
     }
 
     public function updateSettings(Request $request)

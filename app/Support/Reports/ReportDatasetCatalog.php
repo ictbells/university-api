@@ -446,6 +446,9 @@ class ReportDatasetCatalog
                 self::col('letter', 'Letter', 'string', 'grades.letter'),
                 self::col('score', 'Score', 'number', 'grades.score', aggregatable: true),
                 self::col('points', 'Points', 'number', 'grades.points', aggregatable: true),
+                self::col('status', 'Status', 'string', 'grades.status'),
+                self::col('term_name', 'Term', 'string', 'academic_terms.name'),
+                self::col('released_at', 'Released', 'datetime', 'grades.released_at'),
                 self::col('created_at', 'Recorded', 'datetime', 'grades.created_at'),
             ],
             query: fn () => Grade::query()
@@ -453,9 +456,10 @@ class ReportDatasetCatalog
                 ->leftJoin('students', 'students.id', '=', 'enrollments.student_id')
                 ->leftJoin('users', 'users.id', '=', 'students.user_id')
                 ->leftJoin('course_offerings', 'course_offerings.id', '=', 'enrollments.course_offering_id')
+                ->leftJoin('academic_terms', 'academic_terms.id', '=', 'course_offerings.academic_term_id')
                 ->leftJoin('courses', 'courses.id', '=', 'course_offerings.course_id'),
             countColumn: 'grades.id',
-            defaultColumns: ['matric_number', 'student_name', 'course_code', 'letter', 'score'],
+            defaultColumns: ['matric_number', 'student_name', 'course_code', 'letter', 'score', 'status'],
             defaultSort: [['field' => 'created_at', 'dir' => 'desc']],
         );
     }

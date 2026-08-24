@@ -2,9 +2,10 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class GradeStatusEvent extends BaseModel
+class GradeStatusEvent extends Model
 {
     protected $fillable = [
         'grade_id',

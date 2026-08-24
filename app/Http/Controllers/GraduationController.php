@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Student;
-use App\Services\AuditWriter;
 use App\Services\GraduationService;
 use Illuminate\Http\Request;
 
@@ -13,7 +12,6 @@ class GraduationController extends Controller
 
     public function __construct(
         private GraduationService $graduation,
-        private AuditWriter $audit,
     ) {}
 
     public function candidates(Request $request)

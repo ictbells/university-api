@@ -827,17 +827,23 @@ class CourseRegistrationService
     private function failedCourseIds(Student $student): array
     {
         $rows = Enrollment::query()
-            ->with(['offering.course', 'grade'])
+            ->with(['offering.course', 'grades'])
             ->where('student_id', $student->id)
-            ->whereHas('grade')
+            ->whereHas('grades')
             ->get();
 
         $failed = [];
         $passed = [];
         foreach ($rows as $row) {
             $courseId = $row->offering?->course_id;
-            $grade = $row->grade;
-            if (! $courseId || ! $grade) {
+            if (! $courseId) {
+                continue;
+            }
+            $grades = $row->grades
+                ->filter(fn ($g) => \App\Support\GradeStatus::isReleased((string) $g->status))
+                ->sortByDesc(fn ($g) => $g->sitting === 'supplementary' ? 1 : 0);
+            $grade = $grades->first();
+            if (! $grade) {
                 continue;
             }
             $isFail = strtoupper((string) $grade->letter) === 'F' || (float) $grade->points === 0.0;

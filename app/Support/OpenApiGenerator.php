@@ -50,11 +50,24 @@ class OpenApiGenerator
         ],
         'get_/api/registrations' => [
             'summary' => 'List registrations',
-            'description' => 'Returns paginated student records where the linked application is `matriculated` with a `student_id`, and the student has a paid `tuition` invoice. Requires `registrations.view`. Query filters: `entry_mode`, `entry_modes`.',
+            'description' => 'Returns paginated student records where the linked application is `matriculated` with a `student_id`, and the student has a paid `tuition` invoice. Requires `registrations.view`. Query filters: `entry_mode`, `entry_modes`, `studentship` (`current` default, `alumni`, or `all`).',
             'parameters' => [
                 ['name' => 'entry_mode', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Filter by a single entry mode.'],
                 ['name' => 'entry_modes', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Comma-separated entry modes (undergraduate: `utme,de,transfer`; JUPEB: `jupeb`; postgraduate: `pg`).'],
+                ['name' => 'studentship', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['current', 'alumni', 'all']], 'description' => 'Default `current` (active or graduated with unexpired studentship).'],
             ],
+        ],
+        'get_/api/academic/graduation/candidates' => [
+            'summary' => 'List graduation candidates',
+            'description' => 'Active students at programme final level. Requires `academic.graduate`. Query filters: `program_id`, `campus_id`, `search`.',
+        ],
+        'post_/api/academic/graduation/confer' => [
+            'summary' => 'Confirm graduation (conferment)',
+            'description' => 'Sets `graduated_at`, `studentship_expires_at`, and status `graduated`. Starts the studentship clock. Requires `academic.graduate`. Body: `student_ids`, `graduated_at`, optional `academic_session_id`, `require_final_year` (default true).',
+        ],
+        'post_/api/students/{student}/confer' => [
+            'summary' => 'Confirm graduation for one student',
+            'description' => 'Late senate conferment; final year is not required. Requires `academic.graduate`. Body: `graduated_at`.',
         ],
         'get_/api/candidate-data/{jambRegistration}' => [
             'summary' => 'Lookup candidate by JAMB number',

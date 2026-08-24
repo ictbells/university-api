@@ -255,7 +255,24 @@ class AcademicController extends Controller
         $student = $request->user()->student;
         abort_unless($student, 404);
 
-        return $student->enrollments()->with(['offering.course', 'grade'])->get();
+        $rows = $student->enrollments()->with(['offering.course', 'grades', 'grade'])->get();
+
+        return $rows->map(function ($enrollment) {
+            $released = $enrollment->grades
+                ->filter(fn ($g) => \App\Support\GradeStatus::isReleased((string) $g->status))
+                ->sortByDesc(fn ($g) => $g->sitting === 'supplementary' ? 1 : 0)
+                ->first();
+            $pending = $enrollment->grades->contains(
+                fn ($g) => ! \App\Support\GradeStatus::isReleased((string) $g->status)
+            );
+            $payload = $enrollment->toArray();
+            $payload['grade'] = $released
+                ? $released->only(['letter', 'points', 'score', 'status'])
+                : null;
+            $payload['pending_grade'] = $pending && ! $released;
+
+            return $payload;
+        });
     }
 
     public function transcript(Request $request, ?Student $student = null)
@@ -266,21 +283,7 @@ class AcademicController extends Controller
         abort_unless($target, 404);
         abort_if($student && $student->id !== $target->id, 403);
 
-        $rows = $target->enrollments()->with(['offering.course', 'grade'])->get();
-        $points = 0;
-        $units = 0;
-        foreach ($rows as $row) {
-            if ($row->grade) {
-                $points += $row->grade->points * $row->offering->course->units;
-                $units += $row->offering->course->units;
-            }
-        }
-
-        return [
-            'student' => $target->only(['id', 'student_number', 'matric_number', 'first_name', 'last_name']),
-            'gpa' => $units ? round($points / $units, 2) : 0,
-            'rows' => $rows,
-        ];
+        return \App\Support\TranscriptBuilder::forStudent($target, true, true);
     }
 
     public function workflowTemplates()
