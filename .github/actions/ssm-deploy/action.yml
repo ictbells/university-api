@@ -84,48 +84,28 @@ runs:
         aws s3 cp "$ARCHIVE" "s3://${BUCKET}/${ARTIFACT_KEY}" --region "$REGION"
 
         ENV_S3_KEY=""
+        ENV_URL=""
         if [[ -n "$ENV_FILE" && -f "$ENV_FILE" ]]; then
           ENV_S3_KEY="${PREFIX}/${DEPLOY_ID}.env"
           aws s3 cp "$ENV_FILE" "s3://${BUCKET}/${ENV_S3_KEY}" --region "$REGION"
+          ENV_URL="$(aws s3 presign "s3://${BUCKET}/${ENV_S3_KEY}" --expires-in 3600 --region "$REGION")"
         fi
 
-        cat >"$REMOTE_SCRIPT" <<EOF
-        #!/bin/bash
-        set -euo pipefail
-        BUCKET="${BUCKET}"
-        REGION="${REGION}"
-        ARTIFACT_KEY="${ARTIFACT_KEY}"
-        ENV_S3_KEY="${ENV_S3_KEY}"
-        REMOTE_PATH="${REMOTE_PATH}"
-        ARCHIVE="/tmp/bells-sis-deploy.tar.gz"
+        ARTIFACT_URL="$(aws s3 presign "s3://${BUCKET}/${ARTIFACT_KEY}" --expires-in 3600 --region "$REGION")"
+        echo "Uploaded s3://${BUCKET}/${ARTIFACT_KEY}; sending SSM command (presigned GET, no instance HeadObject)."
 
-        aws s3 cp "s3://\${BUCKET}/\${ARTIFACT_KEY}" "\$ARCHIVE" --region "\$REGION"
-        mkdir -p "\$REMOTE_PATH"
-        tar -xzf "\$ARCHIVE" -C "\$REMOTE_PATH"
-        rm -f "\$ARCHIVE"
-
-        if [[ -n "\$ENV_S3_KEY" ]]; then
-          aws s3 cp "s3://\${BUCKET}/\${ENV_S3_KEY}" "\$REMOTE_PATH/.env" --region "\$REGION"
-          chown www-data:www-data "\$REMOTE_PATH/.env"
-          chmod 640 "\$REMOTE_PATH/.env"
-        fi
-
-        chown -R www-data:www-data "\$REMOTE_PATH/storage" "\$REMOTE_PATH/bootstrap/cache" 2>/dev/null || true
-        chmod +x "\$REMOTE_PATH/scripts/"*.sh 2>/dev/null || true
-        EOF
-
-        if [[ -n "$REMOTE_COMMAND" ]]; then
-          printf '\n%s\n' "$REMOTE_COMMAND" >>"$REMOTE_SCRIPT"
-        fi
-
-        aws s3 cp "$REMOTE_SCRIPT" "s3://${BUCKET}/${SCRIPT_KEY}" --region "$REGION"
+        export REMOTE_SCRIPT ARTIFACT_URL ENV_URL REMOTE_PATH BUCKET REGION ARTIFACT_KEY ENV_S3_KEY
+        python3 "${GITHUB_ACTION_PATH}/render.py" remote
+        export SSM_PARAMS="${WORK}/ssm-params.json" REMOTE_COMMAND
+        python3 "${GITHUB_ACTION_PATH}/render.py" params
 
         COMMAND_ID="$(aws ssm send-command \
           --region "$REGION" \
           --instance-ids "$INSTANCE_ID" \
           --document-name "AWS-RunShellScript" \
           --comment "bells-sis deploy ${DEPLOY_ID}" \
-          --parameters "commands=[\"aws s3 cp s3://${BUCKET}/${SCRIPT_KEY} /tmp/bells-sis-deploy.sh --region ${REGION} && chmod +x /tmp/bells-sis-deploy.sh && /bin/bash /tmp/bells-sis-deploy.sh\"]" \
+          --timeout-seconds 600 \
+          --parameters "file://${WORK}/ssm-params.json" \
           --query Command.CommandId \
           --output text)"
 

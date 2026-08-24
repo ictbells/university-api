@@ -27,6 +27,15 @@ resource "aws_iam_role_policy" "ec2_inline" {
     Statement = concat(
       [
         {
+          Sid    = "ListBootstrapBucket"
+          Effect = "Allow"
+          Action = [
+            "s3:ListBucket",
+            "s3:GetBucketLocation"
+          ]
+          Resource = aws_s3_bucket.bootstrap.arn
+        },
+        {
           Sid    = "ReadBootstrapAndDeployArtifacts"
           Effect = "Allow"
           Action = [
@@ -34,8 +43,7 @@ resource "aws_iam_role_policy" "ec2_inline" {
             "s3:GetObjectVersion"
           ]
           Resource = [
-            "${aws_s3_bucket.bootstrap.arn}/${local.bootstrap_s3_key}",
-            "${aws_s3_bucket.bootstrap.arn}/deploys/*"
+            "${aws_s3_bucket.bootstrap.arn}/*"
           ]
         },
         {

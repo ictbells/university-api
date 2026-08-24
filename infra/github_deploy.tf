@@ -61,9 +61,24 @@ resource "aws_iam_role_policy" "github_deploy" {
         Effect = "Allow"
         Action = [
           "s3:PutObject",
+          "s3:GetObject",
           "s3:AbortMultipartUpload"
         ]
         Resource = "${aws_s3_bucket.bootstrap.arn}/deploys/*"
+      },
+      {
+        Sid    = "ListDeployPrefix"
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket",
+          "s3:GetBucketLocation"
+        ]
+        Resource = aws_s3_bucket.bootstrap.arn
+        Condition = {
+          StringLike = {
+            "s3:prefix" = ["deploys", "deploys/*"]
+          }
+        }
       },
       {
         Sid    = "RunShellOnApiInstance"
