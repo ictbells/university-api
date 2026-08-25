@@ -87,7 +87,9 @@ runs:
 
         if [[ -n "$ENV_FILE" ]]; then
           scp -i "$HOME/.ssh/deploy_key" -P "$PORT" -o StrictHostKeyChecking=accept-new \
-            "$ENV_FILE" "$USER@$HOST:$REMOTE_PATH/.env"
+            "$ENV_FILE" "$USER@$HOST:$REMOTE_PATH/.env.s3-overlay"
+          ssh -i "$HOME/.ssh/deploy_key" -p "$PORT" -o StrictHostKeyChecking=accept-new \
+            "$USER@$HOST" "python3 '$REMOTE_PATH/scripts/patch-dotenv.py' '$REMOTE_PATH/.env' --merge-from '$REMOTE_PATH/.env.s3-overlay' --keep-infra && rm -f '$REMOTE_PATH/.env.s3-overlay' && chown www-data:www-data '$REMOTE_PATH/.env' && chmod 640 '$REMOTE_PATH/.env'"
         fi
 
         if [[ -n "$REMOTE_COMMAND" ]]; then

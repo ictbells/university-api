@@ -20,7 +20,7 @@ on:
         options: [development, production]
         default: development
       pull_env_from_s3:
-        description: VPS only — pull env overlay from S3. AWS always pulls unless vars.LOAD_ENV_FROM_S3=false
+        description: Unused for AWS. Env overlay always comes from secrets ENV_S3_BUCKET + ENV_S3_KEY (object KEY/.env).
         required: true
         type: boolean
         default: false
@@ -61,7 +61,6 @@ jobs:
           echo "target=$TARGET" >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS
-        if: ${{ steps.target.outputs.target == 'aws' || github.event.inputs.pull_env_from_s3 == 'true' || vars.LOAD_ENV_FROM_S3 == 'true' }}
         uses: ./.github/actions/configure-aws
         with:
           role-arn: ${{ secrets.AWS_ROLE_ARN }}
@@ -122,59 +121,36 @@ jobs:
           echo "Using EC2 instance ${ID}"
           echo "id=$ID" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve env overlay
+      - name: Download env overlay from S3
         id: env-s3
         env:
-          TARGET: ${{ steps.target.outputs.target }}
-          DISPATCH_PULL: ${{ github.event.inputs.pull_env_from_s3 }}
-          VAR_PULL: ${{ vars.LOAD_ENV_FROM_S3 }}
+          SECRET_BUCKET: ${{ secrets.ENV_S3_BUCKET }}
+          SECRET_KEY: ${{ secrets.ENV_S3_KEY }}
           VAR_BUCKET: ${{ vars.ENV_S3_BUCKET }}
           VAR_KEY: ${{ vars.ENV_S3_KEY }}
-          AWS_BUCKET_VAR: ${{ vars.AWS_BUCKET }}
-          DEPLOY_BUCKET: ${{ steps.bucket.outputs.bucket }}
-        run: |
-          set -euo pipefail
-          KEY="${VAR_KEY:-api/.env}"
-          BUCKET="${VAR_BUCKET:-${AWS_BUCKET_VAR:-${DEPLOY_BUCKET:-}}}"
-          PULL="false"
-          if [[ "$TARGET" == "aws" ]]; then
-            PULL="true"
-            if [[ "${VAR_PULL,,}" == "false" ]]; then
-              PULL="false"
-            fi
-          elif [[ "$DISPATCH_PULL" == "true" || "${VAR_PULL,,}" == "true" ]]; then
-            PULL="true"
-          fi
-          echo "pull=$PULL" >> "$GITHUB_OUTPUT"
-          echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
-          echo "key=$KEY" >> "$GITHUB_OUTPUT"
-          echo "Env overlay pull=${PULL} object=s3://${BUCKET}/${KEY}"
-
-      - name: Confirm env overlay exists
-        if: ${{ steps.env-s3.outputs.pull == 'true' }}
-        env:
-          BUCKET: ${{ steps.env-s3.outputs.bucket }}
-          KEY: ${{ steps.env-s3.outputs.key }}
           AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
         run: |
           set -euo pipefail
+          BUCKET="${SECRET_BUCKET:-${VAR_BUCKET:-}}"
+          KEY="${SECRET_KEY:-${VAR_KEY:-}}"
+          BUCKET="${BUCKET#"${BUCKET%%[![:space:]]*}"}"
+          BUCKET="${BUCKET%"${BUCKET##*[![:space:]]}"}"
+          KEY="${KEY#"${KEY%%[![:space:]]*}"}"
+          KEY="${KEY%"${KEY##*[![:space:]]}"}"
+          KEY="${KEY#/}"
+          KEY="${KEY%/}"
           if [[ -z "$BUCKET" || -z "$KEY" ]]; then
-            echo "ENV_S3_BUCKET (or deploy bucket) and ENV_S3_KEY are required when pulling env from S3." >&2
+            echo "Set GitHub environment secrets ENV_S3_BUCKET and ENV_S3_KEY (object is \$ENV_S3_BUCKET/\$ENV_S3_KEY/.env)." >&2
             exit 1
           fi
-          set +e
-          ERR="$(aws s3api head-object --bucket "$BUCKET" --key "$KEY" --region "$AWS_REGION" 2>&1)"
-          STATUS=$?
-          set -e
-          if [[ "$STATUS" -eq 0 ]]; then
-            echo "Found s3://${BUCKET}/${KEY}"
-            exit 0
+          if [[ ! "${KEY,,}" =~ \.env$ ]]; then
+            KEY="${KEY}/.env"
           fi
-          if echo "$ERR" | grep -Eqi 'NotFound|NoSuchKey|404|Not Found'; then
-            echo "Missing s3://${BUCKET}/${KEY}. Bootstrap writes empty PREMBLY_* ; upload PREMBLY_API_KEY and PREMBLY_APP_ID to that object, then redeploy." >&2
-            exit 1
-          fi
-          echo "WARNING: GitHub could not head-object s3://${BUCKET}/${KEY} (status=${STATUS}). EC2 will still try to merge during release. Terraform-apply the GitHub deploy role GetObject on api/.env if this is AccessDenied."
+          FILE="${RUNNER_TEMP}/api.env"
+          echo "Downloading env overlay from S3 (ENV_S3_BUCKET/ENV_S3_KEY/.env)."
+          aws s3 cp "s3://${BUCKET}/${KEY}" "$FILE" --region "$AWS_REGION" --only-show-errors
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+          echo "pull=true" >> "$GITHUB_OUTPUT"
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -196,14 +172,12 @@ jobs:
           local-path: .
           remote-path: ${{ vars.AWS_EC2_PATH || '/var/www/api' }}
           exclude-from: scripts/rsync-excludes.txt
+          env-file: ${{ steps.env-s3.outputs.file }}
           remote-command: |
             set -euo pipefail
             cd '${{ vars.AWS_EC2_PATH || '/var/www/api' }}'
             chmod +x scripts/*.sh
-            export LOAD_ENV_FROM_S3='${{ steps.env-s3.outputs.pull }}'
-            export ENV_S3_BUCKET='${{ steps.env-s3.outputs.bucket }}'
-            export ENV_S3_KEY='${{ steps.env-s3.outputs.key }}'
-            export AWS_DEFAULT_REGION='${{ vars.AWS_REGION || 'us-east-1' }}'
+            export LOAD_ENV_FROM_S3=false
             bash scripts/remote-release.sh
             supervisorctl restart bells-sis-queue bells-sis-scheduler || true
 
@@ -218,12 +192,10 @@ jobs:
           remote-path: ${{ vars.VPS_API_PATH || vars.VPS_PATH }}
           local-path: .
           exclude-from: scripts/rsync-excludes.txt
+          env-file: ${{ steps.env-s3.outputs.file }}
           remote-command: |
             set -euo pipefail
             cd '${{ vars.VPS_API_PATH || vars.VPS_PATH }}'
             chmod +x scripts/*.sh
-            export LOAD_ENV_FROM_S3='${{ steps.env-s3.outputs.pull }}'
-            export ENV_S3_BUCKET='${{ steps.env-s3.outputs.bucket }}'
-            export ENV_S3_KEY='${{ steps.env-s3.outputs.key }}'
-            export AWS_DEFAULT_REGION='${{ vars.AWS_REGION || 'us-east-1' }}'
+            export LOAD_ENV_FROM_S3=false
             bash scripts/remote-release.sh

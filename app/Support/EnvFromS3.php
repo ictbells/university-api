@@ -23,7 +23,24 @@ class EnvFromS3
 
     public static function key(): string
     {
-        return self::read('ENV_S3_KEY') ?: 'api/.env';
+        return self::normalizeKey(self::read('ENV_S3_KEY'));
+    }
+
+    /**
+     * Object key is ENV_S3_KEY/.env unless ENV_S3_KEY already ends with .env.
+     */
+    public static function normalizeKey(?string $key): string
+    {
+        $key = trim((string) $key);
+        $key = trim($key, '/');
+        if ($key === '') {
+            return '.env';
+        }
+        if (str_ends_with(strtolower($key), '.env')) {
+            return $key;
+        }
+
+        return $key.'/.env';
     }
 
     public static function region(): string
@@ -34,7 +51,7 @@ class EnvFromS3
     public static function uri(?string $bucket = null, ?string $key = null): string
     {
         $bucket = $bucket ?: self::bucket();
-        $key = ltrim($key ?: self::key(), '/');
+        $key = self::normalizeKey($key ?: self::key());
 
         return 's3://'.$bucket.'/'.$key;
     }

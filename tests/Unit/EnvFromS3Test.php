@@ -21,5 +21,8 @@ class EnvFromS3Test extends TestCase
     {
         $this->assertSame('s3://bells-secrets/production/api.env', EnvFromS3::uri('bells-secrets', 'production/api.env'));
         $this->assertSame('s3://bells-secrets/api/.env', EnvFromS3::uri('bells-secrets', '/api/.env'));
+        $this->assertSame('s3://bells-secrets/office/api/.env', EnvFromS3::uri('bells-secrets', 'office/api'));
+        $this->assertSame('office/api/.env', EnvFromS3::normalizeKey('office/api/'));
+        $this->assertSame('.env', EnvFromS3::normalizeKey(''));
     }
 }

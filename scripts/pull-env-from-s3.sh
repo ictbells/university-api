@@ -47,7 +47,13 @@ if [[ -z "$REGION" && -f "$DEST" ]]; then
   REGION="$(env_get AWS_DEFAULT_REGION)"
 fi
 
-KEY="${KEY:-api/.env}"
+KEY="${KEY#/}"
+KEY="${KEY%/}"
+if [[ -z "$KEY" ]]; then
+  KEY=".env"
+elif [[ ! "${KEY,,}" =~ \.env$ ]]; then
+  KEY="${KEY}/.env"
+fi
 REGION="${REGION:-us-east-1}"
 
 if [[ -z "$BUCKET" || -z "$KEY" ]]; then

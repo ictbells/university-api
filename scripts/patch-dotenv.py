@@ -74,14 +74,20 @@ def read_map(path: Path) -> dict[str, str]:
 
 
 def merge_from(dest: Path, overlay: Path, keep: set[str] | None = None) -> int:
-    """Copy KEY=value from overlay into dest, leaving Secrets Manager keys intact."""
+    """Copy KEY=value from overlay into dest, leaving Secrets Manager keys intact when already set."""
     keep = keep or set()
     incoming = read_map(overlay)
     if not incoming:
         print(f"Env merge: overlay {overlay} had no KEY=value lines.", file=sys.stderr)
         return 1
-    updates = {k: v for k, v in incoming.items() if k not in keep}
-    skipped = sorted(k for k in incoming if k in keep)
+    existing = read_map(dest)
+    updates: dict[str, str] = {}
+    skipped = []
+    for k, v in incoming.items():
+        if k in keep and (existing.get(k) or "").strip():
+            skipped.append(k)
+            continue
+        updates[k] = v
     apply_updates(dest, updates)
     print(f"Env merge: applied {len(updates)} key(s) from overlay; kept {len(skipped)} infra key(s).")
     return 0

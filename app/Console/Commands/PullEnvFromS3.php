@@ -25,10 +25,14 @@ class PullEnvFromS3 extends Command
         }
 
         $bucket = (string) ($this->option('bucket') ?: EnvFromS3::bucket());
-        $key = ltrim((string) ($this->option('key') ?: EnvFromS3::key()), '/');
+        $keyOption = $this->option('key');
+        $uri = EnvFromS3::uri(
+            $bucket,
+            is_string($keyOption) && $keyOption !== '' ? $keyOption : null,
+        );
         $destination = base_path('.env');
 
-        if ($bucket === '' || $key === '') {
+        if ($bucket === '') {
             $this->error('ENV_S3_BUCKET (or AWS_BUCKET) and ENV_S3_KEY are required to pull env from S3.');
 
             return self::FAILURE;
@@ -40,7 +44,6 @@ class PullEnvFromS3 extends Command
             return self::FAILURE;
         }
 
-        $uri = EnvFromS3::uri($bucket, $key);
         $this->info('Pulling env from '.$uri);
 
         $result = Process::timeout(120)->run([

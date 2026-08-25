@@ -18,7 +18,17 @@ def write_remote() -> None:
     env_block = ""
     if env_url:
         env_block = """
-curl -fsSL --retry 3 -o "$REMOTE_PATH/.env" "$ENV_URL"
+OVERLAY=/tmp/bells-sis-env-overlay
+if ! curl -fsSL --retry 3 -o "$OVERLAY" "$ENV_URL"; then
+  echo "presigned env GET failed; trying instance-role s3 cp"
+  aws s3 cp "s3://${BUCKET}/${ENV_S3_KEY}" "$OVERLAY" --region "$REGION"
+fi
+if [[ -f "$REMOTE_PATH/.env" ]]; then
+  python3 "$REMOTE_PATH/scripts/patch-dotenv.py" "$REMOTE_PATH/.env" --merge-from "$OVERLAY" --keep-infra
+else
+  cp "$OVERLAY" "$REMOTE_PATH/.env"
+fi
+rm -f "$OVERLAY"
 chown www-data:www-data "$REMOTE_PATH/.env" || true
 chmod 640 "$REMOTE_PATH/.env"
 """

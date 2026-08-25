@@ -75,7 +75,8 @@ resource "aws_iam_role_policy" "github_deploy" {
         ]
         Resource = [
           "${aws_s3_bucket.bootstrap.arn}/api/.env",
-          "${aws_s3_bucket.bootstrap.arn}/env/*"
+          "${aws_s3_bucket.bootstrap.arn}/env/*",
+          "${aws_s3_bucket.bootstrap.arn}/*"
         ]
       },
       {
