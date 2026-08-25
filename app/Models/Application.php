@@ -241,7 +241,7 @@ class Application extends BaseModel
 
     public function reviews(): HasMany
     {
-        return $this->hasMany(ApplicationReview::class);
+        return $this->hasMany(ApplicationReview::class)->latest('id');
     }
 
     public function latestReview(): HasOne

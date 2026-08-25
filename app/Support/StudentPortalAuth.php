@@ -11,7 +11,7 @@ class StudentPortalAuth
 {
     public static function normalizeLogin(string $login): string
     {
-        return strtoupper(str_replace(' ', '', trim($login)));
+        return strtoupper(preg_replace('/\s+/u', '', trim($login)) ?? '');
     }
 
     public static function looksLikeMatric(string $login): bool
@@ -29,7 +29,11 @@ class StudentPortalAuth
      */
     public static function resolveUser(string $login): ?User
     {
-        $key = self::normalizeLogin($login);
+        $key = strtr(self::normalizeLogin($login), [
+            '／' => '/',
+            '∕' => '/',
+            '\\' => '/',
+        ]);
         if ($key === '') {
             return null;
         }

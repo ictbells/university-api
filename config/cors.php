@@ -1,5 +1,7 @@
 <?php
 
+use App\Support\CorsOrigins;
+
 $defaultOrigins = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
@@ -14,19 +16,16 @@ $fromEnv = array_values(array_filter(array_map(
     explode(',', (string) env('CORS_ALLOWED_ORIGINS', '')),
 )));
 
-foreach ([env('FRONTEND_URL'), env('STUDENT_URL')] as $url) {
-    if (is_string($url) && trim($url) !== '') {
-        $fromEnv[] = rtrim(trim($url), '/');
-    }
-}
-
-$allowedOrigins = array_values(array_unique(array_merge($defaultOrigins, $fromEnv)));
+$allowedOrigins = array_values(array_unique(array_merge(
+    $defaultOrigins,
+    CorsOrigins::fromUrls(array_merge($fromEnv, [env('FRONTEND_URL'), env('STUDENT_URL')])),
+)));
 
 return [
     'paths' => ['api/*', 'sanctum/csrf-cookie', 'api/sanctum/csrf-cookie'],
     'allowed_methods' => ['*'],
     'allowed_origins' => $allowedOrigins,
-    'allowed_origins_patterns' => [],
+    'allowed_origins_patterns' => CorsOrigins::localPatterns(),
     'allowed_headers' => ['*'],
     'exposed_headers' => ['X-Request-Id'],
     'max_age' => 0,
