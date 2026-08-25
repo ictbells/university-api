@@ -67,6 +67,13 @@ return [
     'token_prefix' => env('SANCTUM_TOKEN_PREFIX', ''),
 
     /*
+    | Sanctum's service provider skips csrf-cookie when routes are cached.
+    | The route lives in routes/web.php so `php artisan optimize` always keeps it.
+    */
+    'routes' => false,
+    'prefix' => 'sanctum',
+
+    /*
     |--------------------------------------------------------------------------
     | Sanctum Middleware
     |--------------------------------------------------------------------------
