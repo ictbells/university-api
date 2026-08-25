@@ -9,6 +9,7 @@ use App\Models\Department;
 use App\Models\Faculty;
 use App\Models\Setting;
 use App\Services\AuditWriter;
+use App\Services\PremblyService;
 use App\Services\SessionCloseService;
 use App\Support\AdmissionsContactSettings;
 use App\Support\StaffSupportContactSettings;
@@ -37,9 +38,13 @@ class InstitutionController extends Controller
 
     public function portalInfo()
     {
+        $premblyConfigured = app(PremblyService::class)->isConfigured();
+
         return response()->json([
             ...AdmissionsContactSettings::all(),
             ...StaffSupportContactSettings::all(),
+            'nin_live' => $premblyConfigured,
+            'prembly_configured' => $premblyConfigured,
         ]);
     }
 

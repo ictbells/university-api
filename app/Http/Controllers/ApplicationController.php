@@ -638,7 +638,10 @@ class ApplicationController extends Controller
         }
         $record = $this->prembly->verify($request->user(), $application, $data['nin']);
 
-        return response()->json($record->only(['id', 'nin', 'mapped_fields', 'verified_at']));
+        return response()->json([
+            ...$record->only(['id', 'nin', 'mapped_fields', 'verified_at']),
+            'live' => $this->prembly->isLiveMapped($record->mapped_fields),
+        ]);
     }
 
     public function transition(Request $request, Application $application)

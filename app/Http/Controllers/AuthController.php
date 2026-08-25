@@ -58,6 +58,7 @@ class AuthController extends Controller
             'last_name' => $mapped['last_name'],
             'date_of_birth' => $mapped['date_of_birth'],
             'gender' => $mapped['gender'],
+            'live' => $this->prembly->isLiveMapped($mapped),
         ]);
     }
 
@@ -80,7 +81,7 @@ class AuthController extends Controller
             'status' => 'active',
         ]);
         $user->roles()->sync([$applicantRole->id]);
-        $this->prembly->verify($user, null, $data['nin']);
+        $this->prembly->verify($user, null, $data['nin'], $mapped);
 
         Auth::guard('web')->login($user);
         if ($request->hasSession()) {

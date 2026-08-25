@@ -31,6 +31,16 @@ class PremblyService
         return $this->lookup($this->normalizeNin($nin));
     }
 
+    public function isConfigured(): bool
+    {
+        return $this->credentialsConfigured();
+    }
+
+    public function isLiveMapped(?array $mapped): bool
+    {
+        return $mapped !== null && ($mapped['raw']['demo'] ?? false) !== true;
+    }
+
     public function assertNinAvailable(string $nin, ?int $exceptUserId = null): void
     {
         $nin = $this->normalizeNin($nin);
@@ -121,6 +131,7 @@ class PremblyService
             'gender' => $mapped['gender'] ?? null,
             'photo_path' => $photoPath,
             'photo_url' => $this->photoUrl($photoPath),
+            'live' => $this->isLiveRecord($record),
         ];
     }
 
@@ -141,7 +152,7 @@ class PremblyService
         return $record->fresh();
     }
 
-    public function verify(User $user, ?Application $application, string $nin): NinVerification
+    public function verify(User $user, ?Application $application, string $nin, ?array $mapped = null): NinVerification
     {
         $nin = $this->normalizeNin($nin);
         $this->assertNinAvailable($nin, $user->id);
@@ -151,7 +162,7 @@ class PremblyService
             ->where('nin_hash', NinCipher::hash($nin))
             ->latest('id')
             ->first();
-        if ($existing) {
+        if ($existing && $this->isLiveRecord($existing) && $mapped === null) {
             $existing = $this->ensurePhotoPersisted($user, $existing);
             if ($application) {
                 $this->applyToApplication($application, $existing);
@@ -160,27 +171,33 @@ class PremblyService
             return $existing;
         }
 
-        $mapped = $this->lookup($nin);
+        $mapped ??= $this->lookup($nin);
         $photoPath = $this->persistNinPhoto($user, $nin, $mapped['photo'] ?? null);
         if ($photoPath) {
             $mapped['photo_path'] = $photoPath;
         }
         unset($mapped['photo']);
-        $record = NinVerification::query()->create([
+        $payload = [
             'user_id' => $user->id,
-            'application_id' => $application?->id,
+            'application_id' => $application?->id ?? $existing?->application_id,
             'nin' => $nin,
             'prembly_reference' => $mapped['reference'] ?? null,
             'mapped_fields' => $mapped,
             'raw_snapshot' => $mapped['raw'] ?? $mapped,
             'verified_at' => now(),
-        ]);
+        ];
+        if ($existing) {
+            $existing->update($payload);
+            $record = $existing->fresh();
+        } else {
+            $record = NinVerification::query()->create($payload);
+        }
 
         if ($application) {
             $this->applyToApplication($application, $record);
         }
 
-        $this->audit->record('identity.nin.verify', 'NIN verified via Prembly', 'identity', 'nin_verification', $record->id, null, ['nin' => NinCipher::redact($nin)], null, $user);
+        $this->audit->record('identity.nin.verify', 'NIN verified via Prembly', 'identity', 'nin_verification', $record->id, null, ['nin' => NinCipher::redact($nin), 'live' => $this->isLiveMapped($mapped)], null, $user);
 
         return $record;
     }
@@ -273,34 +290,84 @@ class PremblyService
 
     private function lookup(string $nin): array
     {
-        $key = config('services.prembly.key');
-        $appId = config('services.prembly.app_id');
-        $base = rtrim(config('services.prembly.base', 'https://api.prembly.com'), '/');
-
-        if ($key && $appId) {
-            $response = Http::withHeaders([
-                'x-api-key' => $key,
-                'app-id' => $appId,
-            ])->post($base.'/identitypass/verification/vnin', [
-                'number' => $nin,
-            ]);
-            if (! $response->successful() && ! $response->json('status')) {
-                throw new RuntimeException($response->json('detail') ?: $response->json('message') ?: 'Prembly NIN verification failed.');
+        if (! $this->credentialsConfigured()) {
+            if (! $this->demoAllowed()) {
+                throw new RuntimeException('Live NIN verification is not configured. Set PREMBLY_API_KEY and PREMBLY_APP_ID on the API server.');
             }
-            $data = $response->json('data.nin_data') ?? $response->json('data') ?? [];
 
-            return [
-                'reference' => $response->json('response_code') ?: $response->json('id'),
-                'first_name' => $data['firstname'] ?? $data['firstName'] ?? $data['first_name'] ?? '',
-                'middle_name' => $data['middlename'] ?? $data['middleName'] ?? $data['middle_name'] ?? '',
-                'last_name' => $data['surname'] ?? $data['lastname'] ?? $data['last_name'] ?? '',
-                'date_of_birth' => $data['birthdate'] ?? $data['dateOfBirth'] ?? $data['date_of_birth'] ?? null,
-                'gender' => $data['gender'] ?? null,
-                'photo' => $data['photo'] ?? $data['picture'] ?? null,
-                'raw' => $data,
-            ];
+            return $this->demoIdentity($nin);
         }
 
+        $base = rtrim((string) config('services.prembly.base', 'https://api.prembly.com'), '/');
+        $response = Http::withHeaders([
+            'x-api-key' => (string) config('services.prembly.key'),
+            'app-id' => (string) config('services.prembly.app_id'),
+        ])->acceptJson()->asJson()->timeout(45)->post($base.'/identitypass/verification/vnin', [
+            'number_nin' => $nin,
+            'number' => $nin,
+        ]);
+
+        $status = $response->json('status');
+        $ok = $response->successful() && $status !== false && $status !== 'false' && $status !== 0;
+        if (! $ok) {
+            $message = $response->json('detail')
+                ?: $response->json('message')
+                ?: $response->json('response_message')
+                ?: 'Prembly NIN verification failed.';
+            throw new RuntimeException(is_string($message) ? $message : 'Prembly NIN verification failed.');
+        }
+
+        $data = $response->json('nin_data')
+            ?? $response->json('data.nin_data')
+            ?? $response->json('data')
+            ?? [];
+        if (! is_array($data) || $data === []) {
+            throw new RuntimeException('Prembly returned no NIN biodata.');
+        }
+
+        return [
+            'reference' => $response->json('verification.reference')
+                ?: $response->json('response_code')
+                ?: $response->json('id'),
+            'first_name' => $data['firstname'] ?? $data['firstName'] ?? $data['first_name'] ?? '',
+            'middle_name' => $data['middlename'] ?? $data['middleName'] ?? $data['middle_name'] ?? '',
+            'last_name' => $data['surname'] ?? $data['lastname'] ?? $data['last_name'] ?? '',
+            'date_of_birth' => $this->normalizeDate($data['birthdate'] ?? $data['dateOfBirth'] ?? $data['date_of_birth'] ?? null),
+            'gender' => $this->normalizeGender($data['gender'] ?? null),
+            'photo' => $data['photo'] ?? $data['picture'] ?? null,
+            'raw' => $data,
+        ];
+    }
+
+    private function credentialsConfigured(): bool
+    {
+        return filled(trim((string) config('services.prembly.key')))
+            && filled(trim((string) config('services.prembly.app_id')));
+    }
+
+    private function demoAllowed(): bool
+    {
+        $flag = config('services.prembly.allow_demo');
+        if ($flag === null || $flag === '') {
+            return ! app()->isProduction();
+        }
+
+        return filter_var($flag, FILTER_VALIDATE_BOOLEAN);
+    }
+
+    private function isLiveRecord(NinVerification $record): bool
+    {
+        $raw = $record->raw_snapshot ?? [];
+        if (($raw['demo'] ?? false) === true) {
+            return false;
+        }
+        $ref = (string) ($record->prembly_reference ?? '');
+
+        return $ref === '' || ! str_starts_with($ref, 'DEMO-');
+    }
+
+    private function demoIdentity(string $nin): array
+    {
         return [
             'reference' => 'DEMO-'.$nin,
             'first_name' => 'Adaeze',
@@ -311,5 +378,34 @@ class PremblyService
             'photo' => '/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxAQEBUQEBAVFRUVFRUVFRUVFRUVFRUWFxUXFhUYHSggGBolGxUVITEhJSkrLi4uFx8zODMtNygtLisBCgoKDg0OGxAQGy0lHyUtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLf/AABEIAMgAyAMBEQACEQEDEQH/xAAbAAACAwEBAQAAAAAAAAAAAAADBAECBQYAB//EADcQAAIBAwMCBAQEBgMAAAAAAAECAwAEERIhMQVBUWFxBhMiMoGRobHB0fAjQlLR4fEz/8QAGQEAAwEBAQAAAAAAAAAAAAAAAAECAwQF/8QAJREAAgICAgICAgIDAAAAAAAAAAECEQMhEjEEQRNRIjJhBXGB/9oADAMBAAIRAxEAPwD5VooooAKKKKACiiigAooooAKKKKACiiigD//Z',
             'raw' => ['demo' => true, 'nin' => $nin],
         ];
+    }
+
+    private function normalizeGender(mixed $gender): ?string
+    {
+        $value = strtolower(trim((string) $gender));
+        if (in_array($value, ['m', 'male'], true)) {
+            return 'Male';
+        }
+        if (in_array($value, ['f', 'female'], true)) {
+            return 'Female';
+        }
+
+        return $gender ? (string) $gender : null;
+    }
+
+    private function normalizeDate(mixed $value): ?string
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return null;
+        }
+        $value = trim($value);
+        foreach (['Y-m-d', 'd-m-Y', 'd/m/Y', 'j M Y', 'd M Y', 'j F Y'] as $format) {
+            $date = \DateTime::createFromFormat($format, $value);
+            if ($date instanceof \DateTime) {
+                return $date->format('Y-m-d');
+            }
+        }
+
+        return $value;
     }
 }

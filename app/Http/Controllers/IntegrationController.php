@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\IntegrationEndpoint;
 use App\Models\WebhookLog;
+use App\Services\PremblyService;
 
 class IntegrationController extends Controller
 {
@@ -12,7 +13,7 @@ class IntegrationController extends Controller
         return [
             'endpoints' => IntegrationEndpoint::all(),
             'paystack_configured' => (bool) config('services.paystack.secret'),
-            'prembly_configured' => (bool) config('services.prembly.key'),
+            'prembly_configured' => app(PremblyService::class)->isConfigured(),
             'recent_webhooks' => WebhookLog::query()->latest()->limit(20)->get(),
         ];
     }

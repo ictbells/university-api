@@ -46,6 +46,8 @@ return [
         'key' => env('PREMBLY_API_KEY'),
         'app_id' => env('PREMBLY_APP_ID'),
         'base' => env('PREMBLY_BASE_URL', 'https://api.prembly.com'),
+        // Empty = demo biodata only when APP_ENV is not production.
+        'allow_demo' => env('PREMBLY_ALLOW_DEMO', false),
     ],
 
     'slack' => [
