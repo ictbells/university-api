@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AcademicLevel;
 use App\Models\AcademicSession;
 use App\Models\AcademicTerm;
+use App\Models\Campus;
 use App\Models\Department;
 use App\Models\Faculty;
 use App\Models\FeeItem;
@@ -22,6 +23,7 @@ use App\Services\StudentFinanceExportService;
 use App\Support\FeeSchedule;
 use App\Support\InstitutionLogo;
 use App\Support\InvoiceSettlement;
+use App\Support\NairaWords;
 use App\Support\ProgrammeFeeResolver;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -302,15 +304,24 @@ class FinanceController extends Controller
 
         abort_unless($payment->purpose === 'wallet_topup', 422, 'Receipt is not available for this payment.');
 
-        $payment->load('user');
+        $payment->load(['user', 'user.student']);
+        $student = $payment->user?->student;
         $method = $this->paymentMethodLabel($payment->method ?: 'online');
+        $amount = (float) $payment->amount;
         $html = view('receipts.wallet', [
-            'payment' => $payment,
-            'payment_method' => $method,
-            'payer' => $payment->user?->name,
-            'university' => Setting::getValue('university_name', 'Bells University of Technology'),
-            'motto' => Setting::getValue('university_motto', 'Chords of Knowledge'),
+            'institution' => $this->receiptInstitution(),
             'logo_data_uri' => InstitutionLogo::dataUri(),
+            'doc_title' => 'Wallet funding receipt',
+            'receipt_no' => $payment->receipt_no ?: $payment->reference ?: 'RCP-'.$payment->id,
+            'payer' => $payment->user?->name ?: '—',
+            'payer_id' => $student?->matric_number,
+            'payer_id_label' => 'Matric number',
+            'category_label' => 'Campus wallet funding',
+            'payment_method' => $method,
+            'reference' => $payment->reference ?: '—',
+            'paid_at' => optional($payment->created_at)->format('d M Y, h:i A') ?: '—',
+            'amount' => $amount,
+            'amount_words' => NairaWords::phrase($amount),
             'generated_at' => now()->format('d M Y, h:i A'),
         ])->render();
 
@@ -332,35 +343,50 @@ class FinanceController extends Controller
 
         $invoice->load([
             'items',
-            'user',
+            'user.student',
+            'student.program',
             'application',
             'payments' => fn ($q) => $q->where('status', 'successful')->latest(),
         ]);
         $payment = $invoice->payments->first();
         abort_unless($payment, 422, 'No successful payment was found for this invoice.');
 
+        $student = $invoice->student ?: $invoice->user?->student;
         $application = $invoice->application;
-        $applicantRef = $application?->jamb_registration
-            ?: $invoice->user?->jamb_registration
-            ?: $application?->application_number
-            ?: null;
-        $applicantRefLabel = ($application?->jamb_registration || $invoice->user?->jamb_registration)
-            ? 'JAMB number'
-            : 'Application number';
+        $payerId = $student?->matric_number;
+        $payerIdLabel = 'Matric number';
+        if (! $payerId) {
+            $payerId = $application?->jamb_registration
+                ?: $invoice->user?->jamb_registration
+                ?: $application?->application_number;
+            $payerIdLabel = ($application?->jamb_registration || $invoice->user?->jamb_registration)
+                ? 'JAMB number'
+                : 'Application number';
+        }
 
-        $paymentMethod = $this->paymentMethodLabel($payment->method ?: 'online');
-
-        $logoDataUri = InstitutionLogo::dataUri();
-
+        $amount = (float) $payment->amount;
         $html = view('receipts.invoice', [
-            'invoice' => $invoice,
-            'payment' => $payment,
-            'payment_method' => $paymentMethod,
-            'applicant_ref' => $applicantRef,
-            'applicant_ref_label' => $applicantRefLabel,
-            'university' => Setting::getValue('university_name', 'Bells University of Technology'),
-            'motto' => Setting::getValue('university_motto', 'Chords of Knowledge'),
-            'logo_data_uri' => $logoDataUri,
+            'institution' => $this->receiptInstitution(),
+            'logo_data_uri' => InstitutionLogo::dataUri(),
+            'doc_title' => 'Official payment receipt',
+            'receipt_no' => $payment->receipt_no ?: $invoice->number,
+            'payer' => $invoice->user?->name
+                ?: trim(implode(' ', array_filter([$student?->first_name, $student?->last_name])))
+                ?: '—',
+            'payer_id' => $payerId,
+            'payer_id_label' => $payerIdLabel,
+            'programme' => $student?->program?->name,
+            'category_label' => FeeSchedule::label((string) $invoice->category),
+            'invoice_number' => $invoice->number,
+            'payment_method' => $this->paymentMethodLabel($payment->method ?: 'online'),
+            'reference' => $payment->reference ?: '—',
+            'paid_at' => optional($payment->created_at)->format('d M Y, h:i A') ?: '—',
+            'amount' => $amount,
+            'amount_words' => NairaWords::phrase($amount),
+            'items' => $invoice->items->map(fn ($item) => [
+                'description' => $item->description,
+                'amount' => $item->amount,
+            ])->all(),
             'generated_at' => now()->format('d M Y, h:i A'),
         ])->render();
 
@@ -1030,9 +1056,32 @@ class FinanceController extends Controller
             in_array($method, ['paystack', 'online', 'card', 'gateway'], true) => 'Online',
             $method === 'wallet' => 'Wallet',
             $method === 'cash' => 'Cash',
-            in_array($method, ['bank', 'transfer'], true) => 'Bank transfer',
-            default => ucfirst($method),
+            in_array($method, ['bank', 'transfer', 'bank_transfer'], true) => 'Bank transfer',
+            $method === 'pos' => 'POS',
+            in_array($method, ['legacy_import', 'import'], true) => 'Recorded payment',
+            default => ucfirst(str_replace('_', ' ', $method)),
         };
+    }
+
+    /**
+     * @return array{name: string, motto: string, office: string, address: string, contact: string}
+     */
+    private function receiptInstitution(): array
+    {
+        $campus = Campus::query()->where('is_active', true)->orderBy('id')->first()
+            ?? Campus::query()->orderBy('id')->first();
+
+        return [
+            'name' => (string) Setting::getValue('university_name', 'Bells University of Technology'),
+            'motto' => (string) Setting::getValue('university_motto', 'Chords of Knowledge'),
+            'office' => (string) Setting::getValue('bursary_office_title', 'Bursary Department'),
+            'address' => trim(collect([
+                $campus?->address,
+                $campus?->city,
+            ])->filter()->implode(', '))
+                ?: 'KM 8, Idiroko Road, Benja Village, P.M.B 1015, Ota, Ogun State',
+            'contact' => (string) Setting::getValue('university_contact', 'Telephone: 07087138753'),
+        ];
     }
 
     private function invoiceListQuery(Request $request): Builder

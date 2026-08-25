@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\AcademicSession;
 use App\Models\Application;
 use App\Models\ApplicationDocument;
 use App\Models\Document;
@@ -93,6 +92,7 @@ class ApplicationController extends Controller
             'fee_status' => 'nullable|string',
             'academic_term_id' => 'nullable|integer|exists:academic_terms,id',
             'academic_session_id' => 'nullable|integer|exists:academic_sessions,id',
+            'intake_id' => 'nullable|integer|exists:intakes,id',
             'session' => 'nullable|string',
             'program_id' => 'nullable|integer|exists:programs,id',
             'faculty_id' => 'nullable|integer|exists:faculties,id',
@@ -118,16 +118,27 @@ class ApplicationController extends Controller
     {
         abort_unless($request->user()->hasPermission('admissions.view'), 403);
 
-        return AcademicSession::query()
-            ->with('semesters')
+        return Intake::query()
+            ->with('term.session')
             ->orderByDesc('id')
             ->get()
-            ->map(fn (AcademicSession $session) => [
-                'id' => $session->id,
-                'session_label' => $session->label,
-                'name' => $session->label,
-                'is_current' => $session->semesters->contains(fn ($s) => $s->is_current),
-            ]);
+            ->map(function (Intake $intake) {
+                $accepting = $intake->isAcceptingApplications();
+                $admissionLabel = $intake->term?->session?->label ?? $intake->term?->session_label;
+                $label = $admissionLabel
+                    ? "{$intake->name} ({$admissionLabel})"
+                    : $intake->name;
+
+                return [
+                    'id' => $intake->id,
+                    'session_label' => $label,
+                    'name' => $intake->name,
+                    'entry_mode' => $intake->entry_mode,
+                    'admission_session_label' => $admissionLabel,
+                    'is_open' => $accepting,
+                    'is_current' => $accepting,
+                ];
+            });
     }
 
     public function show(Request $request, Application $application)

@@ -9,6 +9,7 @@ use App\Models\Program;
 use App\Models\Setting;
 use App\Support\ApplicantPassport;
 use App\Support\InstitutionLogo;
+use App\Support\NairaWords;
 use Illuminate\Support\Str;
 
 class ApplicationDocumentService
@@ -145,7 +146,7 @@ class ApplicationDocumentService
             'offer_reference' => $application->offer_reference,
             'letter_date' => $issuedAt->format('jS F, Y'),
             'acceptance_amount' => $amount,
-            'acceptance_amount_words' => $this->nairaInWords($amount),
+            'acceptance_amount_words' => NairaWords::phrase($amount, only: false),
             'deadline' => $deadline->format('jS F, Y'),
             'portal_url' => (string) Setting::getValue(
                 'application_portal_url',
@@ -260,48 +261,5 @@ class ApplicationDocumentService
         $payload = $application->steps->firstWhere('step_key', $stepKey)?->payload;
 
         return is_array($payload) ? $payload : [];
-    }
-
-    private function nairaInWords(float $amount): string
-    {
-        $naira = (int) round($amount);
-        if ($naira <= 0) {
-            return 'Zero Naira';
-        }
-
-        return $this->numberToWords($naira).' Naira';
-    }
-
-    private function numberToWords(int $number): string
-    {
-        $ones = [
-            '', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
-            'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen',
-            'Seventeen', 'Eighteen', 'Nineteen',
-        ];
-        $tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-
-        if ($number < 20) {
-            return $ones[$number];
-        }
-        if ($number < 100) {
-            return trim($tens[intdiv($number, 10)].' '.$ones[$number % 10]);
-        }
-        if ($number < 1000) {
-            $rest = $number % 100;
-
-            return trim($ones[intdiv($number, 100)].' Hundred'.($rest ? ' and '.$this->numberToWords($rest) : ''));
-        }
-        if ($number < 1000000) {
-            $rest = $number % 1000;
-            $thousands = $this->numberToWords(intdiv($number, 1000)).' Thousand';
-
-            return trim($thousands.($rest ? ($rest < 100 ? ' and ' : ' ').$this->numberToWords($rest) : ''));
-        }
-
-        $rest = $number % 1000000;
-        $millions = $this->numberToWords(intdiv($number, 1000000)).' Million';
-
-        return trim($millions.($rest ? ' '.$this->numberToWords($rest) : ''));
     }
 }

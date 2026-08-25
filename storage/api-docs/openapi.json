@@ -1417,7 +1417,7 @@
         "/api/applications/sessions": {
             "get": {
                 "operationId": "getApplicationSessions",
-                "summary": "Get Sessions",
+                "summary": "List application sessions (intakes)",
                 "tags": [
                     "Applications"
                 ],
@@ -8440,7 +8440,7 @@
         "/api/registrations/sessions": {
             "get": {
                 "operationId": "getRegistrationSessions",
-                "summary": "Get Sessions",
+                "summary": "List admission sessions",
                 "tags": [
                     "Registrations"
                 ],

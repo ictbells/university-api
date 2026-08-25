@@ -7,6 +7,7 @@ use App\Models\AcademicTerm;
 use App\Models\Application;
 use App\Models\Department;
 use App\Models\Faculty;
+use App\Models\Intake;
 use App\Models\Program;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
@@ -52,7 +53,9 @@ class ApplicationListQuery
             $feeStatus = (string) $request->fee_status;
             $query->whereHas('applicationFeeInvoice', fn ($invoice) => $invoice->where('status', $feeStatus));
         }
-        if ($request->filled('academic_session_id')) {
+        if ($request->filled('intake_id')) {
+            $query->where('intake_id', (int) $request->intake_id);
+        } elseif ($request->filled('academic_session_id')) {
             $sessionId = (int) $request->academic_session_id;
             $query->whereHas('intake.term', fn ($term) => $term->where('academic_session_id', $sessionId));
         } elseif ($request->filled('academic_term_id')) {
@@ -129,14 +132,22 @@ class ApplicationListQuery
             $program = Program::query()->where('id', (int) $request->program_id)->first(['name', 'code']);
             $parts[] = 'Programme: '.($program?->name ?: ($program?->code ?: '#'.$request->program_id));
         }
-        if ($request->filled('academic_session_id')) {
+        if ($request->filled('intake_id')) {
+            $intake = Intake::query()->with('term.session')->find((int) $request->intake_id);
+            $label = $intake?->name;
+            $year = $intake?->term?->session?->label ?? $intake?->term?->session_label;
+            if ($label && $year) {
+                $label = "{$label} ({$year})";
+            }
+            $parts[] = 'Application session: '.($label ?: '#'.$request->intake_id);
+        } elseif ($request->filled('academic_session_id')) {
             $label = AcademicSession::query()->where('id', (int) $request->academic_session_id)->value('label');
-            $parts[] = 'Session: '.($label ?: '#'.$request->academic_session_id);
+            $parts[] = 'Admission session: '.($label ?: '#'.$request->academic_session_id);
         } elseif ($request->filled('academic_term_id')) {
             $label = AcademicTerm::query()->where('id', (int) $request->academic_term_id)->value('session_label');
-            $parts[] = 'Session: '.($label ?: '#'.$request->academic_term_id);
+            $parts[] = 'Admission session: '.($label ?: '#'.$request->academic_term_id);
         } elseif ($request->filled('session')) {
-            $parts[] = 'Session: '.$request->string('session');
+            $parts[] = 'Admission session: '.$request->string('session');
         }
         if ($request->filled('stage')) {
             $parts[] = 'Stage: '.str_replace('_', ' ', (string) $request->stage);

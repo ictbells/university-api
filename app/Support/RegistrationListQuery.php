@@ -121,12 +121,12 @@ class RegistrationListQuery
         }
         if ($request->filled('academic_session_id')) {
             $label = AcademicSession::query()->where('id', (int) $request->academic_session_id)->value('label');
-            $parts[] = 'Session: '.($label ?: '#'.$request->academic_session_id);
+            $parts[] = 'Admission session: '.($label ?: '#'.$request->academic_session_id);
         } elseif ($request->filled('academic_term_id')) {
             $label = AcademicTerm::query()->where('id', (int) $request->academic_term_id)->value('session_label');
-            $parts[] = 'Session: '.($label ?: '#'.$request->academic_term_id);
+            $parts[] = 'Admission session: '.($label ?: '#'.$request->academic_term_id);
         } elseif ($request->filled('session')) {
-            $parts[] = 'Session: '.$request->string('session');
+            $parts[] = 'Admission session: '.$request->string('session');
         }
         if ($request->filled('program_id')) {
             $program = Program::query()->where('id', (int) $request->program_id)->first(['name', 'code']);
