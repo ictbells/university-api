@@ -8,6 +8,7 @@ use App\Models\Intake;
 use App\Models\Role;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\ApplicationStartService;
 use App\Services\AuditWriter;
 use App\Services\PremblyService;
 use App\Services\StaffNavResolver;
@@ -15,11 +16,13 @@ use App\Services\StaffOfficePlacement;
 use App\Services\StaffSecurityService;
 use App\Services\TwoFactorChallengeService;
 use App\Support\ApplicantPassport;
+use App\Support\CandidateEligibility;
 use App\Support\PasswordRules;
 use App\Support\StudentPortalAuth;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Validation\ValidationException;
@@ -39,12 +42,19 @@ class AuthController extends Controller
         private StaffSecurityService $security,
         private TwoFactorChallengeService $twoFactor,
         private PremblyService $prembly,
+        private ApplicationStartService $applicationStart,
     ) {}
 
     public function previewNin(Request $request): JsonResponse
     {
-        Intake::abortUnlessAccepting();
-        $data = $request->validate(['nin' => 'required|string']);
+        if (! Intake::hasAccepting()) {
+            Intake::abortUnlessAccepting();
+        }
+        $data = $request->validate([
+            'nin' => 'required|string',
+            'intake_id' => 'required|integer|exists:intakes,id',
+        ]);
+        Intake::requireAccepting((int) $data['intake_id']);
         $nin = $this->prembly->normalizeNin($data['nin']);
         $this->prembly->assertNinAvailable($nin);
         try {
@@ -66,8 +76,9 @@ class AuthController extends Controller
 
     public function register(RegisterApplicantRequest $request): JsonResponse
     {
-        Intake::abortUnlessAccepting();
         $data = $request->validated();
+        $intake = Intake::requireAccepting((int) $data['intake_id']);
+        CandidateEligibility::assertQualifiedForIntake($intake, $data['jamb_registration'] ?? null);
         $applicantRole = Role::query()->where('slug', 'applicant')->where('is_active', true)->firstOrFail();
         try {
             $mapped = $this->prembly->lookupIdentity($data['nin']);
@@ -76,15 +87,24 @@ class AuthController extends Controller
         }
         $this->prembly->assertNinAvailable($data['nin']);
 
-        $user = User::query()->create([
-            'name' => $this->prembly->displayName($mapped),
-            'email' => $data['email'],
-            'phone' => $data['phone'],
-            'password' => $data['password'],
-            'status' => 'active',
-        ]);
-        $user->roles()->sync([$applicantRole->id]);
-        $this->prembly->verify($user, null, $data['nin'], $mapped);
+        try {
+            $user = DB::transaction(function () use ($data, $applicantRole, $mapped, $intake) {
+                $user = User::query()->create([
+                    'name' => $this->prembly->displayName($mapped),
+                    'email' => $data['email'],
+                    'phone' => $data['phone'],
+                    'password' => $data['password'],
+                    'status' => 'active',
+                ]);
+                $user->roles()->sync([$applicantRole->id]);
+                $this->prembly->verify($user, null, $data['nin'], $mapped);
+                $this->applicationStart->start($user, $intake, $data['jamb_registration'] ?? null);
+
+                return $user;
+            });
+        } catch (RuntimeException $e) {
+            throw ValidationException::withMessages(['intake_id' => $e->getMessage()]);
+        }
 
         Auth::guard('web')->login($user);
         if ($request->hasSession()) {

@@ -15,6 +15,7 @@ use App\Models\Program;
 use App\Services\AcademicCatalogImportService;
 use App\Services\AuditWriter;
 use App\Support\AdmissionEntryRules;
+use App\Support\CandidateEligibility;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -330,7 +331,13 @@ class AcademicSetupController extends Controller
             ->get()
             ->filter(fn (Intake $intake) => $intake->isAcceptingApplications())
             ->sortBy(fn (Intake $intake) => [AdmissionEntryRules::entryModeRank($intake->entry_mode), $intake->name])
-            ->values();
+            ->values()
+            ->map(function (Intake $intake) {
+                $intake->setAttribute('requires_jamb', AdmissionEntryRules::requiresJambRegistration($intake->entry_mode));
+                $intake->setAttribute('candidate_list_required', CandidateEligibility::candidateListRequiredFor($intake));
+
+                return $intake;
+            });
     }
 
     public function levels()

@@ -5,6 +5,7 @@ namespace App\Http\Requests;
 use App\Models\Intake;
 use App\Support\PasswordRules;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class RegisterApplicantRequest extends FormRequest
 {
@@ -23,6 +24,10 @@ class RegisterApplicantRequest extends FormRequest
         if ($this->has('nin')) {
             $this->merge(['nin' => preg_replace('/\D/', '', (string) $this->input('nin'))]);
         }
+        if ($this->has('jamb_registration')) {
+            $jamb = strtoupper(str_replace(' ', '', (string) $this->input('jamb_registration')));
+            $this->merge(['jamb_registration' => $jamb === '' ? null : $jamb]);
+        }
     }
 
     public function rules(): array
@@ -32,12 +37,17 @@ class RegisterApplicantRequest extends FormRequest
             'email' => 'required|string|email:rfc,dns|max:255|unique:users,email',
             'phone' => 'required|string|max:30',
             'password' => PasswordRules::rules(),
+            'intake_id' => 'required|integer|exists:intakes,id',
+            'jamb_registration' => ['nullable', 'string', 'max:20', Rule::unique('users', 'jamb_registration')],
         ];
     }
 
     public function messages(): array
     {
-        return PasswordRules::messages();
+        return array_merge(PasswordRules::messages(), [
+            'intake_id.required' => 'Select an application session before creating an account.',
+            'intake_id.exists' => 'Select an application session before creating an account.',
+        ]);
     }
 
     private function cleanEmail(string $email): string

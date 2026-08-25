@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.8  
+**Version:** 1.9  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -418,7 +418,7 @@ These are two calendars, not one record with a type flag.
 - **Admission session** — Academic → Admission Setup → Admission sessions. Used by enrolled students (course registration, hostels, session close and promotion).
 - **Application session** — Academic → Application Setup → Application sessions (intake). Open when **Accepting applications** is on and today is within the open and close dates.
 
-New applicant **signup** on the student portal is allowed only while at least one application session is accepting. If none is open, NIN preview and account creation return *Applications are not open. There is no active application session, so you cannot create an account.* Staff applicant import and existing applicant login are not blocked.
+New applicant **signup** on the student portal requires choosing a specific **application session** first. An open UTME session does not let a postgraduate or transfer applicant create an account. NIN preview and account creation are rejected unless that session is accepting. UTME and Direct Entry also require a JAMB number; if a candidate list has been uploaded for that session, the number must appear on it. Signup then starts the application for the chosen session. If no session is accepting, the API returns *Applications are not open. There is no active application session, so you cannot create an account.* Staff applicant import and existing applicant login are not blocked.
 
 #### Candidate data
 
@@ -552,7 +552,7 @@ Use the audit trail for compliance reviews and incident investigation.
 
 1. Confirm **Admission sessions** for the cycle.
 2. Confirm **Programmes** have the correct entry modes and are active.
-3. Open **Application sessions** for each category (UTME, DE, JUPEB, Transfer, PG) with the application fee set. At least one must be accepting before new applicants can create student-portal accounts.
+3. Open **Application sessions** for each category (UTME, DE, JUPEB, Transfer, PG) with the application fee set. Applicants must select the session they qualify for at signup; opening only UTME does not admit other categories.
 4. Upload **Candidate data** for UTME/DE sessions before applicants register (if JAMB-list enforcement is required).
 5. If migrating from another portal, use **Import applicants** (see §8.5).
 
@@ -642,6 +642,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.6 | Aug 2026 | Platform team | Hostel room bulk spreadsheet import (template + skip-duplicates; hostels and blocks must already exist) |
 | 1.7 | Aug 2026 | Platform team | Bulk uploads key parents by lookup id (campus_id, college_id, department_id, programme_id, level_id, hostel_id, block_id) |
 | 1.8 | Aug 2026 | Platform team | Distinguish admission sessions (enrolled students) from application sessions (intakes); student-portal signup requires an accepting application session |
+| 1.9 | Aug 2026 | Platform team | Applicants select an application session before account creation; UTME/DE JAMB and candidate-list checks apply at signup |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

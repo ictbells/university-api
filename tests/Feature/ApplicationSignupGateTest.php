@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\AcademicSession;
 use App\Models\AcademicTerm;
+use App\Models\Application;
+use App\Models\CandidateData;
 use App\Models\Intake;
 use App\Models\Role;
 use App\Models\User;
@@ -31,13 +33,25 @@ class ApplicationSignupGateTest extends TestCase
             ->assertJsonPath('applications_open', true);
     }
 
+    public function test_open_intakes_mark_jamb_and_candidate_list_requirements(): void
+    {
+        $intake = $this->openApplicationSession();
+        CandidateData::query()->create([
+            'rg_num' => '20261234AB',
+            'academic_year' => '2025/2026',
+            'rg_candname' => 'Ada Okoye',
+        ]);
+
+        $this->getJson('/api/intakes')
+            ->assertOk()
+            ->assertJsonPath('0.id', $intake->id)
+            ->assertJsonPath('0.requires_jamb', true)
+            ->assertJsonPath('0.candidate_list_required', true);
+    }
+
     public function test_nin_preview_fails_when_no_application_session_is_accepting(): void
     {
-        config([
-            'services.prembly.key' => '',
-            'services.prembly.app_id' => '',
-            'services.prembly.allow_demo' => true,
-        ]);
+        $this->demoPrembly();
         Http::fake();
 
         $this->postJson('/api/nin/preview', ['nin' => '12345678901'])
@@ -48,13 +62,42 @@ class ApplicationSignupGateTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_nin_preview_requires_an_accepting_intake_id(): void
+    {
+        $this->openApplicationSession();
+        $this->demoPrembly();
+        Http::fake();
+
+        $this->postJson('/api/nin/preview', ['nin' => '12345678901'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['intake_id']);
+
+        Http::assertNothingSent();
+    }
+
+    public function test_nin_preview_rejects_a_closed_intake_even_when_another_is_open(): void
+    {
+        $term = $this->openApplicationSession()->term;
+        $closed = Intake::query()->create([
+            'academic_term_id' => $term->id,
+            'name' => 'PG 2025',
+            'entry_mode' => 'pg',
+            'is_open' => false,
+            'application_fee_amount' => 10000,
+        ]);
+        $this->demoPrembly();
+        Http::fake();
+
+        $this->postJson('/api/nin/preview', ['nin' => '12345678901', 'intake_id' => $closed->id])
+            ->assertStatus(422)
+            ->assertJsonPath('code', Intake::INTAKE_NOT_ACCEPTING_CODE);
+
+        Http::assertNothingSent();
+    }
+
     public function test_register_fails_when_no_application_session_is_accepting(): void
     {
-        config([
-            'services.prembly.key' => '',
-            'services.prembly.app_id' => '',
-            'services.prembly.allow_demo' => true,
-        ]);
+        $this->demoPrembly();
         Http::fake();
         $this->ensureApplicantRole();
 
@@ -67,17 +110,43 @@ class ApplicationSignupGateTest extends TestCase
         $this->assertSame(0, User::query()->count());
     }
 
-    public function test_nin_preview_succeeds_when_an_application_session_is_accepting(): void
+    public function test_register_requires_intake_selection_when_sessions_are_open(): void
     {
         $this->openApplicationSession();
-        config([
-            'services.prembly.key' => '',
-            'services.prembly.app_id' => '',
-            'services.prembly.allow_demo' => true,
-        ]);
+        $this->demoPrembly();
+        Http::fake();
+        $this->ensureApplicantRole();
+
+        $this->postJson('/api/register', $this->registerPayload())
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['intake_id']);
+
+        Http::assertNothingSent();
+        $this->assertSame(0, User::query()->count());
+    }
+
+    public function test_register_requires_jamb_for_a_utme_session(): void
+    {
+        $intake = $this->openApplicationSession();
+        $this->demoPrembly();
+        Http::fake();
+        $this->ensureApplicantRole();
+
+        $this->postJson('/api/register', $this->registerPayload(['intake_id' => $intake->id]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['jamb_registration']);
+
+        Http::assertNothingSent();
+        $this->assertSame(0, User::query()->count());
+    }
+
+    public function test_nin_preview_succeeds_for_the_selected_accepting_intake(): void
+    {
+        $intake = $this->openApplicationSession();
+        $this->demoPrembly();
         Http::fake();
 
-        $this->postJson('/api/nin/preview', ['nin' => '12345678901'])
+        $this->postJson('/api/nin/preview', ['nin' => '12345678901', 'intake_id' => $intake->id])
             ->assertOk()
             ->assertJsonPath('first_name', 'Adaeze')
             ->assertJsonPath('last_name', 'Okoye');
@@ -85,23 +154,98 @@ class ApplicationSignupGateTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_register_succeeds_when_an_application_session_is_accepting(): void
+    public function test_register_starts_application_for_the_selected_session(): void
     {
-        $this->openApplicationSession();
+        $intake = $this->openApplicationSession();
         $this->ensureApplicantRole();
-        config([
-            'services.prembly.key' => '',
-            'services.prembly.app_id' => '',
-            'services.prembly.allow_demo' => true,
-        ]);
+        $this->demoPrembly();
         Http::fake();
 
-        $this->postJson('/api/register', $this->registerPayload())
+        $this->postJson('/api/register', $this->registerPayload([
+            'intake_id' => $intake->id,
+            'jamb_registration' => '20261234AB',
+        ]))
             ->assertOk()
             ->assertJsonPath('message', 'Registration successful');
 
-        $this->assertTrue(User::query()->where('email', 'adaeze.okoye@gmail.com')->exists());
+        $user = User::query()->where('email', 'adaeze.okoye@gmail.com')->first();
+        $this->assertNotNull($user);
+        $this->assertSame('20261234AB', $user->jamb_registration);
+        $application = Application::query()->where('user_id', $user->id)->first();
+        $this->assertNotNull($application);
+        $this->assertSame($intake->id, $application->intake_id);
+        $this->assertSame('utme', $application->entry_mode);
+        $this->assertSame('awaiting_application_fee', $application->stage);
         Http::assertNothingSent();
+    }
+
+    public function test_register_allows_postgraduate_without_jamb(): void
+    {
+        $term = $this->openApplicationSession()->term;
+        $pg = Intake::query()->create([
+            'academic_term_id' => $term->id,
+            'name' => 'PG 2025',
+            'entry_mode' => 'pg',
+            'is_open' => true,
+            'application_fee_amount' => 15000,
+            'opens_on' => now()->subDay()->toDateString(),
+            'closes_on' => now()->addMonth()->toDateString(),
+        ]);
+        $this->ensureApplicantRole();
+        $this->demoPrembly();
+        Http::fake();
+
+        $this->postJson('/api/register', $this->registerPayload(['intake_id' => $pg->id]))
+            ->assertOk()
+            ->assertJsonPath('message', 'Registration successful');
+
+        $application = Application::query()->first();
+        $this->assertSame('pg', $application->entry_mode);
+        $this->assertSame($pg->id, $application->intake_id);
+        $this->assertNull($application->jamb_registration);
+    }
+
+    public function test_register_rejects_jamb_missing_from_the_candidate_list(): void
+    {
+        $intake = $this->openApplicationSession();
+        CandidateData::query()->create([
+            'rg_num' => '20261234AB',
+            'academic_year' => '2025/2026',
+            'rg_candname' => 'Ada Okoye',
+        ]);
+        $this->ensureApplicantRole();
+        $this->demoPrembly();
+        Http::fake();
+
+        $this->postJson('/api/register', $this->registerPayload([
+            'intake_id' => $intake->id,
+            'jamb_registration' => '20269999ZZ',
+        ]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['jamb_registration']);
+
+        Http::assertNothingSent();
+        $this->assertSame(0, User::query()->count());
+    }
+
+    public function test_register_accepts_jamb_on_the_candidate_list(): void
+    {
+        $intake = $this->openApplicationSession();
+        CandidateData::query()->create([
+            'rg_num' => '20261234AB',
+            'academic_year' => '2025/2026',
+            'rg_candname' => 'Ada Okoye',
+        ]);
+        $this->ensureApplicantRole();
+        $this->demoPrembly();
+        Http::fake();
+
+        $this->postJson('/api/register', $this->registerPayload([
+            'intake_id' => $intake->id,
+            'jamb_registration' => '20261234AB',
+        ]))->assertOk();
+
+        $this->assertSame('validated', Application::query()->value('jamb_status'));
     }
 
     private function openApplicationSession(): Intake
@@ -133,17 +277,27 @@ class ApplicationSignupGateTest extends TestCase
         );
     }
 
-    /**
-     * @return array<string, string>
-     */
-    private function registerPayload(): array
+    private function demoPrembly(): void
     {
-        return [
+        config([
+            'services.prembly.key' => '',
+            'services.prembly.app_id' => '',
+            'services.prembly.allow_demo' => true,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    private function registerPayload(array $overrides = []): array
+    {
+        return array_merge([
             'nin' => '12345678901',
             'email' => 'adaeze.okoye@gmail.com',
             'phone' => '08012345678',
             'password' => 'Secret1!x',
             'password_confirmation' => 'Secret1!x',
-        ];
+        ], $overrides);
     }
 }

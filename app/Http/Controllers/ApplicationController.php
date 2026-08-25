@@ -13,6 +13,7 @@ use App\Models\RefereeInvite;
 use App\Services\ApplicationDocumentService;
 use App\Services\ApplicationExportService;
 use App\Services\ApplicationStaffUpdateService;
+use App\Services\ApplicationStartService;
 use App\Services\AuditWriter;
 use App\Services\InvoiceService;
 use App\Services\Notifier;
@@ -23,7 +24,6 @@ use App\Support\AdmissionEntryRules;
 use App\Support\ApplicantPassport;
 use App\Support\ApplicationFormSteps;
 use App\Support\ApplicationListQuery;
-use App\Support\ApplicationReference;
 use App\Support\CandidateEligibility;
 use App\Support\ProgrammeEligibility;
 use App\Support\RegistrationCriteria;
@@ -49,6 +49,7 @@ class ApplicationController extends Controller
         private ApplicationStaffUpdateService $staffUpdates,
         private WorkflowEngine $workflows,
         private RefereeInviteService $referees,
+        private ApplicationStartService $applicationStart,
     ) {}
 
     public function index(Request $request)
@@ -263,49 +264,19 @@ class ApplicationController extends Controller
 
         abort_unless($intake instanceof Intake, 422, 'Applications are not open for this entry mode and session.');
 
-        abort_unless($intake->entry_mode === $data['entry_mode'], 422, 'Entry mode does not match this application window.');
+        abort_unless($intake->entry_mode === $data['entry_mode'], 422, 'Entry mode does not match this application session.');
         abort_unless($intake->isAcceptingApplications(), 422, 'Applications are not open for this entry mode and session.');
 
-        $existing = Application::query()->where('user_id', $request->user()->id)->where('intake_id', $intake->id)->first();
-        if ($existing) {
-            $this->prembly->syncUserVerificationToApplication($request->user(), $existing);
-
-            return $existing->fresh()->load(['applicationFeeInvoice', 'intake.term', 'steps', 'documents']);
-        }
-
         try {
-            $intake->applicationFeeAmount();
+            return $this->applicationStart->start(
+                $request->user(),
+                $intake,
+                $data['jamb_registration'] ?? null,
+                isset($data['program_id']) ? (int) $data['program_id'] : null,
+            );
         } catch (RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
-
-        $application = Application::query()->create([
-            'application_number' => ApplicationReference::generate(),
-            'user_id' => $request->user()->id,
-            'intake_id' => $intake->id,
-            'program_id' => $data['program_id'] ?? null,
-            'entry_mode' => $data['entry_mode'],
-            'jamb_registration' => $data['jamb_registration'] ?? null,
-            'jamb_status' => ! empty($data['jamb_registration'])
-                ? (CandidateEligibility::findByJamb($data['jamb_registration']) ? 'validated' : 'pending')
-                : null,
-            'stage' => 'awaiting_application_fee',
-            'current_step' => null,
-        ]);
-
-        if (! empty($data['jamb_registration'])) {
-            $request->user()->update(['jamb_registration' => $data['jamb_registration']]);
-        }
-
-        foreach (Application::formSteps($data['entry_mode']) as $step) {
-            $application->steps()->create(['step_key' => $step, 'status' => 'pending', 'payload' => []]);
-        }
-        $invoice = $this->invoices->createApplicationFeeInvoice($request->user(), $intake, $application->id);
-        $application->update(['application_fee_invoice_id' => $invoice->id]);
-        $this->prembly->syncUserVerificationToApplication($request->user(), $application);
-        $this->audit->record('application.started', 'Application started ('.$data['entry_mode'].')', 'admissions', 'application', $application->id, null, $application);
-
-        return $application->fresh(['applicationFeeInvoice', 'steps', 'documents', 'intake.term']);
     }
 
     public function saveStep(Request $request, Application $application)
@@ -460,7 +431,7 @@ class ApplicationController extends Controller
         if ($data['step_key'] === 'programme_selection') {
             $request->merge(['payload' => $payload]);
             $payload = $request->validate([
-                'payload.first_choice_program_id' => 'required|integer|exists:programs,id',
+                'payload.first_choice_program_id' => 'required|integer|min:1|exists:programs,id',
                 'payload.second_choice_program_id' => 'nullable|integer|exists:programs,id|different:payload.first_choice_program_id',
             ])['payload'] + $payload;
             $payload['program_id'] = (int) $payload['first_choice_program_id'];
@@ -526,6 +497,9 @@ class ApplicationController extends Controller
         $application->ensureFormSteps();
         if (! $application->ninVerified()) {
             return response()->json(['message' => 'Verify your NIN before submitting your application.'], 422);
+        }
+        if ($blocked = $this->rejectIfProgrammeMissing($application)) {
+            return $blocked;
         }
         $missing = $application->steps()->where('status', 'pending')->pluck('step_key');
         if ($missing->isNotEmpty()) {
@@ -825,6 +799,30 @@ class ApplicationController extends Controller
         );
 
         return $application;
+    }
+
+    /**
+     * @return JsonResponse|null
+     */
+    private function rejectIfProgrammeMissing(Application $application): ?JsonResponse
+    {
+        $programId = ProgrammeEligibility::firstChoiceId($application);
+        $program = $programId ? Program::query()->find($programId) : null;
+        if (
+            ! $program
+            || ! $program->is_active
+            || ! in_array($application->entry_mode, $program->entry_modes ?? [], true)
+        ) {
+            return response()->json([
+                'message' => 'Select a programme before submitting your application.',
+            ], 422);
+        }
+
+        if ((int) $application->program_id !== (int) $program->id) {
+            $application->update(['program_id' => $program->id]);
+        }
+
+        return null;
     }
 
     private function authorizeOwner(Request $request, Application $application): void

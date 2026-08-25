@@ -49,9 +49,9 @@ class NinVerificationTest extends TestCase
             'services.prembly.allow_demo' => true,
         ]);
         Http::fake();
-        $this->openApplicationSession();
+        $intake = $this->openApplicationSession();
 
-        $this->postJson('/api/nin/preview', ['nin' => '12345678901'])
+        $this->postJson('/api/nin/preview', ['nin' => '12345678901', 'intake_id' => $intake->id])
             ->assertOk()
             ->assertJsonPath('first_name', 'Adaeze')
             ->assertJsonPath('last_name', 'Okoye')
@@ -68,9 +68,9 @@ class NinVerificationTest extends TestCase
             'services.prembly.allow_demo' => false,
         ]);
         Http::fake();
-        $this->openApplicationSession();
+        $intake = $this->openApplicationSession();
 
-        $this->postJson('/api/nin/preview', ['nin' => '12345678901'])
+        $this->postJson('/api/nin/preview', ['nin' => '12345678901', 'intake_id' => $intake->id])
             ->assertStatus(422)
             ->assertJsonValidationErrors(['nin']);
 
@@ -100,9 +100,9 @@ class NinVerificationTest extends TestCase
                 ],
             ], 200),
         ]);
-        $this->openApplicationSession();
+        $intake = $this->openApplicationSession();
 
-        $this->postJson('/api/nin/preview', ['nin' => '12345678901'])
+        $this->postJson('/api/nin/preview', ['nin' => '12345678901', 'intake_id' => $intake->id])
             ->assertOk()
             ->assertJsonPath('first_name', 'Chinedu')
             ->assertJsonPath('middle_name', 'Ike')
@@ -133,9 +133,9 @@ class NinVerificationTest extends TestCase
                 'detail' => 'Invalid NIN supplied',
             ], 200),
         ]);
-        $this->openApplicationSession();
+        $intake = $this->openApplicationSession();
 
-        $this->postJson('/api/nin/preview', ['nin' => '12345678901'])
+        $this->postJson('/api/nin/preview', ['nin' => '12345678901', 'intake_id' => $intake->id])
             ->assertStatus(422)
             ->assertJsonPath('errors.nin.0', 'Invalid NIN supplied');
     }
@@ -215,7 +215,7 @@ class NinVerificationTest extends TestCase
         Http::assertSentCount(1);
     }
 
-    private function openApplicationSession(): void
+    private function openApplicationSession(): Intake
     {
         $session = AcademicSession::query()->create(['label' => '2025/2026']);
         $term = AcademicTerm::query()->create([
@@ -224,7 +224,8 @@ class NinVerificationTest extends TestCase
             'session_label' => '2025/2026',
             'is_current' => true,
         ]);
-        Intake::query()->create([
+
+        return Intake::query()->create([
             'academic_term_id' => $term->id,
             'name' => 'UTME 2025',
             'entry_mode' => 'utme',

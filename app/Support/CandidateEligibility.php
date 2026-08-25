@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\AcademicTerm;
 use App\Models\CandidateData;
 use App\Models\Intake;
+use Illuminate\Validation\ValidationException;
 
 class CandidateEligibility
 {
@@ -146,5 +147,41 @@ class CandidateEligibility
         }
 
         return $academicYear;
+    }
+
+    public static function candidateListRequiredFor(Intake $intake): bool
+    {
+        if (! AdmissionEntryRules::requiresJambRegistration($intake->entry_mode)) {
+            return false;
+        }
+        $year = $intake->term?->session_label ?: self::sessionLabelForIntake($intake->id);
+        if (! $year) {
+            return false;
+        }
+
+        return CandidateData::query()->where('academic_year', $year)->exists();
+    }
+
+    public static function assertQualifiedForIntake(Intake $intake, ?string $jambRegistration): void
+    {
+        if (! AdmissionEntryRules::requiresJambRegistration($intake->entry_mode)) {
+            return;
+        }
+
+        $jamb = strtoupper(str_replace(' ', '', trim((string) $jambRegistration)));
+        if ($jamb === '') {
+            throw ValidationException::withMessages([
+                'jamb_registration' => $intake->entry_mode === 'de'
+                    ? 'JAMB Direct Entry number is required for this application session.'
+                    : 'JAMB registration number is required for this application session.',
+            ]);
+        }
+
+        $year = $intake->term?->session_label ?: self::sessionLabelForIntake($intake->id);
+        if (self::candidateListRequiredFor($intake) && ! self::findByJamb($jamb, $year)) {
+            throw ValidationException::withMessages([
+                'jamb_registration' => 'This registration number is not on the candidate list for this application session.',
+            ]);
+        }
     }
 }

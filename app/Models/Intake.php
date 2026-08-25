@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
 class Intake extends BaseModel
@@ -11,6 +12,10 @@ class Intake extends BaseModel
     public const CLOSED_SIGNUP_MESSAGE = 'Applications are not open. There is no active application session, so you cannot create an account.';
 
     public const CLOSED_SIGNUP_CODE = 'applications_closed';
+
+    public const INTAKE_NOT_ACCEPTING_CODE = 'intake_not_accepting';
+
+    public const INTAKE_NOT_ACCEPTING_MESSAGE = 'This application session is not accepting applications.';
 
     protected $fillable = ['academic_term_id', 'name', 'entry_mode', 'opens_on', 'closes_on', 'is_open', 'application_fee_amount', 'acceptance_fee_amount'];
 
@@ -90,5 +95,28 @@ class Intake extends BaseModel
             'message' => self::CLOSED_SIGNUP_MESSAGE,
             'code' => self::CLOSED_SIGNUP_CODE,
         ], 422));
+    }
+
+    public static function requireAccepting(?int $id): self
+    {
+        if (! static::hasAccepting()) {
+            static::abortUnlessAccepting();
+        }
+
+        if (! $id) {
+            throw ValidationException::withMessages([
+                'intake_id' => 'Select an application session before creating an account.',
+            ]);
+        }
+
+        $intake = static::query()->with('term')->find($id);
+        if (! $intake || ! $intake->isAcceptingApplications()) {
+            throw new HttpResponseException(response()->json([
+                'message' => self::INTAKE_NOT_ACCEPTING_MESSAGE,
+                'code' => self::INTAKE_NOT_ACCEPTING_CODE,
+            ], 422));
+        }
+
+        return $intake;
     }
 }
