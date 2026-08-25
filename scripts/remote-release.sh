@@ -69,9 +69,18 @@ composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
 
 php artisan migrate --force
 php artisan storage:link --relative --force 2>/dev/null || php artisan storage:link --force || true
-php artisan optimize
+# Do not route:cache — Sanctum skips csrf-cookie when routes are cached, and PHP-FPM
+# opcache (validate_timestamps=0) will keep a stale routes-v7.php until reload.
+php artisan optimize --except=routes
+php artisan route:clear
+if ! php artisan route:list --path=csrf-cookie --json | grep -q csrf-cookie; then
+  echo "FATAL: csrf-cookie route missing after release." >&2
+  php artisan route:list --path=sanctum || true
+  exit 1
+fi
 php artisan queue:restart || true
 supervisorctl restart bells-sis-queue bells-sis-scheduler 2>/dev/null || true
+systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php-fpm 2>/dev/null || true
 
 php artisan up
 chown -R www-data:www-data "$ROOT/storage" "$ROOT/bootstrap/cache" "$ROOT/vendor" 2>/dev/null || true

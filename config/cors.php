@@ -23,7 +23,7 @@ foreach ([env('FRONTEND_URL'), env('STUDENT_URL')] as $url) {
 $allowedOrigins = array_values(array_unique(array_merge($defaultOrigins, $fromEnv)));
 
 return [
-    'paths' => ['api/*', 'sanctum/csrf-cookie'],
+    'paths' => ['api/*', 'sanctum/csrf-cookie', 'api/sanctum/csrf-cookie'],
     'allowed_methods' => ['*'],
     'allowed_origins' => $allowedOrigins,
     'allowed_origins_patterns' => [],

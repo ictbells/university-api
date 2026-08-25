@@ -45,6 +45,11 @@ use App\Http\Controllers\WalletController;
 use App\Http\Controllers\WalletImportController;
 use App\Support\CandidateEligibility;
 use Illuminate\Support\Facades\Route;
+use Laravel\Sanctum\Http\Controllers\CsrfCookieController;
+
+Route::get('/sanctum/csrf-cookie', [CsrfCookieController::class, 'show'])
+    ->middleware('web')
+    ->name('sanctum.csrf-cookie.api');
 
 Route::post('/nin/preview', [AuthController::class, 'previewNin']);
 Route::post('/register', [AuthController::class, 'register']);
