@@ -41,7 +41,6 @@ class StaffNavCatalog
             ['key' => 'results-board', 'section' => 'Academic', 'label' => 'Result board', 'perm' => 'results.board'],
             ['key' => 'results-release', 'section' => 'Academic', 'label' => 'Release results', 'perm' => 'results.release'],
             ['key' => 'results-grading-scale', 'section' => 'Academic', 'label' => 'Grading scale', 'perm' => 'scales.manage'],
-            ['key' => 'pg', 'section' => 'Academic', 'label' => 'PG research', 'perm' => 'pg.view'],
             ['key' => 'finance', 'section' => 'Services', 'label' => 'Fees & payments', 'perm' => 'finance.invoices.manage'],
             ['key' => 'import-invoices', 'section' => 'Services', 'label' => 'Import invoices', 'perm' => 'finance.invoices.manage'],
             ['key' => 'import-wallet', 'section' => 'Services', 'label' => 'Import wallet history', 'perm' => 'finance.invoices.manage'],

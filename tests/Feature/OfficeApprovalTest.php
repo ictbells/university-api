@@ -166,6 +166,26 @@ class OfficeApprovalTest extends TestCase
         app(OfficeNavOwnerResolver::class)->assertKeysUniqueToDepartment($other, ['hostel']);
     }
 
+    public function test_mutations_execute_when_nav_link_does_not_require_approval(): void
+    {
+        $this->department->syncNavLinks([
+            [
+                'key' => 'hostel',
+                'require_create' => false,
+                'require_update' => false,
+                'require_delete' => false,
+                'approval_chain' => 'both',
+            ],
+        ]);
+
+        Sanctum::actingAs($this->subunitStaff);
+        $result = $this->approvals()->submitOrExecute('test.echo', null, ['ping' => 9], 'Test echo');
+
+        $this->assertIsArray($result);
+        $this->assertSame(9, $result['ping']);
+        $this->assertSame(0, OfficeApprovalRequest::query()->count());
+    }
+
     public function test_unit_head_inbox_lists_pending_unit_requests(): void
     {
         Sanctum::actingAs($this->subunitStaff);

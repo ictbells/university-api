@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.15  
+**Version:** 1.16  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -194,7 +194,7 @@ When a section (for example Administration) contains a single dropdown whose lab
 | **Overview** | Home, Students, Approvals |
 | **Applications** | Undergraduate, JUPEB, Postgraduate |
 | **Registrations** | Undergraduate, JUPEB, Postgraduate |
-| **Academic** | Admission Setup (dropdown), Application Setup (dropdown), Enrolment (dropdown), PG research, Exam clearance |
+| **Academic** | Admission Setup (dropdown), Application Setup (dropdown), Enrolment (dropdown), Exam clearance |
 | **Services** | Fees & payments (dropdown), Clinic, Hostel, Documents |
 | **Administration** | Users, Roles, Permissions, Department Setup |
 | **System** | Audit, Reports, Announcements, Integrations, Application settings, Resources |
@@ -278,12 +278,13 @@ Each office **department** can have a **head of department (HOD)**. Each **unit*
 
 A sidebar module is **owned** by the office department that has that portal link. The same link cannot be given to two different departments.
 
-When assigning a portal link on **Department Setup → Links**, modules with gated actions open a prompt for:
+When assigning a portal link on **Department Setup → Links**, modules with gated actions can be assigned **without** office approval. Use the gear on that link to configure approval when needed:
 
-1. **Create / Update / Delete** — which mutation types require office approval (Update also covers workflow actions such as allocate, publish, board clear).
-2. **Who must approve** — unit head only, department head only, or **both** (normal path: unit head → department head).
+1. **Require office approval** — off means staff with permission act immediately; on lets you pick Create / Update / Delete gates.
+2. **Create / Update / Delete** — which mutation types require office approval (Update also covers workflow actions such as allocate, publish, board clear).
+3. **Who must approve** — unit head only, department head only, or **both** (normal path: unit head → department head).
 
-Defaults when checking a link: all three methods on, chain = both.
+New gated links default to **no approval**. Existing links keep the Create/Update/Delete flags already saved.
 
 When a mutation requires approval for an owned module:
 
@@ -485,14 +486,13 @@ Use this when moving people from another admissions portal into this system.
 
 After import, the applicant signs in on the student portal with **application number or JAMB + password** (not email). Duplicate email, NIN, JAMB, or application number is skipped.
 
-### 8.6 Academic — Enrolment, PG, exam clearance
+### 8.6 Academic — Enrolment and exam clearance
 
 - **Offerings** — Course offerings per session (`academic.offerings.manage`). Filter by admission session and study level.
 - **Course registration** — Staff view of student enrolments (`academic.enrollments.manage`). Students start add/drop on the student portal **Course registration** page. They must have paid at least 25% tuition before Register/Drop succeed; the catalogue stays visible while they are blocked. Staff can still register below that threshold when they provide a reason. Unit usage is shown on **one row** (General | Faculty | Departmental | Overall). Search the student picker by session and level.
 - **Unit limits** — Credit-unit caps (`academic.enrollments.manage`). Filter by session and level.
 - **Registration extensions** — Review late-registration requests (`academic.extensions.review`). Filter by session and level.
 - **Import students** — Create continuing students with a supplied matric number (`students.import`). Import invoices and wallet history first. Invoice rows also match old application number or JAMB. Login uses matric number. They appear under Registrations only when tuition invoices show at least 25% paid (same rule as other students).
-- **PG research** — Postgraduate research records (`pg.view`)
 - **Exam clearance** — Exam clearance lists (`exam_clearance.view`)
 
 ### 8.6a Academic — Results processing
@@ -538,7 +538,7 @@ Use these when moving continuing students from another portal. **Do not** invent
 
 If an old payment was wallet-funded, record `paid_amount` on the invoice sheet **and** a matching **debit** on the wallet sheet. These imports do not call Paystack and do not settle invoices from the wallet automatically.
 - **Clinic** — Queue, student charts, encounters, prescriptions, sick notes, NHIS-aware billing (`medical.view_any` / `medical.manage` / `medical.billing`)
-- **Hostel** — Hostels, blocks, rooms, level windows, queue, and allocations (`hostel.view`; manage rooms with `hostel.manage`; allocate with `hostel.allocate`)
+- **Hostel** — Hostels, blocks, rooms, level windows, queue, and allocations (`hostel.view`; manage rooms with `hostel.manage`; allocate with `hostel.allocate`). Students see selection **Open** only when their **level window** is on for the current semester (Save after toggling). A hostel record marked Active does not by itself open student selection.
 
 #### Hostel room bulk import
 
@@ -690,6 +690,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.13 | Aug 2026 | Platform team | Admission session lifecycle: create (not current) → open applications → stop accepting → run admission → set current; platform blocks current while intakes accepting |
 | 1.14 | Aug 2026 | Platform team | Applicant import posts matching imported application fees or generates an unpaid fee from the fee catalog (session amount is fallback) |
 | 1.15 | Aug 2026 | Platform team | Course Core/Elective/Required status; JAMB programme selects from the university catalogue; O’level capped at 9 subjects; application fees set in the fee catalog by entry mode; session/level list filters; students add/drop on a dedicated Course registration page |
+| 1.16 | Aug 2026 | Platform team | Removed the staff PG research page; postgraduate applications and research workflows are unchanged |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

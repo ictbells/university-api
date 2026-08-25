@@ -20,6 +20,83 @@ class MedicalController extends Controller
         private AuditWriter $audit,
     ) {}
 
+    public function nhisRoster(Request $request)
+    {
+        abort_unless(
+            $request->user()->hasPermission('medical.view_any')
+            || $request->user()->hasPermission('medical.manage'),
+            403
+        );
+
+        $perPage = min(100, max(10, (int) $request->input('per_page', 25)));
+        $status = (string) $request->input('status', 'all');
+        $query = Student::query()
+            ->with(['medicalProfile', 'program:id,name,code', 'user:id,name,email'])
+            ->whereIn('status', \App\Support\Studentship::CURRENT_STATUSES)
+            ->where(function ($builder) {
+                $builder->whereNull('studentship_expires_at')
+                    ->orWhereDate('studentship_expires_at', '>', now()->toDateString());
+            })
+            ->latest('id');
+
+        if ($status === 'enrolled') {
+            $query->whereHas('medicalProfile', fn ($q) => $q->where('nhis_enrolled', true));
+        } elseif ($status === 'not_enrolled') {
+            $query->where(function ($builder) {
+                $builder->whereDoesntHave('medicalProfile')
+                    ->orWhereHas('medicalProfile', fn ($q) => $q->where('nhis_enrolled', false));
+            });
+        } elseif ($status === 'expiring') {
+            $query->whereHas('medicalProfile', function ($q) {
+                $q->where('nhis_enrolled', true)
+                    ->whereNotNull('nhis_valid_until')
+                    ->whereDate('nhis_valid_until', '<=', now()->addDays(30)->toDateString());
+            });
+        }
+
+        if ($request->filled('search')) {
+            $term = '%'.str_replace(['%', '_'], ['\\%', '\\_'], trim((string) $request->input('search'))).'%';
+            $query->where(function ($builder) use ($term) {
+                $builder->where('first_name', 'like', $term)
+                    ->orWhere('last_name', 'like', $term)
+                    ->orWhere('matric_number', 'like', $term)
+                    ->orWhere('student_number', 'like', $term)
+                    ->orWhereHas('medicalProfile', function ($profiles) use ($term) {
+                        $profiles->where('nhis_number', 'like', $term)
+                            ->orWhere('nhis_provider', 'like', $term);
+                    })
+                    ->orWhereHas('user', function ($users) use ($term) {
+                        $users->where('email', 'like', $term)->orWhere('name', 'like', $term);
+                    });
+            });
+        }
+
+        $page = $query->paginate($perPage);
+        $page->getCollection()->transform(function (Student $student) {
+            $profile = $student->medicalProfile;
+            $student->setAttribute(
+                'effective_coverage_percent',
+                $profile ? $this->billing->resolveCoveragePercent($profile) : 0.0
+            );
+
+            return $student;
+        });
+
+        return [
+            'data' => $page->items(),
+            'meta' => [
+                'current_page' => $page->currentPage(),
+                'last_page' => $page->lastPage(),
+                'per_page' => $page->perPage(),
+                'total' => $page->total(),
+            ],
+            'summary' => [
+                'enrolled' => MedicalProfile::query()->where('nhis_enrolled', true)->count(),
+                'settings' => ClinicSettings::all(),
+            ],
+        ];
+    }
+
     public function profile(Request $request, Student $student)
     {
         $this->authorizeMedical($request, $student);

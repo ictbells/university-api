@@ -22,7 +22,6 @@ use App\Models\Intake;
 use App\Models\Invoice;
 use App\Models\MedicalBill;
 use App\Models\Payment;
-use App\Models\PgRecord;
 use App\Models\Program;
 use App\Models\Student;
 use App\Models\Wallet;
@@ -61,7 +60,6 @@ class ReportDatasetCatalog
             self::clinicVisits(),
             self::medicalBills(),
             self::documents(),
-            self::pgRecords(),
             self::auditLogs(),
         ];
     }
@@ -740,34 +738,6 @@ class ReportDatasetCatalog
                 ->leftJoin('users', 'users.id', '=', 'students.user_id'),
             countColumn: 'documents.id',
             defaultColumns: ['matric_number', 'student_name', 'type', 'title', 'status', 'created_at'],
-            defaultSort: [['field' => 'created_at', 'dir' => 'desc']],
-        );
-    }
-
-    private static function pgRecords(): ReportDataset
-    {
-        return new ReportDataset(
-            key: 'pg_records',
-            label: 'PG research',
-            category: 'Postgraduate',
-            description: 'Postgraduate research records.',
-            permissions: ['pg.view'],
-            columns: [
-                self::col('matric_number', 'Matric no.', 'string', 'students.matric_number'),
-                self::col('student_name', 'Student', 'string', 'users.name'),
-                self::col('topic', 'Topic', 'string', 'pg_records.topic'),
-                self::col('proposal_status', 'Proposal', 'string', 'pg_records.proposal_status'),
-                self::col('thesis_status', 'Thesis', 'string', 'pg_records.thesis_status'),
-                self::col('supervisor', 'Supervisor', 'string', 'supervisor_users.name'),
-                self::col('created_at', 'Created', 'datetime', 'pg_records.created_at'),
-            ],
-            query: fn () => PgRecord::query()
-                ->leftJoin('students', 'students.id', '=', 'pg_records.student_id')
-                ->leftJoin('users', 'users.id', '=', 'students.user_id')
-                ->leftJoin('staff as supervisors', 'supervisors.id', '=', 'pg_records.supervisor_staff_id')
-                ->leftJoin('users as supervisor_users', 'supervisor_users.id', '=', 'supervisors.user_id'),
-            countColumn: 'pg_records.id',
-            defaultColumns: ['matric_number', 'student_name', 'topic', 'proposal_status', 'thesis_status'],
             defaultSort: [['field' => 'created_at', 'dir' => 'desc']],
         );
     }

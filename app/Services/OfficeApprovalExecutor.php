@@ -24,7 +24,6 @@ use App\Models\Intake;
 use App\Models\Invoice;
 use App\Models\InvoiceRebate;
 use App\Models\OlevelSubject;
-use App\Models\PgRecord;
 use App\Models\Program;
 use App\Models\ProgrammeFee;
 use App\Models\RebateType;
@@ -226,7 +225,6 @@ class OfficeApprovalExecutor
             'academic.update_olevel' => [\App\Http\Controllers\AcademicSetupController::class, 'updateOlevelSubject', ['key' => 'olevel_subject_id', 'class' => OlevelSubject::class]],
             'academic.destroy_olevel' => [\App\Http\Controllers\AcademicSetupController::class, 'destroyOlevelSubject', ['key' => 'olevel_subject_id', 'class' => OlevelSubject::class]],
             'students.update' => [\App\Http\Controllers\StudentController::class, 'update', ['key' => 'student_id', 'class' => Student::class]],
-            'pg.update' => [\App\Http\Controllers\PgController::class, 'update', ['key' => 'pg_record_id', 'class' => PgRecord::class]],
             'announcements.store' => [\App\Http\Controllers\AnnouncementController::class, 'store', null],
             'announcements.update' => [\App\Http\Controllers\AnnouncementController::class, 'update', ['key' => 'announcement_id', 'class' => Announcement::class]],
             'announcements.publish' => [\App\Http\Controllers\AnnouncementController::class, 'publish', ['key' => 'announcement_id', 'class' => Announcement::class]],

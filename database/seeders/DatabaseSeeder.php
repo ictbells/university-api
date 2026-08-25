@@ -30,7 +30,6 @@ class DatabaseSeeder extends Seeder
                 ->where('module', 'admissions')
                 ->orWhereIn('key', [
                     'students.view_any',
-                    'pg.view',
                     'academic.programmes.manage',
                     'academic.intakes.manage',
                     'academic.olevel.manage',

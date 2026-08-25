@@ -25,7 +25,6 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OfficeApprovalController;
 use App\Http\Controllers\OfficeStructureController;
 use App\Http\Controllers\PaymentController;
-use App\Http\Controllers\PgController;
 use App\Http\Controllers\ProgrammeFeeController;
 use App\Http\Controllers\RebateController;
 use App\Http\Controllers\RefereePortalController;
@@ -476,6 +475,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::post('/clinic/visits/{visit}/sick-notes', [ClinicController::class, 'addSickNote']);
     Route::get('/clinic/sick-notes/{sickNote}/print', [ClinicController::class, 'printSickNote']);
 
+    Route::get('/medical/nhis', [MedicalController::class, 'nhisRoster']);
     Route::get('/medical/{student}', [MedicalController::class, 'profile']);
     Route::put('/medical/{student}', [MedicalController::class, 'updateProfile']);
     Route::post('/medical/{student}/immunizations', [MedicalController::class, 'addImmunization']);
@@ -512,9 +512,6 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::post('/hostel-allocations/{allocation}/reject', [HostelController::class, 'reject'])->middleware('permission:hostel.allocate');
 
     Route::post('/documents', [DocumentController::class, 'issue'])->middleware('permission:documents.issue');
-
-    Route::get('/pg-records', [PgController::class, 'index'])->middleware('permission:pg.view');
-    Route::patch('/pg-records/{pgRecord}', [PgController::class, 'update'])->middleware('permission:pg.manage');
 
     Route::post('/announcements', [AnnouncementController::class, 'store'])->middleware('permission:announcements.manage');
     Route::patch('/announcements/{announcement}', [AnnouncementController::class, 'update'])->middleware('permission:announcements.manage');

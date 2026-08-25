@@ -271,7 +271,6 @@ class OpenApiGenerator
             str_starts_with($uri, 'api/integrations') => 'Integrations',
             str_starts_with($uri, 'api/announcements'),
             str_starts_with($uri, 'api/notifications') => 'Communications',
-            str_starts_with($uri, 'api/pg-records') => 'Postgraduate',
             default => 'Public',
         };
     }

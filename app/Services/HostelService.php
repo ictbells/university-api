@@ -77,7 +77,7 @@ class HostelService
             ->groupBy('academic_level_id');
 
         return $levels->map(function (AcademicLevel $level) use ($windows, $category, $termId) {
-            $window = $windows->get($level->id)?->sortByDesc(fn (HostelLevelWindow $row) => $row->academic_term_id ? 1 : 0)->first();
+            $window = $this->preferTermWindow($windows->get($level->id), $termId);
 
             return [
                 'academic_level_id' => $level->id,
@@ -86,6 +86,7 @@ class HostelService
                 'sort_order' => $level->sort_order,
                 'category' => $category,
                 'is_active' => (bool) ($window?->is_active ?? false),
+                'is_open' => $this->windowIsOpen($window),
                 'opens_at' => $window?->opens_at,
                 'closes_at' => $window?->closes_at,
                 'window_id' => $window?->id,
@@ -99,17 +100,23 @@ class HostelService
         $termId ??= $this->currentTermId();
 
         foreach ($levels as $row) {
+            $active = (bool) ($row['is_active'] ?? false);
+            $payload = ['is_active' => $active];
+            if (array_key_exists('opens_at', $row) || array_key_exists('closes_at', $row)) {
+                $payload['opens_at'] = $row['opens_at'] ?? null;
+                $payload['closes_at'] = $row['closes_at'] ?? null;
+            } elseif ($active) {
+                $payload['opens_at'] = null;
+                $payload['closes_at'] = null;
+            }
+
             HostelLevelWindow::query()->updateOrCreate(
                 [
                     'category' => $category,
                     'academic_level_id' => $row['academic_level_id'],
                     'academic_term_id' => $termId,
                 ],
-                [
-                    'is_active' => (bool) ($row['is_active'] ?? false),
-                    'opens_at' => $row['opens_at'] ?? null,
-                    'closes_at' => $row['closes_at'] ?? null,
-                ],
+                $payload,
             );
         }
 
@@ -125,52 +132,24 @@ class HostelService
             return false;
         }
 
-        $window = HostelLevelWindow::query()
-            ->where('category', $category)
-            ->where('academic_level_id', $level->id)
-            ->where('is_active', true)
-            ->where(function (Builder $query) use ($termId) {
-                $query->whereNull('academic_term_id');
-                if ($termId) {
-                    $query->orWhere('academic_term_id', $termId);
-                }
-            })
-            ->first();
-
-        if (! $window) {
-            return false;
-        }
-
-        $now = now();
-        if ($window->opens_at && $now->lt($window->opens_at)) {
-            return false;
-        }
-        if ($window->closes_at && $now->gt($window->closes_at)) {
-            return false;
-        }
-
-        return true;
+        return $this->windowIsOpen($this->resolvedLevelWindow($category, $level->id, $termId));
     }
 
     public function eligibleStudentsQuery(string $category, ?int $termId = null): Builder
     {
         $termId ??= $this->currentTermId();
 
-        $activeLevelIds = HostelLevelWindow::query()
-            ->where('category', $category)
-            ->where('is_active', true)
-            ->where(function (Builder $query) use ($termId) {
-                $query->whereNull('academic_term_id');
-                if ($termId) {
-                    $query->orWhere('academic_term_id', $termId);
-                }
-            })
-            ->pluck('academic_level_id');
-
         $activeLevelCodes = AcademicLevel::query()
-            ->whereIn('id', $activeLevelIds)
-            ->pluck('code')
-            ->map(fn ($code) => (int) $code)
+            ->where('study_level', $this->studyLevelForCategory($category))
+            ->get()
+            ->filter(fn (AcademicLevel $level) => $this->windowIsOpen($this->resolvedLevelWindow($category, $level->id, $termId)))
+            ->map(function (AcademicLevel $level) {
+                $code = trim((string) $level->code);
+
+                return is_numeric($code) ? (int) $code : $code;
+            })
+            ->filter(fn ($code) => $code !== '' && $code !== 0)
+            ->values()
             ->all();
 
         $query = Student::query()
@@ -743,6 +722,55 @@ class HostelService
     private function studyLevelForCategory(string $category): string
     {
         return $category === Hostel::CATEGORY_POSTGRADUATE ? 'postgraduate' : 'undergraduate';
+    }
+
+    private function resolvedLevelWindow(string $category, int $academicLevelId, ?int $termId = null): ?HostelLevelWindow
+    {
+        $termId ??= $this->currentTermId();
+        $windows = HostelLevelWindow::query()
+            ->where('category', $category)
+            ->where('academic_level_id', $academicLevelId)
+            ->where(function (Builder $query) use ($termId) {
+                $query->whereNull('academic_term_id');
+                if ($termId) {
+                    $query->orWhere('academic_term_id', $termId);
+                }
+            })
+            ->get();
+
+        return $this->preferTermWindow($windows, $termId);
+    }
+
+    private function preferTermWindow(?Collection $windows, ?int $termId): ?HostelLevelWindow
+    {
+        if (! $windows || $windows->isEmpty()) {
+            return null;
+        }
+        if ($termId) {
+            $forTerm = $windows->firstWhere('academic_term_id', $termId);
+            if ($forTerm) {
+                return $forTerm;
+            }
+        }
+
+        return $windows->firstWhere('academic_term_id', null) ?? $windows->first();
+    }
+
+    private function windowIsOpen(?HostelLevelWindow $window): bool
+    {
+        if (! $window || ! $window->is_active) {
+            return false;
+        }
+
+        $now = now();
+        if ($window->opens_at && $now->lt($window->opens_at)) {
+            return false;
+        }
+        if ($window->closes_at && $now->gt($window->closes_at)) {
+            return false;
+        }
+
+        return true;
     }
 
     private function academicLevelForStudent(string $category, Student $student): ?AcademicLevel

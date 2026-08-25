@@ -107,7 +107,6 @@ class OfficeApprovalCatalog
             'academic.update_olevel' => ['nav_key' => 'olevel', 'label' => "Update O'level subject", 'mutation' => self::MUTATION_UPDATE],
             'academic.destroy_olevel' => ['nav_key' => 'olevel', 'label' => "Delete O'level subject", 'mutation' => self::MUTATION_DELETE],
             'students.update' => ['nav_key' => 'students', 'label' => 'Update student record', 'mutation' => self::MUTATION_UPDATE],
-            'pg.update' => ['nav_key' => 'pg', 'label' => 'Update PG record', 'mutation' => self::MUTATION_UPDATE],
             'announcements.store' => ['nav_key' => 'announcements', 'label' => 'Create announcement', 'mutation' => self::MUTATION_CREATE],
             'announcements.update' => ['nav_key' => 'announcements', 'label' => 'Update announcement', 'mutation' => self::MUTATION_UPDATE],
             'announcements.publish' => ['nav_key' => 'announcements', 'label' => 'Publish announcement', 'mutation' => self::MUTATION_UPDATE],
