@@ -67,6 +67,18 @@ resource "aws_iam_role_policy" "github_deploy" {
         Resource = "${aws_s3_bucket.bootstrap.arn}/deploys/*"
       },
       {
+        Sid    = "ReadAppEnvOverlay"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion"
+        ]
+        Resource = [
+          "${aws_s3_bucket.bootstrap.arn}/api/.env",
+          "${aws_s3_bucket.bootstrap.arn}/env/*"
+        ]
+      },
+      {
         Sid    = "ListDeployPrefix"
         Effect = "Allow"
         Action = [
@@ -76,7 +88,7 @@ resource "aws_iam_role_policy" "github_deploy" {
         Resource = aws_s3_bucket.bootstrap.arn
         Condition = {
           StringLike = {
-            "s3:prefix" = ["deploys", "deploys/*"]
+            "s3:prefix" = ["deploys", "deploys/*", "api", "api/*", "env", "env/*"]
           }
         }
       },

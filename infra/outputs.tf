@@ -15,7 +15,12 @@ output "github_deploy_role_arn" {
 
 output "deploy_s3_bucket" {
   value       = aws_s3_bucket.bootstrap.id
-  description = "S3 bucket for SSM deploy artifacts (prefix deploys/api/)."
+  description = "S3 bucket for SSM deploy artifacts (prefix deploys/api/) and the api/.env overlay."
+}
+
+output "env_s3_uri" {
+  value       = "s3://${aws_s3_bucket.bootstrap.id}/api/.env"
+  description = "Upload PREMBLY_* / PAYSTACK_* overlay here. Deploy merges it into /var/www/api/.env without replacing APP_KEY or DB_*."
 }
 
 output "api_instance_id" {

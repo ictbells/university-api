@@ -62,6 +62,8 @@ locals {
     app_secret_name     = aws_secretsmanager_secret.app.name
     master_secret_name  = var.rds_master_secret_name
     app_key_secret_name = aws_secretsmanager_secret.app_key.name
+    env_s3_bucket       = aws_s3_bucket.bootstrap.id
+    env_s3_key          = "api/.env"
   })
 
   bootstrap_script_md5 = md5(local.bootstrap_script)

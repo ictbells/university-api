@@ -36,8 +36,15 @@ ensure_php_841() {
 
 ensure_php_841
 
+if [[ -z "${LOAD_ENV_FROM_S3:-}" && -f "$ROOT/.env" ]]; then
+  LOAD_ENV_FROM_S3="$(python3 "$ROOT/scripts/patch-dotenv.py" "$ROOT/.env" --get LOAD_ENV_FROM_S3 || true)"
+fi
+export LOAD_ENV_FROM_S3="${LOAD_ENV_FROM_S3:-false}"
 if [[ "${LOAD_ENV_FROM_S3:-false}" =~ ^(1|true|yes|on)$ ]]; then
-  ENV_S3_FORCE=true bash "$ROOT/scripts/pull-env-from-s3.sh"
+  echo "Pulling env overlay from S3 (LOAD_ENV_FROM_S3=${LOAD_ENV_FROM_S3})."
+  bash "$ROOT/scripts/pull-env-from-s3.sh"
+else
+  echo "Skipping S3 env overlay (LOAD_ENV_FROM_S3=${LOAD_ENV_FROM_S3:-false})."
 fi
 
 if [[ ! -f "$ROOT/.env" ]]; then

@@ -46,6 +46,47 @@ def get_key(path: Path, key: str) -> str | None:
     return None
 
 
+INFRA_KEEP_KEYS = (
+    "APP_KEY",
+    "DB_CONNECTION",
+    "DB_HOST",
+    "DB_PORT",
+    "DB_DATABASE",
+    "DB_USERNAME",
+    "DB_PASSWORD",
+    "AWS_RDS_APP_SECRET",
+    "AWS_RDS_MASTER_SECRET",
+    "AWS_APP_KEY_SECRET",
+)
+
+
+def read_map(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.is_file():
+        return values
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        values[k.strip()] = unquote(v)
+    return values
+
+
+def merge_from(dest: Path, overlay: Path, keep: set[str] | None = None) -> int:
+    """Copy KEY=value from overlay into dest, leaving Secrets Manager keys intact."""
+    keep = keep or set()
+    incoming = read_map(overlay)
+    if not incoming:
+        print(f"Env merge: overlay {overlay} had no KEY=value lines.", file=sys.stderr)
+        return 1
+    updates = {k: v for k, v in incoming.items() if k not in keep}
+    skipped = sorted(k for k in incoming if k in keep)
+    apply_updates(dest, updates)
+    print(f"Env merge: applied {len(updates)} key(s) from overlay; kept {len(skipped)} infra key(s).")
+    return 0
+
+
 def apply_updates(path: Path, updates: dict[str, str]) -> None:
     existing = path.read_text(encoding="utf-8") if path.is_file() else ""
     seen: set[str] = set()
@@ -245,6 +286,17 @@ def main() -> int:
     parser.add_argument("--check-app-key", action="store_true")
     parser.add_argument("--normalize-app-key", action="store_true")
     parser.add_argument("--ensure-spa-session", action="store_true")
+    parser.add_argument("--merge-from", help="Dotenv overlay to merge into env_file")
+    parser.add_argument(
+        "--keep",
+        default="",
+        help="Comma-separated keys that overlay must not replace",
+    )
+    parser.add_argument(
+        "--keep-infra",
+        action="store_true",
+        help="Do not let the overlay replace APP_KEY / DB_* / AWS_* secret names",
+    )
     args = parser.parse_args()
     path = Path(args.env_file)
     if args.get:
@@ -267,6 +319,11 @@ def main() -> int:
         return 0
     if args.ensure_spa_session:
         return ensure_spa_session(path)
+    if args.merge_from:
+        keep: set[str] = {k.strip() for k in args.keep.split(",") if k.strip()}
+        if args.keep_infra:
+            keep.update(INFRA_KEEP_KEYS)
+        return merge_from(path, Path(args.merge_from), keep)
     updates = json.load(sys.stdin)
     parsed = {str(k): str(v) for k, v in updates.items()}
     if "APP_KEY" in parsed:

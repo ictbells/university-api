@@ -163,6 +163,10 @@ PREMBLY_API_KEY=
 PREMBLY_APP_ID=
 PREMBLY_BASE_URL=https://api.prembly.com
 PREMBLY_ALLOW_DEMO=false
+LOAD_ENV_FROM_S3=true
+ENV_S3_BUCKET=${env_s3_bucket}
+ENV_S3_KEY=${env_s3_key}
+AWS_BUCKET=${env_s3_bucket}
 EOF
   APP_KEY_RAW="$app_key" python3 - <<'PY'
 import json
@@ -304,6 +308,68 @@ ensure_schema || true
 if ! write_env; then
   echo "FATAL: could not write /var/www/api/.env (RDS or APP_KEY secret)." >&2
   exit 1
+fi
+
+# Overlay Prembly/Paystack from S3 without replacing Secrets Manager APP_KEY/DB_*.
+if aws s3 cp "s3://${env_s3_bucket}/${env_s3_key}" /tmp/bells-sis-env-overlay --region "$REGION" --only-show-errors; then
+  python3 - <<'PY'
+from pathlib import Path
+keep = {
+    "APP_KEY", "DB_CONNECTION", "DB_HOST", "DB_PORT", "DB_DATABASE",
+    "DB_USERNAME", "DB_PASSWORD", "AWS_RDS_APP_SECRET", "AWS_RDS_MASTER_SECRET",
+    "AWS_APP_KEY_SECRET",
+}
+
+def unquote(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        inner = value[1:-1]
+        return inner.replace("\\$", "$").replace('\\"', '"').replace("\\\\", "\\")
+    return value
+
+def quote(value: str) -> str:
+    escaped = (
+        str(value).replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
+        .replace("\n", "\\n").replace("\r", "")
+    )
+    return f'"{escaped}"'
+
+def read_map(path: Path) -> dict[str, str]:
+    values = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        values[k.strip()] = unquote(v)
+    return values
+
+dest = Path("/var/www/api/.env")
+incoming = read_map(Path("/tmp/bells-sis-env-overlay"))
+updates = {k: v for k, v in incoming.items() if k not in keep}
+existing = dest.read_text(encoding="utf-8").splitlines()
+seen = set()
+out = []
+for raw in existing:
+    stripped = raw.strip()
+    if stripped and not stripped.startswith("#") and "=" in raw:
+        k = raw.split("=", 1)[0].strip()
+        if k in updates:
+            out.append(f"{k}={quote(updates[k])}")
+            seen.add(k)
+            continue
+    out.append(raw)
+for k, v in updates.items():
+    if k not in seen:
+        out.append(f"{k}={quote(v)}")
+dest.write_text("\n".join(out) + "\n", encoding="utf-8")
+print(f"Merged {len(updates)} overlay key(s) from S3 into /var/www/api/.env")
+PY
+  rm -f /tmp/bells-sis-env-overlay
+  chown www-data:www-data /var/www/api/.env
+  chmod 640 /var/www/api/.env
+else
+  echo "WARNING: no env overlay at s3://${env_s3_bucket}/${env_s3_key}; PREMBLY_* stay empty until that object is uploaded and API is redeployed."
 fi
 
 # Supervisor: queue worker + scheduler (replaces cron schedule:run)

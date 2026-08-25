@@ -80,7 +80,7 @@ runs:
           EXCLUDE_ARGS+=(--exclude-from="$EXCLUDE_FROM")
         fi
 
-        tar -czf "$ARCHIVE" -C "$LOCAL_PATH" "${EXCLUDE_ARGS[@]}" .
+        tar -czf "$ARCHIVE" -C "$LOCAL_PATH" --exclude='.env' --exclude='.env.*' "${EXCLUDE_ARGS[@]}" .
         aws s3 cp "$ARCHIVE" "s3://${BUCKET}/${ARTIFACT_KEY}" --region "$REGION"
 
         ENV_S3_KEY=""
