@@ -472,7 +472,8 @@ class FinanceController extends Controller
             ->get();
 
         $active = $invoices->whereNotIn('status', ['cancelled', 'disabled']);
-        $billed = round((float) $active->sum(fn (Invoice $invoice) => (float) ($invoice->full_amount ?: $invoice->amount)), 2);
+        // Bill what was charged on each invoice (installment amount), not the full-year fee.
+        $billed = round((float) $active->sum(fn (Invoice $invoice) => (float) $invoice->amount), 2);
         $outstanding = round((float) $active->whereIn('status', ['unpaid', 'partial'])->sum('balance'), 2);
         $rebateTotal = round((float) $active->sum('rebate_total'), 2);
         $paid = round(max(0, $billed - $outstanding - $rebateTotal), 2);
@@ -534,6 +535,7 @@ class FinanceController extends Controller
                     'category' => $invoice->category,
                     'amount' => (float) $invoice->amount,
                     'full_amount' => (float) ($invoice->full_amount ?: $invoice->amount),
+                    'installment_percent' => $invoice->installment_percent !== null ? (int) $invoice->installment_percent : null,
                     'balance' => (float) $invoice->balance,
                     'rebate_total' => (float) ($invoice->rebate_total ?: 0),
                     'status' => $invoice->status,
@@ -615,7 +617,8 @@ class FinanceController extends Controller
             ->groupBy('invoice_id');
 
         foreach ($invoices as $invoice) {
-            $billed = (float) ($invoice->full_amount ?: $invoice->amount);
+            // Settled = paid toward this invoice's billed amount (not full-year tuition).
+            $billed = (float) $invoice->amount;
             $settled = round($billed - (float) $invoice->balance - (float) ($invoice->rebate_total ?: 0), 2);
             if ($settled <= 0) {
                 continue;
@@ -789,7 +792,7 @@ class FinanceController extends Controller
     private function studentRosterQuery(Request $request, ?int $sessionId): Builder
     {
         $billed = Invoice::query()
-            ->selectRaw('COALESCE(SUM(COALESCE(full_amount, amount)), 0)')
+            ->selectRaw('COALESCE(SUM(amount), 0)')
             ->whereNotIn('status', ['cancelled', 'disabled'])
             ->where(function (Builder $query) {
                 $query->whereColumn('invoices.student_id', 'students.id')

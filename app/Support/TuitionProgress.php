@@ -38,13 +38,15 @@ class TuitionProgress
         }
 
         $full = (float) ($invoice->full_amount ?: $invoice->amount);
+        $billed = (float) $invoice->amount;
         if ($full <= 0) {
             return $invoice->status === 'paid' ? 100.0 : 0.0;
         }
 
-        $paid = $full - (float) $invoice->balance;
+        // Progress toward the full-year fee: only count what was paid on this invoice.
+        $paidOnInvoice = max(0, $billed - (float) $invoice->balance);
 
-        return round(max(0, min(100, ($paid / $full) * 100)), 2);
+        return round(max(0, min(100, ($paidOnInvoice / $full) * 100)), 2);
     }
 
     public static function tuitionConstraint(): \Closure
@@ -61,7 +63,7 @@ class TuitionProgress
                     })->orWhere(function ($partial) {
                         $partial->whereIn('status', ['paid', 'partial'])
                             ->whereRaw('COALESCE(full_amount, amount) > 0')
-                            ->whereRaw('((COALESCE(full_amount, amount) - balance) / COALESCE(full_amount, amount)) * 100 >= 25');
+                            ->whereRaw('((amount - balance) / COALESCE(full_amount, amount)) * 100 >= 25');
                     });
                 });
         };

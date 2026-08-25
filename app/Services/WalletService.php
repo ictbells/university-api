@@ -62,11 +62,12 @@ class WalletService
             throw new RuntimeException('Invoice does not belong to this student.');
         }
         $this->debit($student->wallet, (float) $invoice->balance, 'Payment for '.$invoice->number, 'finance', $invoice->id);
-        $paid = $this->invoices->applyPayment($invoice, (float) $invoice->balance);
+        $payAmount = (float) $invoice->balance;
+        $paid = $this->invoices->applyPayment($invoice, $payAmount);
         $paid->payments()->create([
             'user_id' => $student->user_id,
             'method' => 'wallet',
-            'amount' => $invoice->amount,
+            'amount' => $payAmount,
             'status' => 'successful',
             'reference' => 'WALLET-'.$invoice->number,
             'receipt_no' => 'RCP-'.Str::upper(Str::random(6)),
