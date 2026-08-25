@@ -236,7 +236,8 @@ def ensure_spa_session(path: Path) -> int:
         return 0
 
     seen: list[str] = []
-    for url in (front, student, app_url):
+    # Staff + API only — student portal authenticates with Bearer tokens (no CSRF cookies).
+    for url in (front, app_url):
         for host in hosts_from_url(url):
             if host not in seen:
                 seen.append(host)
@@ -246,8 +247,9 @@ def ensure_spa_session(path: Path) -> int:
         for h in (get_key(path, "SANCTUM_STATEFUL_DOMAINS") or "").split(",")
         if h.strip() and h.strip().split(":")[0].lower() not in _LOCAL_HOSTS
     ]
+    student_hosts = set(hosts_from_url(student))
     for host in existing:
-        if host not in seen:
+        if host not in seen and host not in student_hosts:
             seen.append(host)
 
     cookie = (get_key(path, "SESSION_COOKIE") or "").strip()

@@ -29,11 +29,10 @@ locals {
 
   db_password_effective = var.db_password != "" ? var.db_password : random_password.db_app.result
 
+  # Staff SPA uses cookie/CSRF. Student SPA uses Bearer tokens — omit student hosts.
   sanctum_domains = join(",", [
     local.staff_fqdn,
     local.staff_www_fqdn,
-    local.student_fqdn,
-    local.student_www_fqdn,
     local.api_fqdn,
   ])
 

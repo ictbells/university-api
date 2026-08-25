@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Application;
 use App\Models\FeeItem;
 use App\Models\Intake;
 use App\Models\Invoice;
@@ -194,6 +195,9 @@ class InvoiceService
         ?float $amountOverride = null,
     ): Invoice {
         $amount = $amountOverride ?? $this->resolveAcceptanceFeeAmount($intake);
+        if ($amount <= 0) {
+            throw new RuntimeException('Set an acceptance fee amount in the fee catalog or application session.');
+        }
         $fee = FeeItem::query()->where('category', 'acceptance_fee')->where('is_active', true)->first();
 
         $number = 'INV-'.now()->format('Ymd').'-'.str_pad((string) (Invoice::query()->count() + 1), 5, '0', STR_PAD_LEFT);
@@ -220,20 +224,67 @@ class InvoiceService
     public function resolveAcceptanceFeeAmount(?Intake $intake, ?float $override = null): float
     {
         if ($override !== null) {
-            return round($override, 2);
+            $amount = round($override, 2);
+            if ($amount <= 0) {
+                throw new RuntimeException('Acceptance fee must be greater than zero.');
+            }
+
+            return $amount;
         }
 
         $fromIntake = $intake?->acceptanceFeeAmount();
-        if ($fromIntake !== null) {
+        if ($fromIntake !== null && $fromIntake > 0) {
             return $fromIntake;
         }
 
         $fee = FeeItem::query()->where('category', 'acceptance_fee')->where('is_active', true)->first();
-        if ($fee) {
+        if ($fee && (float) $fee->amount > 0) {
             return (float) $fee->amount;
         }
 
-        throw new RuntimeException('Set an acceptance fee amount before issuing an admission offer.');
+        throw new RuntimeException('Set an acceptance fee amount in the fee catalog or application session before students can pay.');
+    }
+
+    public function ensureAcceptanceFeeInvoice(Application $application, ?float $amountOverride = null): Invoice
+    {
+        $application->loadMissing(['user', 'intake', 'acceptanceFeeInvoice']);
+        $existing = $application->acceptanceFeeInvoice;
+        if ($existing && in_array($existing->status, ['unpaid', 'partial', 'paid'], true)) {
+            if ($amountOverride !== null && $existing->status !== 'paid') {
+                return $this->updateAcceptanceFeeInvoice($existing, $amountOverride);
+            }
+
+            return $existing;
+        }
+
+        $user = $application->user;
+        if (! $user) {
+            throw new RuntimeException('This application has no applicant account.');
+        }
+
+        $amount = $this->resolveAcceptanceFeeAmount($application->intake, $amountOverride);
+        $intake = $application->intake;
+        if ($intake) {
+            $invoice = $this->createAcceptanceFeeInvoice($user, $intake, $application->id, $amount);
+        } else {
+            $fee = FeeItem::query()->where('category', 'acceptance_fee')->where('is_active', true)->first();
+            if (! $fee) {
+                throw new RuntimeException('Add an active Acceptance fee in the fee catalog.');
+            }
+            $invoice = $this->createForFee($user, $fee, $application->id, null, $amount);
+        }
+
+        $stage = $application->stage;
+        if (in_array($stage, ['offer_issued', 'admission'], true)) {
+            $stage = 'awaiting_acceptance_fee';
+        }
+
+        $application->update([
+            'acceptance_fee_invoice_id' => $invoice->id,
+            'stage' => $stage,
+        ]);
+
+        return $invoice->fresh();
     }
 
     public function updateAcceptanceFeeInvoice(Invoice $invoice, float $amount): Invoice

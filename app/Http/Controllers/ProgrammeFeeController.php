@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Department;
+use App\Models\Faculty;
 use App\Models\FeeItem;
 use App\Models\Program;
 use App\Models\ProgrammeFee;
@@ -56,6 +58,80 @@ class ProgrammeFeeController extends Controller
         return [
             'data' => $rows,
             'total_amount' => $total,
+        ];
+    }
+
+    public function summaries(Request $request)
+    {
+        abort_unless($request->user()->hasPermission('finance.invoices.manage'), 403);
+
+        $search = trim((string) $request->input('search', ''));
+        $facultyId = $request->filled('faculty_id') ? (int) $request->faculty_id : null;
+        $departmentId = $request->filled('department_id') ? (int) $request->department_id : null;
+        $studyLevel = (string) $request->input('study_level', '');
+        $scheduled = (string) $request->input('scheduled', 'all');
+
+        $query = Program::query()->with([
+            'department.faculty',
+            'programmeFees' => fn ($fees) => $fees->where('is_active', true)->with('feeItem'),
+        ]);
+
+        if ($search !== '') {
+            $query->where(function ($builder) use ($search) {
+                $builder->where('name', 'like', '%'.$search.'%')
+                    ->orWhere('code', 'like', '%'.$search.'%');
+            });
+        }
+        if ($facultyId) {
+            $query->whereHas('department', fn ($builder) => $builder->where('faculty_id', $facultyId));
+        }
+        if ($departmentId) {
+            $query->where('department_id', $departmentId);
+        }
+        if (in_array($studyLevel, ['undergraduate', 'postgraduate'], true)) {
+            $query->where('study_level', $studyLevel);
+        }
+
+        $rows = $query->orderBy('name')->get()->map(function (Program $program) {
+            $lines = $program->programmeFees->filter(fn (ProgrammeFee $fee) => $fee->feeItem?->is_active !== false);
+            $total = round((float) $lines->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
+
+            return [
+                'id' => $program->id,
+                'name' => $program->name,
+                'code' => $program->code,
+                'study_level' => $program->study_level,
+                'is_active' => $program->is_active,
+                'department' => $program->department?->only(['id', 'name']),
+                'faculty' => $program->department?->faculty?->only(['id', 'name']),
+                'line_count' => $lines->count(),
+                'total_amount' => $total,
+            ];
+        });
+
+        if ($scheduled === 'yes') {
+            $rows = $rows->filter(fn (array $row) => $row['line_count'] > 0);
+        } elseif ($scheduled === 'no') {
+            $rows = $rows->filter(fn (array $row) => $row['line_count'] === 0);
+        }
+
+        $rows = $rows->values();
+        $departments = Department::query()
+            ->when($facultyId, fn ($builder) => $builder->where('faculty_id', $facultyId))
+            ->orderBy('name')
+            ->get(['id', 'name', 'faculty_id']);
+
+        return [
+            'data' => $rows,
+            'meta' => [
+                'programmes' => $rows->count(),
+                'with_schedule' => $rows->where('line_count', '>', 0)->count(),
+                'without_schedule' => $rows->where('line_count', '=', 0)->count(),
+            ],
+            'filters' => [
+                'faculties' => Faculty::query()->orderBy('name')->get(['id', 'name']),
+                'departments' => $departments,
+            ],
         ];
     }
 

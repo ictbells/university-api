@@ -163,7 +163,10 @@ class User extends Authenticatable
             $fee = $application->applicationFeeInvoice;
             $unpaidAppFee = $fee && $fee->status !== 'paid';
             $acceptance = $application->acceptanceFeeInvoice;
-            $unpaidAcceptance = $acceptance && $acceptance->status !== 'paid';
+            $offerPending = in_array($application->stage, ['offer_issued', 'awaiting_acceptance_fee', 'admission'], true);
+            $unpaidAcceptance = ! $this->isStudent()
+                && ($acceptance?->status !== 'paid')
+                && ($offerPending || ($acceptance && $acceptance->status !== 'paid'));
             if ($unpaidAppFee && in_array($application->stage, ['started', 'awaiting_application_fee'], true)) {
                 $portal = false;
             }

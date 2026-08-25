@@ -136,6 +136,7 @@ class ApplicationController extends Controller
         $application->ensureFormSteps();
         $this->prembly->syncUserVerificationToApplication($request->user(), $application);
         $this->staffUpdates->refreshJambStatus($application);
+        $this->ensureAcceptanceInvoiceIfOffered($application);
 
         return $this->decorateFile($this->staffUpdates->freshFile($application));
     }
@@ -744,42 +745,13 @@ class ApplicationController extends Controller
         if (! $application->offer_reference) {
             $application->update(['offer_reference' => $this->documents->generateOfferReference()]);
         }
-        if (! $application->acceptance_fee_invoice_id) {
-            try {
-                $application->loadMissing('intake');
-                $intake = $application->intake;
-                $amount = $this->invoices->resolveAcceptanceFeeAmount($intake, $acceptanceFeeAmount);
-                if ($intake) {
-                    $invoice = $this->invoices->createAcceptanceFeeInvoice(
-                        $application->user,
-                        $intake,
-                        $application->id,
-                        $amount,
-                    );
-                } else {
-                    $fee = FeeItem::query()->where('category', 'acceptance_fee')->where('is_active', true)->first();
-                    $invoice = $fee
-                        ? $this->invoices->createForFee($application->user, $fee, $application->id, null, $amount)
-                        : null;
-                }
-                if ($invoice) {
-                    $application->update([
-                        'acceptance_fee_invoice_id' => $invoice->id,
-                        'stage' => 'awaiting_acceptance_fee',
-                    ]);
-                }
-            } catch (\Throwable $e) {
-                if ($acceptanceFeeAmount !== null) {
-                    throw $e;
-                }
-                // Offer letter still issues; acceptance invoice can be created once fee is set.
+        try {
+            $this->invoices->ensureAcceptanceFeeInvoice($application, $acceptanceFeeAmount);
+        } catch (\Throwable $e) {
+            if ($acceptanceFeeAmount !== null) {
+                throw $e;
             }
-        } elseif ($acceptanceFeeAmount !== null && $application->acceptanceFeeInvoice) {
-            $invoice = $this->invoices->updateAcceptanceFeeInvoice(
-                $application->acceptanceFeeInvoice,
-                $acceptanceFeeAmount,
-            );
-            $application->update(['acceptance_fee_invoice_id' => $invoice->id]);
+            report($e);
         }
         $application = $application->fresh([
             'user',
@@ -831,6 +803,22 @@ class ApplicationController extends Controller
         $this->referees->resend($application, $invite);
 
         return response()->json(['referees' => $this->referees->statusFor($application->fresh('refereeInvites'))]);
+    }
+
+    private function ensureAcceptanceInvoiceIfOffered(Application $application): void
+    {
+        if ($application->acceptance_fee_invoice_id) {
+            return;
+        }
+        if (! in_array($application->stage, ['offer_issued', 'awaiting_acceptance_fee', 'admission'], true)) {
+            return;
+        }
+
+        try {
+            $this->invoices->ensureAcceptanceFeeInvoice($application);
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /**
