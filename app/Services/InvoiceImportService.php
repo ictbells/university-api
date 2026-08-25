@@ -2,10 +2,12 @@
 
 namespace App\Services;
 
+use App\Models\Application;
 use App\Models\Invoice;
 use App\Models\LegacyInvoiceImport;
 use App\Models\Payment;
 use App\Models\Student;
+use App\Models\User;
 use App\Support\FeeSchedule;
 use App\Support\InvoiceImportColumns;
 use App\Support\SpreadsheetImport;
@@ -20,6 +22,7 @@ class InvoiceImportService
 {
     public function __construct(
         private InvoiceService $invoices,
+        private ApplicationAdmissionService $admissions,
         private AuditWriter $audit,
     ) {}
 
@@ -29,17 +32,18 @@ class InvoiceImportService
             'Invoices',
             InvoiceImportColumns::all(),
             [
-                'Import invoices — keyed by matric_number',
+                'Import invoices — keyed by matric_number, application_number, or jamb_registration',
                 '',
-                '1. Import this sheet before Import students if the student record does not exist yet. Rows stay pending until the student is created.',
+                '1. Import this sheet before Import students / Import applicants if the account does not exist yet. Rows stay pending until a matching record is created.',
                 '2. Keep the header row. One row is one invoice. Extra rows with the same invoice_number add extra payments.',
-                '3. category must match the fee catalogue (tuition, acceptance_fee, hostel, sundry, library, medical, …).',
-                '4. Tuition rows require installment_percent: 25, 50, 75, or 100.',
-                '5. paid_amount is recorded on the invoice. It does not credit the wallet. Use Import wallet history for wallet credits/debits.',
-                '6. If paid_amount is greater than 0, payment_date and payment_method are required. Method: legacy_import, bank_transfer, cash, pos, paystack.',
-                '7. Duplicate payment_reference values are skipped.',
+                '3. Identify the payer with at least one of: matric_number, application_number, jamb_registration. Application fee is often paid with APP or JAMB before a matric exists.',
+                '4. category must match the fee catalogue (application_fee, tuition, acceptance_fee, hostel, sundry, library, medical, …).',
+                '5. Tuition rows require installment_percent: 25, 50, 75, or 100.',
+                '6. paid_amount is recorded on the invoice. It does not credit the wallet. Use Import wallet history for wallet credits/debits.',
+                '7. If paid_amount is greater than 0, payment_date and payment_method are required. Method: legacy_import, bank_transfer, cash, pos, paystack.',
+                '8. Duplicate payment_reference values are skipped.',
                 '',
-                'Required columns: '.implode(', ', InvoiceImportColumns::required()),
+                'Required columns: '.implode(', ', InvoiceImportColumns::required()).'. Also require at least one identifier: matric_number, application_number, or jamb_registration.',
             ],
             InvoiceImportColumns::sample(),
             'invoice-import-template.xlsx',
@@ -86,7 +90,7 @@ class InvoiceImportService
                 $skipped++;
                 $errors[] = [
                     'row' => $line,
-                    'matric_number' => $data['matric_number'] ?? '',
+                    'matric_number' => $this->rowLookup($data),
                     'invoice_number' => $data['invoice_number'] ?? '',
                     'message' => $e->getMessage(),
                 ];
@@ -174,18 +178,80 @@ class InvoiceImportService
      */
     public function postPendingForMatric(Student $student): array
     {
-        $matric = $this->normalizeMatric((string) $student->matric_number);
+        return $this->postPendingForStudent($student);
+    }
+
+    /**
+     * @return array{posted: int, failed: int}
+     */
+    public function postPendingForStudent(Student $student): array
+    {
+        $student->loadMissing(['user', 'application']);
+        if (! $student->user) {
+            return ['posted' => 0, 'failed' => 0];
+        }
+
+        $this->attachOpenInvoicesToStudent($student);
+
+        return $this->postPendingForKeys(
+            $this->accountKeys(
+                $student->matric_number,
+                $student->application?->application_number,
+                $student->user?->jamb_registration ?? $student->application?->jamb_registration,
+            ),
+            $student->user,
+            $student->application,
+            $student,
+        );
+    }
+
+    /**
+     * @return array{posted: int, failed: int}
+     */
+    public function postPendingForApplication(Application $application): array
+    {
+        $application->loadMissing(['user', 'student']);
+        if (! $application->user) {
+            return ['posted' => 0, 'failed' => 0];
+        }
+
+        if ($application->student) {
+            $this->attachOpenInvoicesToStudent($application->student);
+        }
+
+        return $this->postPendingForKeys(
+            $this->accountKeys(
+                $application->student?->matric_number,
+                $application->application_number,
+                $application->user?->jamb_registration ?? $application->jamb_registration,
+            ),
+            $application->user,
+            $application,
+            $application->student,
+        );
+    }
+
+    /**
+     * @param  list<string>  $keys
+     * @return array{posted: int, failed: int}
+     */
+    private function postPendingForKeys(array $keys, User $user, ?Application $application, ?Student $student): array
+    {
+        if ($keys === []) {
+            return ['posted' => 0, 'failed' => 0];
+        }
+
         $rows = LegacyInvoiceImport::query()
-            ->where('matric_number', $matric)
             ->where('status', 'pending')
             ->orderBy('id')
-            ->get();
+            ->get()
+            ->filter(fn (LegacyInvoiceImport $row) => $this->stagingMatchesKeys($row, $keys));
 
         $posted = 0;
         $failed = 0;
         foreach ($rows as $row) {
             try {
-                DB::transaction(fn () => $this->postStaging($student, $row));
+                DB::transaction(fn () => $this->postStaging($row, $user, $application, $student));
                 $posted++;
             } catch (Throwable $e) {
                 $row->update([
@@ -206,20 +272,20 @@ class InvoiceImportService
     {
         return DB::transaction(function () use ($data, $line) {
             $payload = $this->validatedPayload($data);
-            $student = $this->findStudent($payload['matric_number']);
+            [$user, $application, $student] = $this->resolveAccount($payload);
             $staging = LegacyInvoiceImport::query()->create([
-                'matric_number' => $payload['matric_number'],
+                'matric_number' => $payload['lookup_key'],
                 'invoice_number' => $payload['invoice_number'] ?: null,
                 'payload' => $payload,
                 'status' => 'pending',
                 'source_row' => $line,
             ]);
 
-            if (! $student) {
+            if (! $user) {
                 return 'pending';
             }
 
-            $this->postStaging($student, $staging);
+            $this->postStaging($staging, $user, $application, $student);
 
             return 'posted';
         });
@@ -237,13 +303,15 @@ class InvoiceImportService
             }
         }
 
-        $matric = $this->normalizeMatric((string) $data['matric_number']);
-        if ($matric === '') {
-            throw new RuntimeException('matric_number is required.');
+        $matric = $this->normalizeKey((string) ($data['matric_number'] ?? ''));
+        $applicationNumber = $this->normalizeKey((string) ($data['application_number'] ?? ''));
+        $jamb = $this->normalizeKey((string) ($data['jamb_registration'] ?? ''));
+        if ($matric === '' && $applicationNumber === '' && $jamb === '') {
+            throw new RuntimeException('Provide matric_number, application_number, or jamb_registration.');
         }
 
         $category = strtolower(trim((string) $data['category']));
-        if (! in_array($category, FeeSchedule::staffEditableCategories(), true)) {
+        if (! in_array($category, FeeSchedule::categories(), true)) {
             throw new RuntimeException("Unknown fee category: {$category}.");
         }
 
@@ -302,8 +370,13 @@ class InvoiceImportService
             throw new RuntimeException('This payment_reference already exists.');
         }
 
+        $lookup = $matric !== '' ? $matric : ($applicationNumber !== '' ? $applicationNumber : $jamb);
+
         return [
+            'lookup_key' => $lookup,
             'matric_number' => $matric,
+            'application_number' => $applicationNumber,
+            'jamb_registration' => $jamb,
             'invoice_number' => strtoupper(trim((string) ($data['invoice_number'] ?? ''))),
             'category' => $category,
             'session_label' => trim((string) ($data['session_label'] ?? '')),
@@ -319,8 +392,12 @@ class InvoiceImportService
         ];
     }
 
-    private function postStaging(Student $student, LegacyInvoiceImport $staging): void
-    {
+    private function postStaging(
+        LegacyInvoiceImport $staging,
+        User $user,
+        ?Application $application,
+        ?Student $student,
+    ): void {
         $payload = is_array($staging->payload) ? $staging->payload : [];
         $number = trim((string) ($payload['invoice_number'] ?? ''));
         $paid = (float) ($payload['paid_amount'] ?? 0);
@@ -332,7 +409,7 @@ class InvoiceImportService
             if ($paid <= 0) {
                 throw new RuntimeException("Invoice {$number} already exists; add a paid_amount to record an extra payment.");
             }
-            $this->applyImportedPayment($student, $invoice, $payload);
+            $this->applyImportedPayment($user, $invoice, $payload, $application, $student);
             $staging->update([
                 'status' => 'posted',
                 'invoice_id' => $invoice->id,
@@ -343,19 +420,15 @@ class InvoiceImportService
             return;
         }
 
-        $student->loadMissing('user');
-        if (! $student->user) {
-            throw new RuntimeException('This student has no login account.');
-        }
-
+        $application = $application ?? $student?->application;
         $description = $this->description($payload);
         $invoice = $this->invoices->createForCharge(
-            $student->user,
+            $user,
             (string) $payload['category'],
             (float) $payload['amount'],
             $description,
-            $student->application_id,
-            $student->id,
+            $application?->id ?? $student?->application_id,
+            $student?->id,
         );
         $number = $number !== '' ? $number : $this->nextLegacyNumber((string) ($payload['session_label'] ?? ''));
         $invoice->update([
@@ -365,9 +438,10 @@ class InvoiceImportService
             'wallet_allowed' => FeeSchedule::walletAllowed((string) $payload['category']),
         ]);
         $invoice = $invoice->fresh();
+        $this->linkAdmissionInvoice($invoice, $application);
 
         if ($paid > 0) {
-            $this->applyImportedPayment($student, $invoice, $payload);
+            $this->applyImportedPayment($user, $invoice, $payload, $application, $student);
         }
 
         $staging->update([
@@ -381,8 +455,13 @@ class InvoiceImportService
     /**
      * @param  array<string, mixed>  $payload
      */
-    private function applyImportedPayment(Student $student, Invoice $invoice, array $payload): void
-    {
+    private function applyImportedPayment(
+        User $user,
+        Invoice $invoice,
+        array $payload,
+        ?Application $application,
+        ?Student $student,
+    ): void {
         $paid = (float) ($payload['paid_amount'] ?? 0);
         if ($paid <= 0) {
             return;
@@ -394,7 +473,7 @@ class InvoiceImportService
 
         $this->invoices->applyPayment($invoice, $paid);
         $payment = $invoice->payments()->create([
-            'user_id' => $student->user_id,
+            'user_id' => $user->id,
             'method' => $payload['payment_method'] ?: 'legacy_import',
             'amount' => $paid,
             'status' => 'successful',
@@ -406,6 +485,161 @@ class InvoiceImportService
             $payment->created_at = $payload['payment_date'].' 00:00:00';
             $payment->save();
         }
+
+        $invoice = $invoice->fresh();
+        $this->linkAdmissionInvoice($invoice, $application ?? $student?->application);
+        if ($invoice->status === 'paid' && $invoice->category === 'application_fee') {
+            $this->admissions->handleInvoicePaid($invoice);
+        }
+    }
+
+    private function linkAdmissionInvoice(Invoice $invoice, ?Application $application): void
+    {
+        if (! $application) {
+            return;
+        }
+
+        $updates = [];
+        if (! $invoice->application_id) {
+            $updates['application_id'] = $application->id;
+        }
+        if ($updates !== []) {
+            $invoice->update($updates);
+            $invoice->refresh();
+        }
+
+        if ($invoice->category === 'application_fee' && ! $application->application_fee_invoice_id) {
+            $application->update(['application_fee_invoice_id' => $invoice->id]);
+        }
+        if ($invoice->category === 'acceptance_fee' && ! $application->acceptance_fee_invoice_id) {
+            $application->update(['acceptance_fee_invoice_id' => $invoice->id]);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array{0: ?User, 1: ?Application, 2: ?Student}
+     */
+    private function resolveAccount(array $payload): array
+    {
+        $matric = (string) ($payload['matric_number'] ?? '');
+        $applicationNumber = (string) ($payload['application_number'] ?? '');
+        $jamb = (string) ($payload['jamb_registration'] ?? '');
+
+        $student = null;
+        $application = null;
+        $user = null;
+
+        if ($matric !== '') {
+            $student = Student::query()
+                ->whereRaw('UPPER(REPLACE(COALESCE(matric_number, ""), " ", "")) = ?', [$matric])
+                ->first();
+        }
+
+        if ($applicationNumber !== '') {
+            $application = Application::query()
+                ->whereRaw('UPPER(REPLACE(COALESCE(application_number, ""), " ", "")) = ?', [$applicationNumber])
+                ->first();
+            if ($application && ! $student) {
+                $student = $application->student
+                    ?? Student::query()->where('application_id', $application->id)->first();
+            }
+        }
+
+        if ($jamb !== '') {
+            $user = User::query()->where('jamb_registration', $jamb)->first();
+            if (! $application) {
+                $application = Application::query()
+                    ->whereRaw('UPPER(REPLACE(COALESCE(jamb_registration, ""), " ", "")) = ?', [$jamb])
+                    ->latest('id')
+                    ->first();
+                if (! $application && $user) {
+                    $application = $user->latestApplication;
+                }
+            }
+            if (! $student) {
+                $student = $user?->student ?? $application?->student;
+            }
+        }
+
+        if ($student) {
+            $student->loadMissing(['user', 'application']);
+
+            return [$student->user, $student->application ?? $application, $student];
+        }
+
+        if ($application) {
+            $application->loadMissing(['user', 'student']);
+
+            return [$application->user, $application, $application->student];
+        }
+
+        if ($user) {
+            $user->loadMissing(['student', 'latestApplication']);
+
+            return [$user, $user->latestApplication, $user->student];
+        }
+
+        return [null, null, null];
+    }
+
+    /**
+     * @param  list<string>  $keys
+     */
+    private function stagingMatchesKeys(LegacyInvoiceImport $row, array $keys): bool
+    {
+        if (in_array($row->matric_number, $keys, true)) {
+            return true;
+        }
+
+        $payload = is_array($row->payload) ? $row->payload : [];
+        foreach (['lookup_key', 'matric_number', 'application_number', 'jamb_registration'] as $field) {
+            $value = $this->normalizeKey((string) ($payload[$field] ?? ''));
+            if ($value !== '' && in_array($value, $keys, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function accountKeys(?string $matric, ?string $applicationNumber, ?string $jamb): array
+    {
+        return array_values(array_unique(array_filter([
+            $this->normalizeKey((string) $matric),
+            $this->normalizeKey((string) $applicationNumber),
+            $this->normalizeKey((string) $jamb),
+        ])));
+    }
+
+    private function attachOpenInvoicesToStudent(Student $student): void
+    {
+        if (! $student->user_id) {
+            return;
+        }
+
+        Invoice::query()
+            ->where('user_id', $student->user_id)
+            ->whereNull('student_id')
+            ->update(['student_id' => $student->id]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function rowLookup(array $data): string
+    {
+        foreach (['matric_number', 'application_number', 'jamb_registration'] as $field) {
+            $value = trim((string) ($data[$field] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return '';
     }
 
     /**
@@ -439,16 +673,9 @@ class InvoiceImportService
         return $prefix.str_pad((string) $sequence, 5, '0', STR_PAD_LEFT);
     }
 
-    private function findStudent(string $matric): ?Student
+    private function normalizeKey(string $value): string
     {
-        return Student::query()
-            ->whereRaw('UPPER(REPLACE(COALESCE(matric_number, ""), " ", "")) = ?', [$matric])
-            ->first();
-    }
-
-    private function normalizeMatric(string $matric): string
-    {
-        return strtoupper(str_replace(' ', '', trim($matric)));
+        return strtoupper(str_replace(' ', '', trim($value)));
     }
 
     private function cacheKey(string $importId): string

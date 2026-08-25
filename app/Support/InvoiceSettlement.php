@@ -1,0 +1,87 @@
+<?php
+
+namespace App\Support;
+
+use App\Models\Invoice;
+use App\Models\Payment;
+use Illuminate\Support\Collection;
+
+class InvoiceSettlement
+{
+    /**
+     * Derive billed / paid / balance from the invoice charge and successful payment rows.
+     * Ignores a stale stored balance when receipts do not match.
+     *
+     * @param  Collection<int, Payment>|iterable<Payment>  $payments
+     * @return array{billed: float, rebate: float, paid: float, balance: float, status: string}
+     */
+    public static function for(Invoice $invoice, iterable $payments = []): array
+    {
+        $billed = round((float) $invoice->amount, 2);
+        $rebate = round((float) ($invoice->rebate_total ?: 0), 2);
+
+        if (in_array((string) $invoice->status, ['cancelled', 'disabled'], true)) {
+            return [
+                'billed' => $billed,
+                'rebate' => $rebate,
+                'paid' => 0.0,
+                'balance' => 0.0,
+                'status' => (string) $invoice->status,
+            ];
+        }
+
+        $paid = 0.0;
+        foreach ($payments as $payment) {
+            if (! self::countsTowardInvoice($payment)) {
+                continue;
+            }
+            $paid += (float) $payment->amount;
+        }
+        $paid = round(min(max(0, $paid), max(0, $billed - $rebate)), 2);
+        $balance = round(max(0, $billed - $rebate - $paid), 2);
+        $status = $balance <= 0.009 ? 'paid' : ($paid > 0.009 ? 'partial' : 'unpaid');
+
+        return [
+            'billed' => $billed,
+            'rebate' => $rebate,
+            'paid' => $paid,
+            'balance' => $balance,
+            'status' => $status,
+        ];
+    }
+
+    public static function countsTowardInvoice(Payment $payment): bool
+    {
+        if (in_array((string) $payment->purpose, ['wallet_topup', 'wallet_funding'], true)) {
+            return false;
+        }
+        $status = $payment->status === 'paid' ? 'successful' : (string) $payment->status;
+
+        return in_array($status, ['successful', 'paid'], true);
+    }
+
+    /**
+     * Persist balance/status when receipts disagree with the stored row.
+     *
+     * @param  Collection<int, Payment>|iterable<Payment>  $payments
+     * @return array{billed: float, rebate: float, paid: float, balance: float, status: string}
+     */
+    public static function sync(Invoice $invoice, iterable $payments = []): array
+    {
+        $settlement = self::for($invoice, $payments);
+        if (in_array($settlement['status'], ['cancelled', 'disabled'], true)) {
+            return $settlement;
+        }
+
+        $balanceDrift = abs((float) $invoice->balance - $settlement['balance']) > 0.009;
+        $statusDrift = (string) $invoice->status !== $settlement['status'];
+        if ($balanceDrift || $statusDrift) {
+            $invoice->forceFill([
+                'balance' => $settlement['balance'],
+                'status' => $settlement['status'],
+            ])->save();
+        }
+
+        return $settlement;
+    }
+}

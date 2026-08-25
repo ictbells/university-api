@@ -13,6 +13,8 @@ class InvoiceImportColumns
     {
         return [
             'matric_number',
+            'application_number',
+            'jamb_registration',
             'invoice_number',
             'category',
             'session_label',
@@ -33,7 +35,7 @@ class InvoiceImportColumns
      */
     public static function required(): array
     {
-        return ['matric_number', 'category', 'amount'];
+        return ['category', 'amount'];
     }
 
     /**
@@ -43,6 +45,8 @@ class InvoiceImportColumns
     {
         return [
             'matric_number' => 'BUT/2019/M/0001',
+            'application_number' => '',
+            'jamb_registration' => '',
             'invoice_number' => '',
             'category' => 'tuition',
             'session_label' => '2023/2024',

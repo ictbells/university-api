@@ -21,6 +21,7 @@ use App\Services\InvoiceService;
 use App\Services\StudentFinanceExportService;
 use App\Support\FeeSchedule;
 use App\Support\InstitutionLogo;
+use App\Support\InvoiceSettlement;
 use App\Support\ProgrammeFeeResolver;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -472,11 +473,16 @@ class FinanceController extends Controller
             ->get();
 
         $active = $invoices->whereNotIn('status', ['cancelled', 'disabled']);
-        // Bill what was charged on each invoice (installment amount), not the full-year fee.
-        $billed = round((float) $active->sum(fn (Invoice $invoice) => (float) $invoice->amount), 2);
-        $outstanding = round((float) $active->whereIn('status', ['unpaid', 'partial'])->sum('balance'), 2);
-        $rebateTotal = round((float) $active->sum('rebate_total'), 2);
-        $paid = round(max(0, $billed - $outstanding - $rebateTotal), 2);
+
+        $settlements = [];
+        foreach ($invoices as $invoice) {
+            $settlements[$invoice->id] = InvoiceSettlement::sync($invoice, $invoice->payments);
+        }
+
+        $billed = round((float) $active->sum(fn (Invoice $invoice) => $settlements[$invoice->id]['billed']), 2);
+        $rebateTotal = round((float) $active->sum(fn (Invoice $invoice) => $settlements[$invoice->id]['rebate']), 2);
+        $paid = round((float) $active->sum(fn (Invoice $invoice) => $settlements[$invoice->id]['paid']), 2);
+        $outstanding = round((float) $active->sum(fn (Invoice $invoice) => $settlements[$invoice->id]['balance']), 2);
         $walletBalance = round((float) ($student->wallet?->balance ?? 0), 2);
 
         $invoiceIds = $invoices->pluck('id')->filter()->values();
@@ -526,19 +532,22 @@ class FinanceController extends Controller
                 'paid' => $paid,
                 'outstanding' => $outstanding,
                 'invoice_count' => $invoices->count(),
-                'open_count' => $active->whereIn('status', ['unpaid', 'partial'])->count(),
+                'open_count' => $active->filter(fn (Invoice $invoice) => in_array($settlements[$invoice->id]['status'], ['unpaid', 'partial'], true))->count(),
             ],
-            'invoices' => $invoices->map(function (Invoice $invoice) {
+            'invoices' => $invoices->map(function (Invoice $invoice) use ($settlements) {
+                $settlement = $settlements[$invoice->id];
+
                 return [
                     'id' => $invoice->id,
                     'number' => $invoice->number,
                     'category' => $invoice->category,
-                    'amount' => (float) $invoice->amount,
+                    'amount' => $settlement['billed'],
                     'full_amount' => (float) ($invoice->full_amount ?: $invoice->amount),
                     'installment_percent' => $invoice->installment_percent !== null ? (int) $invoice->installment_percent : null,
-                    'balance' => (float) $invoice->balance,
-                    'rebate_total' => (float) ($invoice->rebate_total ?: 0),
-                    'status' => $invoice->status,
+                    'amount_paid' => $settlement['paid'],
+                    'balance' => $settlement['balance'],
+                    'rebate_total' => $settlement['rebate'],
+                    'status' => $settlement['status'],
                     'created_at' => $invoice->created_at,
                     'items' => $invoice->items->map(fn ($item) => [
                         'id' => $item->id,
@@ -567,7 +576,7 @@ class FinanceController extends Controller
                     ])->values(),
                 ];
             })->values(),
-            'payments' => $this->mapStudentPayments($payments, $invoices),
+            'payments' => $this->mapStudentPayments($payments, $invoices, $settlements),
             'wallet_transactions' => $walletTransactions->map(fn ($row) => [
                 'id' => $row->id,
                 'type' => $row->type,
@@ -592,39 +601,27 @@ class FinanceController extends Controller
     }
 
     /**
-     * Invoice settlements only. Wallet top-ups and unapplied Paystack retries are omitted
-     * so the list totals the same amount as summary paid.
+     * Invoice settlements only. Wallet top-ups are omitted so the list totals match summary paid.
      *
      * @param  Collection<int, Payment>  $payments
      * @param  Collection<int, Invoice>  $invoices
+     * @param  array<int, array{billed: float, rebate: float, paid: float, balance: float, status: string}>  $settlements
      * @return Collection<int, array<string, mixed>>
      */
-    private function mapStudentPayments($payments, $invoices)
+    private function mapStudentPayments($payments, $invoices, array $settlements = [])
     {
         $rows = collect();
         $byInvoice = $payments
-            ->filter(function (Payment $payment) {
-                if (! $payment->invoice_id) {
-                    return false;
-                }
-                if (in_array((string) $payment->purpose, ['wallet_topup', 'wallet_funding'], true)) {
-                    return false;
-                }
-                $status = $payment->status === 'paid' ? 'successful' : (string) $payment->status;
-
-                return in_array($status, ['successful', 'paid'], true);
-            })
+            ->filter(fn (Payment $payment) => $payment->invoice_id && InvoiceSettlement::countsTowardInvoice($payment))
             ->groupBy('invoice_id');
 
         foreach ($invoices as $invoice) {
-            // Settled = paid toward this invoice's billed amount (not full-year tuition).
-            $billed = (float) $invoice->amount;
-            $settled = round($billed - (float) $invoice->balance - (float) ($invoice->rebate_total ?: 0), 2);
-            if ($settled <= 0) {
+            $settlement = $settlements[$invoice->id] ?? InvoiceSettlement::for($invoice, $byInvoice[$invoice->id] ?? collect());
+            if ($settlement['paid'] <= 0) {
                 continue;
             }
 
-            $remaining = $settled;
+            $remaining = $settlement['paid'];
             $matches = ($byInvoice[$invoice->id] ?? collect())
                 ->sortBy(fn (Payment $payment) => $payment->created_at?->timestamp ?? 0)
                 ->values();
@@ -649,20 +646,6 @@ class FinanceController extends Controller
                     'created_at' => $payment->created_at,
                 ]);
                 $remaining = round($remaining - $applied, 2);
-            }
-
-            if ($remaining > 0.009) {
-                $rows->push([
-                    'id' => 'invoice-'.$invoice->id,
-                    'invoice_id' => $invoice->id,
-                    'amount' => $remaining,
-                    'method' => 'recorded',
-                    'purpose' => $invoice->category,
-                    'reference' => $invoice->number,
-                    'receipt_no' => null,
-                    'status' => 'successful',
-                    'created_at' => $invoice->updated_at ?: $invoice->created_at,
-                ]);
             }
         }
 
@@ -799,8 +782,16 @@ class FinanceController extends Controller
                     ->orWhereColumn('invoices.user_id', 'students.user_id');
             });
         $outstanding = Invoice::query()
-            ->selectRaw('COALESCE(SUM(balance), 0)')
-            ->whereIn('status', ['unpaid', 'partial'])
+            ->selectRaw(
+                'COALESCE(SUM(GREATEST(0, amount - COALESCE(rebate_total, 0) - COALESCE(('
+                .'SELECT SUM(p.amount) FROM payments p '
+                .'WHERE p.invoice_id = invoices.id '
+                .'AND p.deleted_at IS NULL '
+                .'AND p.status IN (\'successful\', \'paid\') '
+                .'AND (p.purpose IS NULL OR p.purpose NOT IN (\'wallet_topup\', \'wallet_funding\'))'
+                .'), 0))), 0)'
+            )
+            ->whereNotIn('status', ['cancelled', 'disabled'])
             ->where(function (Builder $query) {
                 $query->whereColumn('invoices.student_id', 'students.id')
                     ->orWhereColumn('invoices.user_id', 'students.user_id');
