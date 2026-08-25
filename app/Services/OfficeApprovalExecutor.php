@@ -42,7 +42,7 @@ class OfficeApprovalExecutor
     public function run(string $actionKey, array $payload): mixed
     {
         return match ($actionKey) {
-            'test.echo' => $payload,
+            'test.echo', 'test.echo_create', 'test.echo_delete' => $payload,
             'hostel.allocate' => $this->hostelAllocate($payload),
             'hostel.auto_allocate' => $this->hostelAutoAllocate($payload),
             'hostel.approve' => $this->hostelApprove($payload),

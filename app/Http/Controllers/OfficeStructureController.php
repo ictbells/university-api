@@ -3,11 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\OfficeDepartment;
+use App\Models\OfficeNavLink;
 use App\Models\OfficeSubunit;
 use App\Models\OfficeUnit;
 use App\Models\Staff;
 use App\Services\AuditWriter;
 use App\Services\OfficeNavOwnerResolver;
+use App\Support\OfficeApprovalCatalog;
 use App\Support\StaffNavCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -31,7 +33,15 @@ class OfficeStructureController extends Controller
 
     public function navCatalog()
     {
-        return StaffNavCatalog::all();
+        $actionKeys = array_flip(OfficeApprovalCatalog::navKeysWithActions());
+
+        return collect(StaffNavCatalog::all())
+            ->map(fn (array $item) => [
+                ...$item,
+                'has_approval_actions' => isset($actionKeys[$item['key']]),
+            ])
+            ->values()
+            ->all();
     }
 
     public function syncDepartmentNavLinks(Request $request, OfficeDepartment $officeDepartment)
@@ -54,21 +64,51 @@ class OfficeStructureController extends Controller
         $data = $request->validate([
             'nav_keys' => 'array',
             'nav_keys.*' => 'string',
+            'nav_links' => 'array',
+            'nav_links.*.key' => 'required_with:nav_links|string',
+            'nav_links.*.require_create' => 'boolean',
+            'nav_links.*.require_update' => 'boolean',
+            'nav_links.*.require_delete' => 'boolean',
+            'nav_links.*.approval_chain' => ['nullable', 'string', Rule::in(OfficeNavLink::CHAINS)],
         ]);
 
-        $keys = collect($data['nav_keys'] ?? [])
-            ->filter(fn ($key) => StaffNavCatalog::isValidKey($key))
-            ->unique()
+        if (! empty($data['nav_links'])) {
+            $links = collect($data['nav_links'])
+                ->filter(fn ($row) => StaffNavCatalog::isValidKey($row['key'] ?? ''))
+                ->map(fn ($row) => [
+                    'key' => $row['key'],
+                    'require_create' => array_key_exists('require_create', $row) ? (bool) $row['require_create'] : true,
+                    'require_update' => array_key_exists('require_update', $row) ? (bool) $row['require_update'] : true,
+                    'require_delete' => array_key_exists('require_delete', $row) ? (bool) $row['require_delete'] : true,
+                    'approval_chain' => $row['approval_chain'] ?? OfficeNavLink::CHAIN_BOTH,
+                ])
+                ->unique('key')
+                ->values()
+                ->all();
+        } else {
+            $links = collect($data['nav_keys'] ?? [])
+                ->filter(fn ($key) => StaffNavCatalog::isValidKey($key))
+                ->unique()
+                ->values()
+                ->all();
+        }
+
+        $keys = collect($links)
+            ->map(fn ($row) => is_string($row) ? $row : $row['key'])
             ->values()
             ->all();
 
         $this->navOwners->assertKeysUniqueToDepartment($model, $keys);
 
-        $before = $model->navKeys();
-        $model->syncNavKeys($keys);
-        $this->audit->record($action, 'Office navigation links updated', 'institution', $entityType, $entityId, $before, $keys);
+        $before = $model->navLinkConfigs();
+        $model->syncNavLinks($links);
+        $after = $model->navLinkConfigs();
+        $this->audit->record($action, 'Office navigation links updated', 'institution', $entityType, $entityId, $before, $after);
 
-        return ['nav_keys' => $keys];
+        return [
+            'nav_keys' => $keys,
+            'nav_links' => $after,
+        ];
     }
 
     private function formatDepartment(OfficeDepartment $dept): array
@@ -76,16 +116,19 @@ class OfficeStructureController extends Controller
         return [
             ...$dept->toArray(),
             'nav_keys' => $dept->navKeys(),
+            'nav_links' => $dept->navLinkConfigs(),
             'head_staff' => $this->formatHeadStaff($dept->headStaff),
             'needs_hod' => $dept->navKeys() !== [] && ! $dept->head_staff_id,
             'units' => $dept->units->map(fn (OfficeUnit $unit) => [
                 ...$unit->toArray(),
                 'nav_keys' => $unit->navKeys(),
+                'nav_links' => $unit->navLinkConfigs(),
                 'head_staff' => $this->formatHeadStaff($unit->headStaff),
                 'needs_unit_head' => $unit->subunits->isNotEmpty() && ! $unit->head_staff_id,
                 'subunits' => $unit->subunits->map(fn (OfficeSubunit $sub) => [
                     ...$sub->toArray(),
                     'nav_keys' => $sub->navKeys(),
+                    'nav_links' => $sub->navLinkConfigs(),
                 ])->values(),
             ])->values(),
         ];

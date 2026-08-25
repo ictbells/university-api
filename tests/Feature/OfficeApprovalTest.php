@@ -177,10 +177,87 @@ class OfficeApprovalTest extends TestCase
             ->assertJsonPath('data.0.status', OfficeApprovalRequest::PENDING_UNIT_HEAD)
             ->assertJsonPath('data.0.can_review', true);
 
+        // HOD seniority: also sees pending unit-head items
         Sanctum::actingAs($this->hod);
         $this->getJson('/api/office-approvals?scope=review')
             ->assertOk()
-            ->assertJsonPath('data', []);
+            ->assertJsonPath('data.0.status', OfficeApprovalRequest::PENDING_UNIT_HEAD)
+            ->assertJsonPath('data.0.can_review', true);
+    }
+
+    public function test_hod_can_approve_before_unit_head_by_seniority(): void
+    {
+        Sanctum::actingAs($this->subunitStaff);
+        $this->approvals()->submitOrExecute('test.echo', null, ['ping' => 1], 'Test echo');
+        $request = OfficeApprovalRequest::query()->firstOrFail();
+        $this->assertSame(OfficeApprovalRequest::PENDING_UNIT_HEAD, $request->status);
+
+        Sanctum::actingAs($this->hod);
+        $this->postJson("/api/office-approvals/{$request->id}/approve", ['comment' => 'HOD override'])
+            ->assertOk();
+
+        $request->refresh();
+        $this->assertSame(OfficeApprovalRequest::APPROVED, $request->status);
+        $this->assertNotNull($request->executed_at);
+        $this->assertNotNull($request->hod_reviewed_at);
+    }
+
+    public function test_require_delete_false_executes_delete_immediately(): void
+    {
+        $this->department->syncNavLinks([[
+            'key' => 'hostel',
+            'require_create' => true,
+            'require_update' => true,
+            'require_delete' => false,
+            'approval_chain' => 'both',
+        ]]);
+
+        Sanctum::actingAs($this->subunitStaff);
+        $result = $this->approvals()->submitOrExecute('test.echo_delete', null, ['ping' => 9], 'Delete echo');
+        $this->assertIsArray($result);
+        $this->assertSame(9, $result['ping']);
+        $this->assertSame(0, OfficeApprovalRequest::query()->count());
+    }
+
+    public function test_approval_chain_unit_head_only_executes_after_unit_approve(): void
+    {
+        $this->department->syncNavLinks([[
+            'key' => 'hostel',
+            'require_create' => true,
+            'require_update' => true,
+            'require_delete' => true,
+            'approval_chain' => 'unit_head',
+        ]]);
+
+        Sanctum::actingAs($this->subunitStaff);
+        $pending = $this->approvals()->submitOrExecute('test.echo', null, ['ping' => 1], 'Test echo');
+        $this->assertSame(202, $pending->getStatusCode());
+
+        $request = OfficeApprovalRequest::query()->firstOrFail();
+        Sanctum::actingAs($this->unitHead);
+        $this->postJson("/api/office-approvals/{$request->id}/approve")
+            ->assertOk();
+
+        $request->refresh();
+        $this->assertSame(OfficeApprovalRequest::APPROVED, $request->status);
+        $this->assertNotNull($request->executed_at);
+        $this->assertNull($request->hod_reviewed_at);
+    }
+
+    public function test_approval_chain_department_head_only_skips_unit_head(): void
+    {
+        $this->department->syncNavLinks([[
+            'key' => 'hostel',
+            'require_create' => true,
+            'require_update' => true,
+            'require_delete' => true,
+            'approval_chain' => 'department_head',
+        ]]);
+
+        Sanctum::actingAs($this->subunitStaff);
+        $pending = $this->approvals()->submitOrExecute('test.echo', null, ['ping' => 1], 'Test echo');
+        $payload = $pending->getData(true);
+        $this->assertSame(OfficeApprovalRequest::PENDING_HOD, $payload['approval_request']['status']);
     }
 
     private function approvals(): OfficeApprovalService

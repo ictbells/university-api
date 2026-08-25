@@ -276,13 +276,21 @@ Each office **department** can have a **head of department (HOD)**. Each **unit*
 
 A sidebar module is **owned** by the office department that has that portal link. The same link cannot be given to two different departments.
 
-When a linked module is owned, ordinary staff mutations do not take effect immediately:
+When assigning a portal link on **Department Setup → Links**, modules with gated actions open a prompt for:
 
-1. **Subunit staff** always go to the parent **unit head** first, then the HOD. If the unit has subunits and no unit head, the action is blocked until a unit head is assigned.
-2. **Unit staff** (not the unit head) go to the unit head, then the HOD. If that unit has no head, the request skips to the HOD.
-3. **Department-level staff** and the **unit head** skip to the HOD.
-4. The **acting HOD** of the owning department, and **Super Admin**, execute immediately.
-5. If the department has **no HOD**, any required unit-head step still runs; after that the action executes so rollout is not frozen.
+1. **Create / Update / Delete** — which mutation types require office approval (Update also covers workflow actions such as allocate, publish, board clear).
+2. **Who must approve** — unit head only, department head only, or **both** (normal path: unit head → department head).
+
+Defaults when checking a link: all three methods on, chain = both.
+
+When a mutation requires approval for an owned module:
+
+1. **Subunit staff** usually go to the parent **unit head** first (unless the chain is department-head only). If the unit has subunits and no unit head, the action is blocked until a unit head is assigned.
+2. **Unit staff** (not the unit head) go to the unit head when the chain includes unit head.
+3. After unit-head approval, requests escalate to the HOD when the chain is **both**. With **unit head only**, the action executes after unit-head approval.
+4. The **acting HOD** of the owning department, and **Super Admin**, execute immediately on submit.
+5. **HOD seniority:** the department head may approve or reject a request that is still waiting on the unit head; that decision is final (unit-head step skipped).
+6. If the department has **no HOD** and the chain still needs one, any completed unit-head step executes so rollout is not frozen.
 
 Pending work returns HTTP **202** with status `pending_approval`. The staff portal shows a notice. Reviewers use **Overview → Approvals** (`/approvals`): **Needs my review**, **Submitted by me**, and **Decided**. Approve or reject with an optional comment. Designation is the review gate; Super Admin can decide any open request.
 

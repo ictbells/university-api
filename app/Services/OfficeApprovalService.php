@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\OfficeApprovalRequest;
 use App\Models\OfficeDepartment;
+use App\Models\OfficeNavLink;
 use App\Models\OfficeSubunit;
 use App\Models\OfficeUnit;
 use App\Models\User;
@@ -45,9 +46,13 @@ class OfficeApprovalService
             return $run();
         }
 
+        if (! $this->mutationRequiresApproval($owner, OfficeApprovalCatalog::mutationFor($actionKey))) {
+            return $run();
+        }
+
         $department = $owner['department'];
         $placement = $this->actorPlacement($user);
-        $chain = $this->chainFor($user, $department, $placement);
+        $chain = $this->chainFor($user, $department, $placement, $owner['approval_chain']);
 
         if ($chain['execute']) {
             return $run();
@@ -81,7 +86,10 @@ class OfficeApprovalService
             'nav_key' => $navKey,
             'subject_type' => $subject?->getMorphClass(),
             'subject_id' => $subject?->getKey(),
-            'payload' => array_merge($payload, ['_actor_user_id' => $user->id]),
+            'payload' => array_merge($payload, [
+                '_actor_user_id' => $user->id,
+                '_approval_chain' => $owner['approval_chain'],
+            ]),
             'summary' => $summary,
             'status' => $chain['status'],
         ]);
@@ -97,21 +105,53 @@ class OfficeApprovalService
         abort_unless($request->isOpen(), 422, 'This approval request is no longer open.');
         abort_unless(in_array($decision, ['approve', 'reject'], true), 422);
 
+        $chain = $this->requestApprovalChain($request);
+
         if ($request->status === OfficeApprovalRequest::PENDING_UNIT_HEAD) {
-            abort_unless($this->isUnitHeadFor($actor, $request) || $this->isSuperAdmin($actor), 403, 'Only the unit head can review this request.');
+            $isUnitHead = $this->isUnitHeadFor($actor, $request);
+            $isHod = $this->isHodFor($actor, $request);
+            $isSuper = $this->isSuperAdmin($actor);
+            abort_unless($isUnitHead || $isHod || $isSuper, 403, 'Only the unit head or head of department can review this request.');
+
+            // HOD seniority: approve/reject while still pending unit head → final.
+            if (($isHod || $isSuper) && ! $isUnitHead) {
+                $request->update([
+                    'hod_reviewed_by' => $actor->id,
+                    'hod_reviewed_at' => now(),
+                    'hod_comment' => $comment ?: 'Approved by department head (seniority override).',
+                    'unit_comment' => $request->unit_comment ?: 'Skipped — department head acted first.',
+                    'status' => $decision === 'reject' ? OfficeApprovalRequest::REJECTED : OfficeApprovalRequest::APPROVED,
+                ]);
+                $request = $request->fresh(['requester', 'department', 'unit']);
+                if ($decision === 'reject') {
+                    $this->notifyRequester($request, false, $comment);
+
+                    return $this->serialize($request);
+                }
+
+                return $this->execute($request);
+            }
+
             $request->update([
                 'unit_reviewed_by' => $actor->id,
                 'unit_reviewed_at' => now(),
                 'unit_comment' => $comment,
                 'status' => $decision === 'reject'
                     ? OfficeApprovalRequest::REJECTED
-                    : OfficeApprovalRequest::PENDING_HOD,
+                    : (
+                        $chain === OfficeNavLink::CHAIN_UNIT_HEAD
+                            ? OfficeApprovalRequest::APPROVED
+                            : OfficeApprovalRequest::PENDING_HOD
+                    ),
             ]);
             $request = $request->fresh(['requester', 'department.headStaff.user', 'unit']);
             if ($decision === 'reject') {
                 $this->notifyRequester($request, false, $comment);
 
                 return $this->serialize($request);
+            }
+            if ($chain === OfficeNavLink::CHAIN_UNIT_HEAD) {
+                return $this->execute($request);
             }
             if (! $request->department?->head_staff_id) {
                 return $this->execute($request);
@@ -207,6 +247,7 @@ class OfficeApprovalService
             'summary' => $request->summary,
             'status' => $request->status,
             'payload' => $request->payload,
+            'approval_chain' => $this->requestApprovalChain($request),
             'office_department' => $request->department ? [
                 'id' => $request->department->id,
                 'name' => $request->department->name,
@@ -242,7 +283,7 @@ class OfficeApprovalService
             return true;
         }
         if ($request->status === OfficeApprovalRequest::PENDING_UNIT_HEAD) {
-            return $this->isUnitHeadFor($user, $request);
+            return $this->isUnitHeadFor($user, $request) || $this->isHodFor($user, $request);
         }
 
         return $this->isHodFor($user, $request);
@@ -314,10 +355,22 @@ class OfficeApprovalService
     }
 
     /**
+     * @param  array{require_create: bool, require_update: bool, require_delete: bool}  $owner
+     */
+    private function mutationRequiresApproval(array $owner, string $mutation): bool
+    {
+        return match ($mutation) {
+            OfficeApprovalCatalog::MUTATION_CREATE => (bool) $owner['require_create'],
+            OfficeApprovalCatalog::MUTATION_DELETE => (bool) $owner['require_delete'],
+            default => (bool) $owner['require_update'],
+        };
+    }
+
+    /**
      * @param  array{department: ?OfficeDepartment, unit: ?OfficeUnit, subunit: ?OfficeSubunit}  $placement
      * @return array{execute: bool, block: ?string, status: ?string, unit_id: ?int}
      */
-    private function chainFor(User $user, OfficeDepartment $department, array $placement): array
+    private function chainFor(User $user, OfficeDepartment $department, array $placement, string $approvalChain): array
     {
         if ($this->isSuperAdmin($user) || $this->isDepartmentHead($user, $department)) {
             return ['execute' => true, 'block' => null, 'status' => null, 'unit_id' => null];
@@ -326,7 +379,23 @@ class OfficeApprovalService
         $unit = $placement['unit'];
         $isSubunitStaff = $placement['subunit'] !== null;
         $isUnitHead = $unit && $user->staff && (int) $unit->head_staff_id === (int) $user->staff->id;
+        $unitId = $unit?->id;
 
+        if ($approvalChain === OfficeNavLink::CHAIN_DEPARTMENT_HEAD) {
+            if (! $department->head_staff_id) {
+                return ['execute' => true, 'block' => null, 'status' => null, 'unit_id' => $unitId];
+            }
+
+            return [
+                'execute' => false,
+                'block' => null,
+                'status' => OfficeApprovalRequest::PENDING_HOD,
+                'unit_id' => $unitId,
+            ];
+        }
+
+        // unit_head or both — may need unit head first
+        $needsUnitStep = false;
         if ($isSubunitStaff) {
             if (! $unit?->head_staff_id) {
                 return [
@@ -337,14 +406,13 @@ class OfficeApprovalService
                 ];
             }
             if (! $isUnitHead) {
-                return [
-                    'execute' => false,
-                    'block' => null,
-                    'status' => OfficeApprovalRequest::PENDING_UNIT_HEAD,
-                    'unit_id' => $unit->id,
-                ];
+                $needsUnitStep = true;
             }
         } elseif ($unit && $unit->head_staff_id && ! $isUnitHead) {
+            $needsUnitStep = true;
+        }
+
+        if ($needsUnitStep) {
             return [
                 'execute' => false,
                 'block' => null,
@@ -353,16 +421,34 @@ class OfficeApprovalService
             ];
         }
 
+        // Actor is unit head or department staff without a unit-head step
+        if ($approvalChain === OfficeNavLink::CHAIN_UNIT_HEAD) {
+            // No further reviewer required for this actor
+            return ['execute' => true, 'block' => null, 'status' => null, 'unit_id' => $unitId];
+        }
+
+        // both — escalate to HOD when present
         if ($department->head_staff_id) {
             return [
                 'execute' => false,
                 'block' => null,
                 'status' => OfficeApprovalRequest::PENDING_HOD,
-                'unit_id' => $unit?->id,
+                'unit_id' => $unitId,
             ];
         }
 
-        return ['execute' => true, 'block' => null, 'status' => null, 'unit_id' => $unit?->id];
+        return ['execute' => true, 'block' => null, 'status' => null, 'unit_id' => $unitId];
+    }
+
+    private function requestApprovalChain(OfficeApprovalRequest $request): string
+    {
+        $fromPayload = $request->payload['_approval_chain'] ?? null;
+        if (is_string($fromPayload) && in_array($fromPayload, OfficeNavLink::CHAINS, true)) {
+            return $fromPayload;
+        }
+        $owner = $this->owners->ownerForNavKey((string) $request->nav_key);
+
+        return $owner['approval_chain'] ?? OfficeNavLink::CHAIN_BOTH;
     }
 
     /**
@@ -427,8 +513,12 @@ class OfficeApprovalService
             $inner->where(function ($unitQ) use ($staffId) {
                 $unitQ->where('status', OfficeApprovalRequest::PENDING_UNIT_HEAD)
                     ->whereHas('unit', fn ($u) => $u->where('head_staff_id', $staffId));
-            })->orWhere(function ($hodQ) use ($staffId) {
-                $hodQ->where('status', OfficeApprovalRequest::PENDING_HOD)
+            })->orWhere(function ($hodPending) use ($staffId) {
+                $hodPending->where('status', OfficeApprovalRequest::PENDING_HOD)
+                    ->whereHas('department', fn ($d) => $d->where('head_staff_id', $staffId));
+            })->orWhere(function ($hodSeniority) use ($staffId) {
+                // HOD seniority: also see pending unit-head items for their department
+                $hodSeniority->where('status', OfficeApprovalRequest::PENDING_UNIT_HEAD)
                     ->whereHas('department', fn ($d) => $d->where('head_staff_id', $staffId));
             });
         });
@@ -441,6 +531,8 @@ class OfficeApprovalService
             if ($user) {
                 $this->notifier->send($user, 'office_approval', 'Unit approval needed', $request->summary, 'approvals', $request->id);
             }
+            // HOD also notified so they can exercise seniority
+            $this->notifyHod($request);
 
             return;
         }
