@@ -162,13 +162,13 @@ class InvoiceImportService
     {
         return LegacyInvoiceImport::query()
             ->where('status', 'pending')
-            ->selectRaw('matric_number, COUNT(*) as rows')
+            ->selectRaw('matric_number, COUNT(*) as row_count')
             ->groupBy('matric_number')
             ->orderBy('matric_number')
             ->get()
             ->map(fn ($row) => [
                 'matric_number' => $row->matric_number,
-                'rows' => (int) $row->rows,
+                'rows' => (int) $row->row_count,
             ])
             ->all();
     }

@@ -110,7 +110,14 @@ class StudentImportTest extends TestCase
             'file' => $this->spreadsheet('Invoices', InvoiceImportColumns::all(), InvoiceImportColumns::sample()),
         ], ['Accept' => 'application/json'])->assertOk()
             ->assertJsonPath('data.pending', 1)
-            ->assertJsonPath('data.posted', 0);
+            ->assertJsonPath('data.posted', 0)
+            ->assertJsonPath('data.pending_by_matric.0.matric_number', 'BUT/2019/M/0001')
+            ->assertJsonPath('data.pending_by_matric.0.rows', 1);
+
+        $this->getJson('/api/invoices/import-pending')
+            ->assertOk()
+            ->assertJsonPath('pending_by_matric.0.matric_number', 'BUT/2019/M/0001')
+            ->assertJsonPath('pending_by_matric.0.rows', 1);
 
         $this->assertSame(1, LegacyInvoiceImport::query()->where('status', 'pending')->count());
         $this->assertSame(0, Invoice::query()->count());
