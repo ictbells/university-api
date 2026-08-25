@@ -253,7 +253,8 @@ class ApplicantImportTest extends TestCase
             'send_credentials' => '0',
         ], ['Accept' => 'application/json'])->assertOk()
             ->assertJsonPath('data.created', 1)
-            ->assertJsonPath('data.invoices_posted', 1);
+            ->assertJsonPath('data.invoices_posted', 1)
+            ->assertJsonPath('data.application_fees_generated', 0);
 
         $application = Application::query()->where('jamb_registration', '99887766AB')->first();
         $this->assertNotNull($application);
@@ -263,6 +264,63 @@ class ApplicantImportTest extends TestCase
         $this->assertSame('paid', $invoice->status);
         $this->assertSame($application->id, $invoice->application_id);
         $this->assertFalse($application->user->portalAccess()['unpaid_application_fee']);
+        $this->assertSame(1, Invoice::query()->where('category', 'application_fee')->where('application_id', $application->id)->count());
+    }
+
+    public function test_applicant_import_generates_unpaid_application_fee_when_no_pending_invoice(): void
+    {
+        Mail::fake();
+        Sanctum::actingAs($this->staffUser());
+
+        $this->post('/api/applicants/import', [
+            'file' => $this->spreadsheet([
+                'email' => 'app.fee.generate@example.com',
+                'phone' => '08030000012',
+                'nin' => '12345678912',
+                'jamb_registration' => '11223344CD',
+            ]),
+            'intake_id' => $this->intake->id,
+            'entry_mode' => 'utme',
+            'send_credentials' => '0',
+        ], ['Accept' => 'application/json'])->assertOk()
+            ->assertJsonPath('data.created', 1)
+            ->assertJsonPath('data.invoices_posted', 0)
+            ->assertJsonPath('data.application_fees_generated', 1);
+
+        $application = Application::query()->where('jamb_registration', '11223344CD')->first();
+        $this->assertNotNull($application);
+        $this->assertNotNull($application->application_fee_invoice_id);
+        $invoice = Invoice::query()->find($application->application_fee_invoice_id);
+        $this->assertSame('application_fee', $invoice->category);
+        $this->assertSame('unpaid', $invoice->status);
+        $this->assertEquals(5000.0, (float) $invoice->amount);
+        $this->assertTrue($application->user->portalAccess()['unpaid_application_fee']);
+    }
+
+    public function test_applicant_import_fails_when_intake_missing_application_fee_amount(): void
+    {
+        Mail::fake();
+        $this->intake->update(['application_fee_amount' => null]);
+        Sanctum::actingAs($this->staffUser());
+
+        $response = $this->post('/api/applicants/import', [
+            'file' => $this->spreadsheet([
+                'email' => 'app.fee.missing@example.com',
+                'phone' => '08030000013',
+                'nin' => '12345678913',
+                'jamb_registration' => '55667788EF',
+            ]),
+            'intake_id' => $this->intake->id,
+            'entry_mode' => 'utme',
+            'send_credentials' => '0',
+        ], ['Accept' => 'application/json'])->assertOk()
+            ->assertJsonPath('data.created', 0)
+            ->assertJsonPath('data.skipped', 1);
+
+        $errors = $response->json('data.errors');
+        $this->assertNotEmpty($errors);
+        $this->assertStringContainsString('application fee', strtolower($errors[0]['message'] ?? ''));
+        $this->assertDatabaseMissing('users', ['email' => 'app.fee.missing@example.com']);
     }
 
     public function test_duplicate_email_is_skipped(): void

@@ -421,6 +421,10 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
 
     Route::middleware('permission:finance.invoices.manage')->group(function () {
         Route::get('/fees/meta', [FinanceController::class, 'feeMeta']);
+        Route::get('/fee-categories', [FinanceController::class, 'feeCategories']);
+        Route::post('/fee-categories', [FinanceController::class, 'storeFeeCategory']);
+        Route::patch('/fee-categories/{feeCategory}', [FinanceController::class, 'updateFeeCategory']);
+        Route::delete('/fee-categories/{feeCategory}', [FinanceController::class, 'destroyFeeCategory']);
         Route::post('/fees', [FinanceController::class, 'storeFee']);
         Route::patch('/fees/{fee}', [FinanceController::class, 'updateFee']);
         Route::delete('/fees/{fee}', [FinanceController::class, 'destroyFee']);

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\AcademicSession;
 use App\Models\AcademicTerm;
+use App\Models\Application;
 use App\Models\Intake;
 use App\Models\NinVerification;
 use App\Models\User;
@@ -55,6 +56,8 @@ class NinVerificationTest extends TestCase
             ->assertOk()
             ->assertJsonPath('first_name', 'Adaeze')
             ->assertJsonPath('last_name', 'Okoye')
+            ->assertJsonPath('phone', '08030000000')
+            ->assertJsonPath('address', 'KM 8, Idiroko Road, Benja Village, Ota, Ogun State')
             ->assertJsonPath('live', false);
 
         Http::assertNothingSent();
@@ -163,6 +166,46 @@ class NinVerificationTest extends TestCase
         $this->assertSame('Chinedu', $record->mapped_fields['first_name']);
         $this->assertSame('ref-live-1', $record->prembly_reference);
         Http::assertNothingSent();
+    }
+
+    public function test_verify_seeds_phone_and_address_on_user_and_application_form(): void
+    {
+        config([
+            'services.prembly.key' => '',
+            'services.prembly.app_id' => '',
+            'services.prembly.allow_demo' => true,
+        ]);
+        $user = User::factory()->create(['phone' => null]);
+        $intake = $this->openApplicationSession();
+        $application = Application::query()->create([
+            'application_number' => 'APP/2026/00777',
+            'user_id' => $user->id,
+            'intake_id' => $intake->id,
+            'entry_mode' => 'utme',
+            'stage' => 'form_in_progress',
+            'current_step' => 'biodata',
+        ]);
+        foreach (Application::formSteps('utme') as $step) {
+            $application->steps()->create([
+                'step_key' => $step,
+                'status' => 'pending',
+                'payload' => [],
+            ]);
+        }
+
+        app(PremblyService::class)->verify($user, $application, '12345678901', [
+            'reference' => 'DEMO-12345678901',
+            'first_name' => 'Adaeze',
+            'last_name' => 'Okoye',
+            'phone' => '08030000000',
+            'address' => 'KM 8, Idiroko Road, Benja Village, Ota, Ogun State',
+            'raw' => ['demo' => true],
+        ]);
+
+        $this->assertSame('08030000000', $user->fresh()->phone);
+        $form = $application->steps()->where('step_key', 'application_form')->first();
+        $this->assertSame('08030000000', $form?->payload['phone'] ?? null);
+        $this->assertSame('KM 8, Idiroko Road, Benja Village, Ota, Ogun State', $form?->payload['address'] ?? null);
     }
 
     public function test_verify_replaces_a_demo_record_once_live_keys_exist(): void

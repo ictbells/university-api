@@ -252,6 +252,10 @@ class AcademicCatalogImportService
         if (! in_array($type, Course::TYPES, true)) {
             throw new RuntimeException('course_type must be general, faculty, or departmental.');
         }
+        $status = strtolower(trim((string) ($data['status'] ?? ''))) ?: 'core';
+        if (! in_array($status, Course::STATUSES, true)) {
+            throw new RuntimeException('status must be core, elective, or required.');
+        }
         $units = (int) ($data['units'] ?? 0);
         if ($units < 1) {
             $units = 3;
@@ -276,6 +280,7 @@ class AcademicCatalogImportService
             'title' => $title,
             'units' => $units,
             'course_type' => $type,
+            'status' => $status,
         ]);
 
         foreach ($programs as $program) {

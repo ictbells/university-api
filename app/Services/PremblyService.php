@@ -129,6 +129,8 @@ class PremblyService
             'last_name' => $mapped['last_name'] ?? '',
             'date_of_birth' => $mapped['date_of_birth'] ?? null,
             'gender' => $mapped['gender'] ?? null,
+            'phone' => $mapped['phone'] ?? '',
+            'address' => $mapped['address'] ?? '',
             'photo_path' => $photoPath,
             'photo_url' => $this->photoUrl($photoPath),
             'live' => $this->isLiveRecord($record),
@@ -249,6 +251,28 @@ class PremblyService
             $step->save();
         }
 
+        $phone = trim((string) ($mapped['phone'] ?? ''));
+        $address = trim((string) ($mapped['address'] ?? ''));
+        if ($phone !== '' && blank($user->phone)) {
+            $user->update(['phone' => $phone]);
+        }
+
+        $contact = $application->steps()->firstOrNew(['step_key' => 'application_form']);
+        $contactPayload = is_array($contact->payload) ? $contact->payload : [];
+        if ($phone !== '' && blank($contactPayload['phone'] ?? null)) {
+            $contactPayload['phone'] = $phone;
+        }
+        if ($address !== '' && blank($contactPayload['address'] ?? null)) {
+            $contactPayload['address'] = $address;
+        }
+        if ($contactPayload !== (is_array($contact->payload) ? $contact->payload : [])) {
+            $contact->payload = $contactPayload;
+            if ($contact->status === 'pending' || ! $contact->exists) {
+                $contact->status = $contact->status ?: 'pending';
+            }
+            $contact->save();
+        }
+
         $this->attachPassportDocument($application, $mapped['photo_path'] ?? null);
 
         if (! $record->application_id) {
@@ -325,6 +349,8 @@ class PremblyService
             throw new RuntimeException('Prembly returned no NIN biodata.');
         }
 
+        $contact = $this->contactFromNinData($data);
+
         return [
             'reference' => $response->json('verification.reference')
                 ?: $response->json('response_code')
@@ -334,6 +360,8 @@ class PremblyService
             'last_name' => $data['surname'] ?? $data['lastname'] ?? $data['last_name'] ?? '',
             'date_of_birth' => $this->normalizeDate($data['birthdate'] ?? $data['dateOfBirth'] ?? $data['date_of_birth'] ?? null),
             'gender' => $this->normalizeGender($data['gender'] ?? null),
+            'phone' => $contact['phone'],
+            'address' => $contact['address'],
             'photo' => $data['photo'] ?? $data['picture'] ?? null,
             'raw' => $data,
         ];
@@ -375,6 +403,8 @@ class PremblyService
             'last_name' => 'Okoye',
             'date_of_birth' => '2004-03-18',
             'gender' => 'Female',
+            'phone' => '08030000000',
+            'address' => 'KM 8, Idiroko Road, Benja Village, Ota, Ogun State',
             'photo' => '/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxAQEBUQEBAVFRUVFRUVFRUVFRUVFRUWFxUXFhUYHSggGBolGxUVITEhJSkrLi4uFx8zODMtNygtLisBCgoKDg0OGxAQGy0lHyUtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLf/AABEIAMgAyAMBEQACEQEDEQH/xAAbAAACAwEBAQAAAAAAAAAAAAADBAECBQYAB//EADcQAAIBAwMCBAQEBgMAAAAAAAECAwAEERIhMQVBUWFxBhMiMoGRobHB0fAjQlLR4fEz/8QAGQEAAwEBAQAAAAAAAAAAAAAAAAECAwQF/8QAJREAAgICAgICAgIDAAAAAAAAAAECEQMhEjEEQRNRIjJhBXGB/9oADAMBAAIRAxEAPwD5VooooAKKKKACiiigAooooAKKKKACiiigD//Z',
             'raw' => ['demo' => true, 'nin' => $nin],
         ];
@@ -407,5 +437,45 @@ class PremblyService
         }
 
         return $value;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{phone: string, address: string}
+     */
+    private function contactFromNinData(array $data): array
+    {
+        $phone = $this->firstFilled($data, [
+            'phone', 'telephoneno', 'telephone', 'mobile', 'phone_number', 'phoneNumber', 'tel',
+        ]);
+        $address = $this->firstFilled($data, [
+            'residence_address', 'residential_address', 'address', 'residenceAddress',
+            'house_address', 'permanent_address', 'home_address',
+        ]);
+        if ($address === '') {
+            $address = trim(implode(', ', array_filter([
+                $this->firstFilled($data, ['residence_town', 'town', 'lga_of_residence']),
+                $this->firstFilled($data, ['residence_lga', 'lga']),
+                $this->firstFilled($data, ['residence_state', 'state', 'state_of_residence']),
+            ], fn ($part) => $part !== '')));
+        }
+
+        return ['phone' => $phone, 'address' => $address];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @param  list<string>  $keys
+     */
+    private function firstFilled(array $data, array $keys): string
+    {
+        foreach ($keys as $key) {
+            $value = $data[$key] ?? null;
+            if (is_string($value) && trim($value) !== '') {
+                return trim($value);
+            }
+        }
+
+        return '';
     }
 }

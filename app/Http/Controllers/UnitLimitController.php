@@ -7,6 +7,7 @@ use App\Models\AcademicTerm;
 use App\Models\Program;
 use App\Models\UnitLimit;
 use App\Services\AuditWriter;
+use App\Support\ListSessionLevelFilter;
 use Illuminate\Http\Request;
 
 class UnitLimitController extends Controller
@@ -32,6 +33,10 @@ class UnitLimitController extends Controller
         }
         if ($request->filled('academic_term_id')) {
             $query->where('academic_term_id', (int) $request->academic_term_id);
+        }
+        ListSessionLevelFilter::applySessionToTermRelation($query, $request);
+        if ($level = ListSessionLevelFilter::levelCode($request)) {
+            $query->whereHas('level', fn ($levels) => $levels->where('code', $level));
         }
 
         return $query->orderBy('program_id')->orderBy('bucket')->get();

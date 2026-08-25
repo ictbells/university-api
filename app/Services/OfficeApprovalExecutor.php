@@ -13,6 +13,7 @@ use App\Models\Department;
 use App\Models\Document;
 use App\Models\Enrollment;
 use App\Models\Faculty;
+use App\Models\FeeCategory;
 use App\Models\FeeItem;
 use App\Models\Hostel;
 use App\Models\HostelAllocation;
@@ -164,6 +165,9 @@ class OfficeApprovalExecutor
             'finance.store_fee' => [\App\Http\Controllers\FinanceController::class, 'storeFee', null],
             'finance.update_fee' => [\App\Http\Controllers\FinanceController::class, 'updateFee', ['key' => 'fee_id', 'class' => FeeItem::class]],
             'finance.destroy_fee' => [\App\Http\Controllers\FinanceController::class, 'destroyFee', ['key' => 'fee_id', 'class' => FeeItem::class]],
+            'finance.store_fee_category' => [\App\Http\Controllers\FinanceController::class, 'storeFeeCategory', null],
+            'finance.update_fee_category' => [\App\Http\Controllers\FinanceController::class, 'updateFeeCategory', ['key' => 'fee_category_id', 'class' => FeeCategory::class]],
+            'finance.destroy_fee_category' => [\App\Http\Controllers\FinanceController::class, 'destroyFeeCategory', ['key' => 'fee_category_id', 'class' => FeeCategory::class]],
             'finance.generate_invoice' => [\App\Http\Controllers\FinanceController::class, 'generate', null],
             'finance.disable_invoice' => [\App\Http\Controllers\FinanceController::class, 'disableInvoice', ['key' => 'invoice_id', 'class' => Invoice::class]],
             'finance.enable_invoice' => [\App\Http\Controllers\FinanceController::class, 'enableInvoice', ['key' => 'invoice_id', 'class' => Invoice::class]],

@@ -70,6 +70,8 @@ class AuthController extends Controller
             'last_name' => $mapped['last_name'],
             'date_of_birth' => $mapped['date_of_birth'],
             'gender' => $mapped['gender'],
+            'phone' => $mapped['phone'] ?? '',
+            'address' => $mapped['address'] ?? '',
             'live' => $this->prembly->isLiveMapped($mapped),
         ]);
     }
@@ -92,7 +94,7 @@ class AuthController extends Controller
                 $user = User::query()->create([
                     'name' => $this->prembly->displayName($mapped),
                     'email' => $data['email'],
-                    'phone' => $data['phone'],
+                    'phone' => $data['phone'] ?: ($mapped['phone'] ?? null),
                     'password' => $data['password'],
                     'status' => 'active',
                 ]);

@@ -167,7 +167,7 @@ class InvoiceService
 
     public function createApplicationFeeInvoice(User $user, Intake $intake, int $applicationId): Invoice
     {
-        $amount = $intake->applicationFeeAmount();
+        $amount = $this->resolveApplicationFeeAmount($intake);
         $number = 'INV-'.now()->format('Ymd').'-'.str_pad((string) (Invoice::query()->count() + 1), 5, '0', STR_PAD_LEFT);
         $invoice = Invoice::query()->create([
             'number' => $number,
@@ -186,6 +186,39 @@ class InvoiceService
         ]);
 
         return $invoice->fresh('items');
+    }
+
+    public function resolveApplicationFeeAmount(Intake $intake): float
+    {
+        $catalog = FeeItem::query()
+            ->where('category', 'application_fee')
+            ->where('is_active', true)
+            ->where('entry_mode', $intake->entry_mode)
+            ->orderBy('display_order')
+            ->orderBy('id')
+            ->first();
+        if ($catalog && (float) $catalog->amount > 0) {
+            return (float) $catalog->amount;
+        }
+
+        $generic = FeeItem::query()
+            ->where('category', 'application_fee')
+            ->where('is_active', true)
+            ->where(function ($query) {
+                $query->whereNull('entry_mode')->orWhere('entry_mode', '');
+            })
+            ->orderBy('display_order')
+            ->orderBy('id')
+            ->first();
+        if ($generic && (float) $generic->amount > 0) {
+            return (float) $generic->amount;
+        }
+
+        if ($intake->application_fee_amount !== null) {
+            return (float) $intake->application_fee_amount;
+        }
+
+        throw new RuntimeException('Set an application fee in the fee catalog for this entry mode, or on the application session, before applicants can apply.');
     }
 
     public function createAcceptanceFeeInvoice(

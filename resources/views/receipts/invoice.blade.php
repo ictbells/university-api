@@ -9,7 +9,7 @@
       @if (!empty($programme))
         <tr><th>Programme</th><td>{{ $programme }}</td></tr>
       @endif
-      <tr><th>Payment for</th><td>{{ $category_label }}</td></tr>
+      <tr><th>Payment for</th><td>{{ $category_label }}@if (!empty($installment_percent)) ({{ (int) $installment_percent }}%)@endif</td></tr>
       @if (!empty($invoice_number))
         <tr><th>Invoice number</th><td class="mono">{{ $invoice_number }}</td></tr>
       @endif

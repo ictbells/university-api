@@ -16,7 +16,14 @@ class GraduationService
 {
     public function __construct(private AuditWriter $audit) {}
 
-    public function candidates(?int $programId = null, ?int $campusId = null, ?string $search = null, int $perPage = 25): LengthAwarePaginator
+    public function candidates(
+        ?int $programId = null,
+        ?int $campusId = null,
+        ?string $search = null,
+        int $perPage = 25,
+        ?int $academicSessionId = null,
+        ?string $level = null,
+    ): LengthAwarePaginator
     {
         $query = $this->finalYearQuery()
             ->with(['program.department.faculty', 'user:id,name,email'])
@@ -25,6 +32,11 @@ class GraduationService
                 'program.department.faculty',
                 fn (Builder $faculty) => $faculty->where('campus_id', $campusId),
             ))
+            ->when($academicSessionId, fn (Builder $q) => $q->whereHas(
+                'application.intake.term',
+                fn (Builder $term) => $term->where('academic_session_id', $academicSessionId),
+            ))
+            ->when($level, fn (Builder $q) => $q->where('current_level', $level))
             ->when($search, function (Builder $q) use ($search) {
                 $term = '%'.str_replace(['%', '_'], ['\\%', '\\_'], trim($search)).'%';
                 $q->where(function (Builder $builder) use ($term) {

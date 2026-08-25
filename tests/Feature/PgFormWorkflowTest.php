@@ -408,6 +408,47 @@ class PgFormWorkflowTest extends TestCase
             ->assertStatus(422);
     }
 
+    public function test_student_context_lists_available_offerings_when_tuition_blocks_add_drop(): void
+    {
+        $studentUser = User::factory()->create();
+        $application = $this->ugApplication($studentUser);
+        $application->update(['stage' => 'matriculated', 'program_id' => $this->ug->id]);
+        Student::query()->create([
+            'user_id' => $studentUser->id,
+            'application_id' => $application->id,
+            'program_id' => $this->ug->id,
+            'first_name' => 'Ada',
+            'last_name' => 'Lovelace',
+            'current_level' => 100,
+            'study_level' => 'undergraduate',
+            'status' => 'active',
+        ]);
+        $course = Course::query()->create([
+            'department_id' => $this->ug->department_id,
+            'code' => 'CSC201',
+            'title' => 'Data Structures',
+            'units' => 3,
+            'course_type' => 'departmental',
+        ]);
+        $this->ug->courses()->attach($course->id);
+        $offering = CourseOffering::query()->create([
+            'course_id' => $course->id,
+            'academic_term_id' => $this->term->id,
+            'section' => 'A',
+            'capacity' => 40,
+        ]);
+
+        Sanctum::actingAs($studentUser);
+        $this->getJson('/api/academic/my-registration')
+            ->assertOk()
+            ->assertJsonPath('can_self_register', false)
+            ->assertJsonPath('cannot_register_reason', 'Pay at least 25% of current-session tuition before registering courses.')
+            ->assertJsonPath('available.0.id', $offering->id);
+
+        $this->postJson('/api/academic/my-registration', ['course_offering_id' => $offering->id])
+            ->assertStatus(422);
+    }
+
     /**
      * @param  list<string>  $permissions
      * @param  list<string>  $navKeys

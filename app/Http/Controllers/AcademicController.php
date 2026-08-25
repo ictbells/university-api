@@ -9,6 +9,7 @@ use App\Models\Student;
 use App\Models\WorkflowTemplate;
 use App\Services\AcademicCatalogImportService;
 use App\Services\AuditWriter;
+use App\Support\ListSessionLevelFilter;
 use App\Support\ProgrammeEligibility;
 use App\Support\WorkflowCatalog;
 use Illuminate\Http\Request;
@@ -142,9 +143,12 @@ class AcademicController extends Controller
         });
     }
 
-    public function courses()
+    public function courses(Request $request)
     {
-        return Course::query()->with(['department', 'programs'])->orderBy('code')->get();
+        $query = Course::query()->with(['department', 'programs'])->orderBy('code');
+        ListSessionLevelFilter::applyLevelToCoursePrograms($query, $request);
+
+        return $query->get();
     }
 
     public function storeCourse(Request $request)
@@ -155,10 +159,12 @@ class AcademicController extends Controller
             'title' => 'required|string',
             'units' => 'required|integer|min:1',
             'course_type' => ['nullable', Rule::in(Course::TYPES)],
+            'status' => ['nullable', Rule::in(Course::STATUSES)],
             'program_ids' => 'required_unless:course_type,general|array|min:1',
             'program_ids.*' => 'exists:programs,id',
         ]);
         $data['course_type'] = $data['course_type'] ?? 'departmental';
+        $data['status'] = $data['status'] ?? 'core';
         $programIds = $data['program_ids'] ?? [];
         unset($data['program_ids']);
         if ($programIds === [] && $data['course_type'] === 'general') {
@@ -182,6 +188,7 @@ class AcademicController extends Controller
             'title' => 'sometimes|string',
             'units' => 'sometimes|integer|min:1',
             'course_type' => ['nullable', Rule::in(Course::TYPES)],
+            'status' => ['nullable', Rule::in(Course::STATUSES)],
             'program_ids' => 'sometimes|array',
             'program_ids.*' => 'exists:programs,id',
         ]);

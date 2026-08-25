@@ -70,6 +70,7 @@ class ProgrammeFeeController extends Controller
         $departmentId = $request->filled('department_id') ? (int) $request->department_id : null;
         $studyLevel = (string) $request->input('study_level', '');
         $scheduled = (string) $request->input('scheduled', 'all');
+        $levelCode = (string) $request->input('level', $request->input('level_code', ''));
 
         $query = Program::query()->with([
             'department.faculty',
@@ -92,8 +93,11 @@ class ProgrammeFeeController extends Controller
             $query->where('study_level', $studyLevel);
         }
 
-        $rows = $query->orderBy('name')->get()->map(function (Program $program) {
+        $rows = $query->orderBy('name')->get()->map(function (Program $program) use ($levelCode) {
             $lines = $program->programmeFees->filter(fn (ProgrammeFee $fee) => $fee->feeItem?->is_active !== false);
+            if ($levelCode !== '' && $levelCode !== 'all') {
+                $lines = $lines->filter(fn (ProgrammeFee $fee) => $fee->level_code === 'all' || $fee->level_code === $levelCode);
+            }
             $total = round((float) $lines->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
 
             return [

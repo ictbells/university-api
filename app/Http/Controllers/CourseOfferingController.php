@@ -7,6 +7,7 @@ use App\Models\Course;
 use App\Models\CourseOffering;
 use App\Models\Staff;
 use App\Services\AuditWriter;
+use App\Support\ListSessionLevelFilter;
 use Illuminate\Http\Request;
 
 class CourseOfferingController extends Controller
@@ -27,6 +28,8 @@ class CourseOfferingController extends Controller
         if ($request->filled('course_id')) {
             $query->where('course_id', (int) $request->course_id);
         }
+        ListSessionLevelFilter::applySessionToTermRelation($query, $request);
+        ListSessionLevelFilter::applyLevelToCoursePrograms($query, $request, 'course');
 
         return $query->orderByDesc('id')->get()->map(function (CourseOffering $offering) {
             $offering->setAttribute('seats_left', max(0, (int) $offering->capacity - (int) $offering->enrolled_count));
@@ -105,7 +108,7 @@ class CourseOfferingController extends Controller
 
     public function courses()
     {
-        return Course::query()->with('department')->orderBy('code')->get(['id', 'code', 'title', 'units', 'course_type', 'department_id']);
+        return Course::query()->with('department')->orderBy('code')->get(['id', 'code', 'title', 'units', 'course_type', 'status', 'department_id']);
     }
 
     public function terms()

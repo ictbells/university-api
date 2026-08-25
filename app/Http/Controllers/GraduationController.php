@@ -25,6 +25,8 @@ class GraduationController extends Controller
             $request->filled('campus_id') ? (int) $request->input('campus_id') : null,
             $request->input('search'),
             $perPage,
+            $request->filled('academic_session_id') ? (int) $request->input('academic_session_id') : null,
+            $request->filled('level') ? (string) $request->input('level') : null,
         );
     }
 

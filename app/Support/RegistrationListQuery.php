@@ -55,6 +55,9 @@ class RegistrationListQuery
         if ($request->filled('program_id')) {
             $query->where('program_id', (int) $request->program_id);
         }
+        if ($level = trim((string) $request->input('level', ''))) {
+            $query->where('current_level', $level);
+        }
         if ($request->filled('course_reg_status') && ! in_array('course_reg_status', $except, true)) {
             $term = AcademicTerm::current();
             $status = (string) $request->course_reg_status;
@@ -131,6 +134,9 @@ class RegistrationListQuery
         if ($request->filled('program_id')) {
             $program = Program::query()->where('id', (int) $request->program_id)->first(['name', 'code']);
             $parts[] = 'Programme: '.($program?->name ?: ($program?->code ?: '#'.$request->program_id));
+        }
+        if ($request->filled('level')) {
+            $parts[] = 'Level: '.$request->string('level');
         }
         if ($request->filled('course_reg_status')) {
             $parts[] = 'Course registration: '.str_replace('_', ' ', (string) $request->course_reg_status);

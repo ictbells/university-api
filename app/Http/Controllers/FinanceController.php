@@ -8,6 +8,7 @@ use App\Models\AcademicTerm;
 use App\Models\Campus;
 use App\Models\Department;
 use App\Models\Faculty;
+use App\Models\FeeCategory;
 use App\Models\FeeItem;
 use App\Models\Invoice;
 use App\Models\Payment;
@@ -20,9 +21,11 @@ use App\Services\AuditWriter;
 use App\Services\InvoiceExportService;
 use App\Services\InvoiceService;
 use App\Services\StudentFinanceExportService;
+use App\Support\AdmissionEntryRules;
 use App\Support\FeeSchedule;
 use App\Support\InstitutionLogo;
 use App\Support\InvoiceSettlement;
+use App\Support\ListSessionLevelFilter;
 use App\Support\NairaWords;
 use App\Support\ProgrammeFeeResolver;
 use Illuminate\Database\Eloquent\Builder;
@@ -58,17 +61,119 @@ class FinanceController extends Controller
     public function feeMeta()
     {
         return [
-            'categories' => collect(FeeSchedule::staffEditableCategories())
-                ->map(fn (string $category) => [
-                    'value' => $category,
-                    'label' => FeeSchedule::label($category),
-                    'schedule' => FeeSchedule::isScheduleCategory($category),
-                ])
-                ->values(),
+            'categories' => FeeSchedule::staffEditableCategoryOptions(),
             'schedule_categories' => FeeSchedule::scheduleCategories(),
             'installment_percents' => FeeSchedule::INSTALLMENT_PERCENTS,
             'semesters' => FeeSchedule::SEMESTERS,
         ];
+    }
+
+    public function feeCategories(Request $request)
+    {
+        $query = FeeCategory::query()
+            ->staffEditable()
+            ->orderBy('display_order')
+            ->orderBy('name');
+
+        if ($request->boolean('active')) {
+            $query->where('is_active', true);
+        }
+
+        return $query->get();
+    }
+
+    public function storeFeeCategory(Request $request)
+    {
+        $data = $request->validate([
+            'name' => 'required|string|max:120',
+            'description' => 'nullable|string|max:255',
+            'is_schedule' => 'boolean',
+            'is_active' => 'boolean',
+        ]);
+
+        $code = FeeSchedule::codeFromName($data['name']);
+        $base = $code;
+        $suffix = 2;
+        while (FeeCategory::query()->where('code', $code)->exists()) {
+            $code = substr($base, 0, 56).'_'.$suffix;
+            $suffix++;
+        }
+
+        $payload = [
+            'code' => $code,
+            'name' => trim($data['name']),
+            'description' => $data['description'] ?? null,
+            'is_schedule' => $request->boolean('is_schedule', false),
+            'is_system' => false,
+            'is_active' => $request->boolean('is_active', true),
+            'display_order' => (int) (FeeCategory::query()->max('display_order') ?? 0) + 1,
+        ];
+
+        return $this->officeGate('finance.store_fee_category', null, $payload, 'Create fee category', function () use ($payload) {
+            $category = FeeCategory::query()->create($payload);
+            $this->audit->record('fee_category.created', 'Fee category created', 'fees', 'fee_category', $category->id, null, $category);
+
+            return $category;
+        });
+    }
+
+    public function updateFeeCategory(Request $request, FeeCategory $feeCategory)
+    {
+        $before = $feeCategory->toArray();
+        $data = $request->validate([
+            'name' => 'sometimes|string|max:120',
+            'description' => 'nullable|string|max:255',
+            'is_schedule' => 'boolean',
+            'is_active' => 'boolean',
+        ]);
+
+        if ($request->has('is_schedule')) {
+            $data['is_schedule'] = $request->boolean('is_schedule');
+        }
+        if ($request->has('is_active')) {
+            $data['is_active'] = $request->boolean('is_active');
+        }
+        if (isset($data['name'])) {
+            $data['name'] = trim($data['name']);
+        }
+
+        return $this->officeGate(
+            'finance.update_fee_category',
+            $feeCategory,
+            ['fee_category_id' => $feeCategory->id, ...$data],
+            'Update fee category',
+            function () use ($feeCategory, $data, $before) {
+                $feeCategory->update($data);
+                $this->audit->record('fee_category.updated', 'Fee category updated', 'fees', 'fee_category', $feeCategory->id, $before, $feeCategory);
+
+                return $feeCategory->fresh();
+            }
+        );
+    }
+
+    public function destroyFeeCategory(FeeCategory $feeCategory)
+    {
+        if ($feeCategory->is_system) {
+            return response()->json(['message' => 'System fee categories cannot be deleted.'], 422);
+        }
+
+        if (FeeItem::query()->where('category', $feeCategory->code)->exists()) {
+            return response()->json(['message' => 'Remove or reassign fee catalog items that use this category first.'], 422);
+        }
+
+        return $this->officeGate(
+            'finance.destroy_fee_category',
+            $feeCategory,
+            ['fee_category_id' => $feeCategory->id],
+            'Delete fee category',
+            function () use ($feeCategory) {
+                $before = $feeCategory->toArray();
+                $feeCategory->delete();
+                $this->audit->record('fee_category.deleted', 'Fee category deleted', 'fees', 'fee_category', $feeCategory->id, $before, null);
+
+                return response()->noContent();
+            }
+        );
     }
 
     public function storeFee(Request $request)
@@ -77,13 +182,20 @@ class FinanceController extends Controller
             'name' => 'required|string|max:120',
             'description' => 'nullable|string|max:255',
             'category' => ['required', 'string', Rule::in(FeeSchedule::staffEditableCategories())],
-            'entry_mode' => 'nullable|string',
+            'entry_mode' => [
+                Rule::requiredIf(fn () => $request->input('category') === 'application_fee'),
+                'nullable',
+                Rule::in(AdmissionEntryRules::ENTRY_MODE_ORDER),
+            ],
             'amount' => 'required|numeric|min:0',
             'is_required' => 'boolean',
             'display_order' => 'nullable|integer|min:0',
             'is_active' => 'boolean',
         ]);
         $data['wallet_allowed'] = FeeSchedule::walletAllowed($data['category']);
+        if ($data['category'] !== 'application_fee') {
+            $data['entry_mode'] = null;
+        }
         $data['is_required'] = $request->boolean('is_required', true);
         $data['is_active'] = $request->boolean('is_active', true);
         $data['display_order'] = (int) ($data['display_order'] ?? 0);
@@ -103,7 +215,11 @@ class FinanceController extends Controller
             'name' => 'sometimes|string|max:120',
             'description' => 'nullable|string|max:255',
             'category' => ['sometimes', 'string', Rule::in(FeeSchedule::staffEditableCategories())],
-            'entry_mode' => 'nullable|string',
+            'entry_mode' => [
+                Rule::requiredIf(fn () => ($request->input('category') ?? $fee->category) === 'application_fee'),
+                'nullable',
+                Rule::in(AdmissionEntryRules::ENTRY_MODE_ORDER),
+            ],
             'amount' => 'sometimes|numeric|min:0',
             'is_required' => 'boolean',
             'display_order' => 'nullable|integer|min:0',
@@ -111,6 +227,9 @@ class FinanceController extends Controller
         ]);
         $category = $data['category'] ?? $fee->category;
         $data['wallet_allowed'] = FeeSchedule::walletAllowed($category);
+        if ($category !== 'application_fee') {
+            $data['entry_mode'] = null;
+        }
         if ($request->has('is_required')) {
             $data['is_required'] = $request->boolean('is_required');
         }
@@ -156,9 +275,13 @@ class FinanceController extends Controller
             'college_id' => 'nullable|integer',
             'department_id' => 'nullable|integer',
             'program_id' => 'nullable|integer',
+            'academic_session_id' => 'nullable',
+            'level' => 'nullable|string',
             'search' => 'nullable|string',
             'from' => 'nullable|date',
             'to' => 'nullable|date',
+            'academic_session_id' => 'nullable',
+            'level' => 'nullable|string',
         ]);
 
         $invoices = $this->invoiceListQuery($request)
@@ -365,6 +488,10 @@ class FinanceController extends Controller
         }
 
         $amount = (float) $payment->amount;
+        $category = (string) $invoice->category;
+        $installmentPercent = $category === 'tuition' && $invoice->installment_percent !== null
+            ? (int) $invoice->installment_percent
+            : null;
         $html = view('receipts.invoice', [
             'institution' => $this->receiptInstitution(),
             'logo_data_uri' => InstitutionLogo::dataUri(),
@@ -376,7 +503,8 @@ class FinanceController extends Controller
             'payer_id' => $payerId,
             'payer_id_label' => $payerIdLabel,
             'programme' => $student?->program?->name,
-            'category_label' => FeeSchedule::label((string) $invoice->category),
+            'category_label' => FeeSchedule::label($category),
+            'installment_percent' => $installmentPercent,
             'invoice_number' => $invoice->number,
             'payment_method' => $this->paymentMethodLabel($payment->method ?: 'online'),
             'reference' => $payment->reference ?: '—',
@@ -412,10 +540,16 @@ class FinanceController extends Controller
             'amount' => 'nullable|numeric|min:0',
         ]);
 
-        return $this->officeGate('finance.generate_invoice', null, $data, 'Generate invoice', function () use ($request, $data) {
-            return $this->generateNow($request, $data);
+        return $this->officeGate('finance.generate_invoice', null, $data, 'Generate invoice', function () use ($data) {
+            return $this->generateNow($data);
         });
+    }
 
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function generateNow(array $data)
+    {
         $student = isset($data['student_id'])
             ? Student::query()->with(['user', 'program'])->findOrFail($data['student_id'])
             : $this->findStudentByMatric((string) $data['matric']);
@@ -428,12 +562,12 @@ class FinanceController extends Controller
         if ($feeIds !== []) {
             $fees = FeeItem::query()
                 ->whereIn('id', $feeIds)
-                ->where('category', 'sundry')
                 ->where('is_active', true)
+                ->where('wallet_allowed', true)
                 ->get()
                 ->keyBy('id');
             if ($fees->count() !== count($feeIds)) {
-                return response()->json(['message' => 'Select active sundry fee items only.'], 422);
+                return response()->json(['message' => 'Select active wallet fee catalog items only.'], 422);
             }
             $ordered = [];
             foreach ($feeIds as $id) {
@@ -1141,6 +1275,15 @@ class FinanceController extends Controller
         if ($request->filled('to')) {
             $query->whereDate('created_at', '<=', $request->input('to'));
         }
+        if ($level = ListSessionLevelFilter::levelCode($request)) {
+            $query->whereHas('student', fn ($students) => $students->where('current_level', $level));
+        }
+        if ($sessionId = ListSessionLevelFilter::sessionId($request)) {
+            $query->where(function ($builder) use ($sessionId) {
+                $builder->whereHas('application.intake.term', fn ($term) => $term->where('academic_session_id', $sessionId))
+                    ->orWhereHas('student.application.intake.term', fn ($term) => $term->where('academic_session_id', $sessionId));
+            });
+        }
 
         return $query;
     }
@@ -1176,6 +1319,13 @@ class FinanceController extends Controller
         }
         if ($request->filled('search')) {
             $summary[] = 'Search: '.$request->input('search');
+        }
+        if ($sessionId = ListSessionLevelFilter::sessionId($request)) {
+            $label = AcademicSession::query()->whereKey($sessionId)->value('label');
+            $summary[] = 'Session: '.($label ?: '#'.$sessionId);
+        }
+        if ($level = ListSessionLevelFilter::levelCode($request)) {
+            $summary[] = 'Level: '.$level;
         }
 
         return $summary;

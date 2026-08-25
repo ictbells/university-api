@@ -34,7 +34,7 @@ class ApplicationStartService
             return $existing->fresh()->load(['applicationFeeInvoice', 'intake.term', 'steps', 'documents']);
         }
 
-        $intake->applicationFeeAmount();
+        $this->invoices->resolveApplicationFeeAmount($intake);
 
         $application = Application::query()->create([
             'application_number' => ApplicationReference::generate(),

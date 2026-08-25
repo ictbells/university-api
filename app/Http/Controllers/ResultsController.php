@@ -13,6 +13,7 @@ use App\Services\GradeEntryService;
 use App\Services\GradeWorkflowService;
 use App\Support\GradeAuditLogger;
 use App\Support\GradeStatus;
+use App\Support\ListSessionLevelFilter;
 use App\Support\SubmissionListReportBuilder;
 use App\Support\TranscriptBuilder;
 use Dompdf\Dompdf;
@@ -66,6 +67,8 @@ class ResultsController extends Controller
             $termId = (int) $request->input('academic_term_id');
             $query->whereHas('enrollment.offering', fn ($q) => $q->where('academic_term_id', $termId));
         }
+        ListSessionLevelFilter::applySessionToTermRelation($query, $request, 'enrollment.offering.term');
+        ListSessionLevelFilter::applyToStudentRelation($query, $request, 'enrollment.student');
         if ($request->filled('faculty_id')) {
             $query->where('faculty_id', (int) $request->input('faculty_id'));
         }
@@ -265,6 +268,7 @@ class ResultsController extends Controller
         abort_unless($request->user()->hasPermission('results.read'), 403);
         $search = trim((string) $request->input('search', ''));
         $query = Student::query()->with('program:id,name,code')->orderBy('matric_number');
+        ListSessionLevelFilter::applyToStudents($query, $request);
         if ($search !== '') {
             $like = '%'.$search.'%';
             $query->where(function ($q) use ($like) {

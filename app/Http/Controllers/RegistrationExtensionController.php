@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\RegistrationExtension;
 use App\Services\CourseRegistrationService;
+use App\Support\ListSessionLevelFilter;
 use Illuminate\Http\Request;
 
 class RegistrationExtensionController extends Controller
@@ -30,6 +31,8 @@ class RegistrationExtensionController extends Controller
         if ($request->filled('academic_term_id')) {
             $query->where('academic_term_id', (int) $request->academic_term_id);
         }
+        ListSessionLevelFilter::applySessionToTermRelation($query, $request);
+        ListSessionLevelFilter::applyToStudentRelation($query, $request);
 
         return $query->paginate(min(max((int) $request->input('per_page', 20), 1), 100));
     }

@@ -166,7 +166,7 @@ class SpreadsheetImport
     /**
      * @param  list<string>  $columns
      * @param  list<string>  $instructions
-     * @param  array<string, string>  $sample
+     * @param  array<string, string>|list<array<string, string>>  $sample
      * @param  list<array{title: string, headers: list<string>, rows: list<list<mixed>>}>  $referenceSheets
      */
     public static function templateDownload(
@@ -186,11 +186,17 @@ class SpreadsheetImport
         $sheet = $spreadsheet->createSheet();
         $sheet->setTitle($sheetTitle);
         $sheet->fromArray($columns, null, 'A1');
-        $values = [];
-        foreach ($columns as $column) {
-            $values[] = $sample[$column] ?? '';
+
+        $sampleRows = self::normalizeSampleRows($sample);
+        $line = 2;
+        foreach ($sampleRows as $sampleRow) {
+            $values = [];
+            foreach ($columns as $column) {
+                $values[] = $sampleRow[$column] ?? '';
+            }
+            $sheet->fromArray([$values], null, 'A'.$line);
+            $line++;
         }
-        $sheet->fromArray([$values], null, 'A2');
         self::autosizeColumns($sheet, count($columns));
 
         foreach ($referenceSheets as $reference) {
@@ -211,6 +217,26 @@ class SpreadsheetImport
         }, $filename, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         ]);
+    }
+
+    /**
+     * @param  array<string, string>|list<array<string, string>>  $sample
+     * @return list<array<string, string>>
+     */
+    private static function normalizeSampleRows(array $sample): array
+    {
+        if ($sample === []) {
+            return [];
+        }
+
+        if (array_is_list($sample) && isset($sample[0]) && is_array($sample[0])) {
+            return array_values(array_map(
+                fn ($row) => array_map(fn ($value) => (string) $value, $row),
+                $sample,
+            ));
+        }
+
+        return [array_map(fn ($value) => (string) $value, $sample)];
     }
 
     private static function autosizeColumns(Worksheet $sheet, int $columnCount): void

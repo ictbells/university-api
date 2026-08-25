@@ -35,6 +35,7 @@ class ApplicantImportService
         private PremblyService $prembly,
         private ApplicationAdmissionService $admissions,
         private InvoiceImportService $invoices,
+        private InvoiceService $invoiceService,
         private AuditWriter $audit,
     ) {}
 
@@ -56,7 +57,8 @@ class ApplicantImportService
                 '6. Documents are not imported from Excel. Import does not submit the application. Applicants must upload required documents and submit after they sign in.',
                 '7. If Verify NIN is checked on upload, Prembly is called for every NIN.',
                 '8. Login on the student portal uses application number (APP/YYYY/#####) or JAMB registration, not email.',
-                '9. Import invoices first when application fee was paid on the old portal. Matching rows (application_number or JAMB) are posted and marked paid.',
+                '9. Import invoices first when application fee was paid on the old portal (category application_fee, keyed by application_number or JAMB). Matching rows are posted and marked paid.',
+                '10. If no matching invoice is found, an unpaid application fee is generated from the fee catalog for this session’s entry mode (falling back to the session amount if no catalog line exists).',
                 '',
                 'Required columns: '.implode(', ', ApplicantImportColumns::required($entryMode)),
             ],
@@ -99,6 +101,7 @@ class ApplicantImportService
         $emailed = 0;
         $ninFailed = 0;
         $invoicesPosted = 0;
+        $applicationFeesGenerated = 0;
         $errors = [];
         $role = $this->applicantRole();
 
@@ -118,6 +121,9 @@ class ApplicantImportService
                     $emailed++;
                 }
                 $invoicesPosted += $result['invoices_posted'];
+                if (! empty($result['application_fee_generated'])) {
+                    $applicationFeesGenerated++;
+                }
             } catch (Throwable $e) {
                 $skipped++;
                 if ($verifyNin && str_contains(strtolower($e->getMessage()), 'nin')) {
@@ -138,6 +144,7 @@ class ApplicantImportService
             'emailed' => $emailed,
             'nin_failed' => $ninFailed,
             'invoices_posted' => $invoicesPosted,
+            'application_fees_generated' => $applicationFeesGenerated,
             'errors' => $errors,
             'entry_mode' => $entryMode,
             'intake_id' => $intake->id,
@@ -221,7 +228,7 @@ class ApplicantImportService
 
     /**
      * @param  array<string, string>  $data
-     * @return array{emailed: bool, invoices_posted: int}
+     * @return array{emailed: bool, invoices_posted: int, application_fee_generated: bool}
      */
     private function importRow(
         array $data,
@@ -322,6 +329,18 @@ class ApplicantImportService
 
         $invoiceResult = $this->invoices->postPendingForApplication($application->fresh(['user', 'student']));
 
+        $application = $application->fresh(['user', 'intake']);
+        $applicationFeeGenerated = false;
+        if (! $application->application_fee_invoice_id) {
+            $invoice = $this->invoiceService->createApplicationFeeInvoice(
+                $application->user,
+                $intake,
+                $application->id,
+            );
+            $application->update(['application_fee_invoice_id' => $invoice->id]);
+            $applicationFeeGenerated = true;
+        }
+
         $emailed = false;
         if ($sendCredentials) {
             $this->admissions->sendCredentialsEmail($application->fresh(['user']));
@@ -341,6 +360,7 @@ class ApplicantImportService
         return [
             'emailed' => $emailed,
             'invoices_posted' => $invoiceResult['posted'],
+            'application_fee_generated' => $applicationFeeGenerated,
         ];
     }
 

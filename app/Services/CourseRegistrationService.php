@@ -42,6 +42,7 @@ class CourseRegistrationService
                 'term' => null,
                 'window' => 'Closed',
                 'can_self_register' => false,
+                'cannot_register_reason' => 'No academic semester is current.',
                 'tuition_percent' => TuitionProgress::percentPaid($student),
                 'tuition_ok' => false,
                 'limits' => [],
@@ -63,6 +64,7 @@ class CourseRegistrationService
         $enrolled = $this->enrolledRows($student, $term);
         $units = $this->unitsByBucket($enrolled);
         $canSelfRegister = $this->studentCanMutate($student, $term, $extension, false);
+        $blockReason = $canSelfRegister ? null : $this->studentMutateBlockReason($student, $term, $extension);
 
         return [
             'student' => [
@@ -89,12 +91,13 @@ class CourseRegistrationService
             'tuition_percent' => TuitionProgress::percentPaid($student),
             'tuition_ok' => TuitionProgress::meetsMinimum($student),
             'can_self_register' => $canSelfRegister,
+            'cannot_register_reason' => $blockReason,
             'limits' => $limits,
             'units' => $units,
             'roster_status' => $this->rosterStatus($units, $limits),
             'extension' => $extension ? $this->serializeExtension($extension) : null,
             'enrollments' => $enrolled->map(fn (Enrollment $row) => $this->serializeEnrollment($row))->values(),
-            'available' => ($canSelfRegister || $forStaff) ? $this->availableOfferings($student, $term) : [],
+            'available' => $this->availableOfferings($student, $term),
             'carry_overs' => $enrolled->where('is_carry_over', true)
                 ->map(fn (Enrollment $row) => $this->serializeEnrollment($row))
                 ->values(),
@@ -123,13 +126,14 @@ class CourseRegistrationService
                     'taken' => $taken,
                     'seats_left' => max(0, (int) $offering->capacity - $taken),
                     'bucket' => $offering->course?->course_type ?: 'departmental',
-                    'required' => false,
+                    'required' => ($offering->course?->status ?: 'core') === 'required',
                     'course' => [
                         'id' => $offering->course?->id,
                         'code' => $offering->course?->code,
                         'title' => $offering->course?->title,
                         'units' => (int) $offering->course?->units,
                         'course_type' => $offering->course?->course_type,
+                        'status' => $offering->course?->status ?: 'core',
                     ],
                     'lecturer' => $offering->lecturer?->user?->name,
                 ];
@@ -704,6 +708,19 @@ class CourseRegistrationService
         }
     }
 
+    private function studentMutateBlockReason(Student $student, AcademicTerm $term, ?RegistrationExtension $extension): ?string
+    {
+        try {
+            $this->assertStudentMayMutate($student, $term, $extension);
+
+            return null;
+        } catch (ValidationException $e) {
+            $first = collect($e->errors())->flatten()->first();
+
+            return is_string($first) ? $first : 'Course registration is not available yet.';
+        }
+    }
+
     private function assertStudentMayMutate(Student $student, AcademicTerm $term, ?RegistrationExtension $extension): void
     {
         if (! \App\Support\Studentship::canRegisterCourses($student)) {
@@ -876,6 +893,7 @@ class CourseRegistrationService
                     'title' => $row->offering?->course?->title,
                     'units' => (int) $row->offering?->course?->units,
                     'course_type' => $row->offering?->course?->course_type,
+                    'status' => $row->offering?->course?->status ?: 'core',
                 ],
             ],
             'grade' => $row->grade ? [

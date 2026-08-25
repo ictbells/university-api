@@ -55,6 +55,43 @@ class PaymentReceiptTest extends TestCase
         $this->assertStringContainsString('INV-RECEIPT-1', $html);
     }
 
+    public function test_tuition_receipt_includes_installment_percent(): void
+    {
+        $user = User::factory()->create(['name' => 'Bola Adebayo', 'status' => 'active']);
+        $invoice = Invoice::query()->create([
+            'number' => 'INV-RECEIPT-TUI',
+            'user_id' => $user->id,
+            'category' => 'tuition',
+            'installment_percent' => 25,
+            'amount' => 2250,
+            'full_amount' => 9000,
+            'balance' => 0,
+            'status' => 'paid',
+            'wallet_allowed' => true,
+        ]);
+        $invoice->items()->create([
+            'description' => 'Tuition 25%',
+            'amount' => 2250,
+        ]);
+        $invoice->payments()->create([
+            'user_id' => $user->id,
+            'method' => 'wallet',
+            'amount' => 2250,
+            'status' => 'successful',
+            'reference' => 'WALLET-INV-RECEIPT-TUI',
+            'receipt_no' => 'RCP-TUI25',
+            'purpose' => 'tuition',
+        ]);
+
+        Sanctum::actingAs($user);
+        $html = $this->get('/api/invoices/'.$invoice->id.'/receipt')
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('Tuition (25%)', $html);
+        $this->assertStringContainsString('RCP-TUI25', $html);
+    }
+
     public function test_wallet_receipt_shows_amount_in_words(): void
     {
         $user = User::factory()->create(['name' => 'Chidi Eze', 'status' => 'active']);

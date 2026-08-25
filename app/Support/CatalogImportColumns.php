@@ -37,7 +37,7 @@ class CatalogImportColumns
                 'is_research_degree',
             ],
             'olevel' => ['name', 'code', 'is_active'],
-            'courses' => ['code', 'title', 'units', 'course_type', 'department_id', 'programme_id', 'level_id'],
+            'courses' => ['code', 'title', 'units', 'course_type', 'status', 'department_id', 'programme_id', 'level_id'],
             default => throw new \InvalidArgumentException('Unknown catalogue import type.'),
         };
     }
@@ -95,6 +95,7 @@ class CatalogImportColumns
                 'title' => 'Introduction to Computing',
                 'units' => '3',
                 'course_type' => 'departmental',
+                'status' => 'core',
                 'department_id' => '1',
                 'programme_id' => '1',
                 'level_id' => '1',
@@ -151,7 +152,7 @@ class CatalogImportColumns
                 $order,
                 $skip,
                 'Required: code, title, department_id.',
-                'Optional: units (default 3), course_type (general, faculty, departmental), programme_id, level_id.',
+                'Optional: units (default 3), course_type (general, faculty, departmental), status (core, elective, required), programme_id, level_id.',
                 'Blank programme_id on a new general course attaches all active programmes.',
                 $ids,
             ],

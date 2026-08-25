@@ -61,6 +61,7 @@ class RegistrationController extends Controller
             'academic_session_id' => 'nullable|integer|exists:academic_sessions,id',
             'session' => 'nullable|string',
             'program_id' => 'nullable|integer|exists:programs,id',
+            'level' => 'nullable|string',
             'search' => 'nullable|string',
             'show_entry_mode' => 'nullable|boolean',
             'course_reg_status' => 'nullable|in:not_started,in_progress,registered',

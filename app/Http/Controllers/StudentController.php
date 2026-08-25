@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Student;
 use App\Services\AuditWriter;
+use App\Support\ListSessionLevelFilter;
 use Illuminate\Http\Request;
 
 class StudentController extends Controller
@@ -24,6 +25,7 @@ class StudentController extends Controller
         $query = Student::query()
             ->with(['program:id,name,code', 'user:id,name,email'])
             ->latest();
+        ListSessionLevelFilter::applyToStudents($query, $request);
 
         $status = (string) $request->input('status', '');
         if ($status === 'current' || $status === '') {
@@ -56,6 +58,8 @@ class StudentController extends Controller
                     });
             });
         }
+
+        ListSessionLevelFilter::applyToStudents($query, $request);
 
         return $query->paginate($perPage);
     }

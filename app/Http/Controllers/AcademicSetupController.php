@@ -14,6 +14,7 @@ use App\Models\OlevelSubject;
 use App\Models\Program;
 use App\Services\AcademicCatalogImportService;
 use App\Services\AuditWriter;
+use App\Services\InvoiceService;
 use App\Support\AdmissionCurrentGate;
 use App\Support\AdmissionEntryRules;
 use App\Support\CandidateEligibility;
@@ -133,11 +134,27 @@ class AcademicSetupController extends Controller
 
     public function intakesList()
     {
+        $invoices = app(InvoiceService::class);
+
         return Intake::query()
             ->with('term')
             ->get()
             ->sortBy(fn (Intake $intake) => [AdmissionEntryRules::entryModeRank($intake->entry_mode), -$intake->id])
-            ->values();
+            ->values()
+            ->map(function (Intake $intake) use ($invoices) {
+                try {
+                    $intake->setAttribute('resolved_application_fee_amount', $invoices->resolveApplicationFeeAmount($intake));
+                } catch (\Throwable) {
+                    $intake->setAttribute('resolved_application_fee_amount', $intake->application_fee_amount);
+                }
+                try {
+                    $intake->setAttribute('resolved_acceptance_fee_amount', $invoices->resolveAcceptanceFeeAmount($intake));
+                } catch (\Throwable) {
+                    $intake->setAttribute('resolved_acceptance_fee_amount', $intake->acceptance_fee_amount);
+                }
+
+                return $intake;
+            });
     }
 
     public function olevelSubjectsList()
@@ -277,7 +294,7 @@ class AcademicSetupController extends Controller
             'entry_mode' => 'required|in:utme,de,jupeb,transfer,pg',
             'opens_on' => 'required|date',
             'closes_on' => 'required|date|after_or_equal:opens_on',
-            'application_fee_amount' => 'required|numeric|min:0',
+            'application_fee_amount' => 'nullable|numeric|min:0',
             'acceptance_fee_amount' => 'nullable|numeric|min:0',
             'is_open' => 'sometimes|boolean',
         ]);
@@ -300,7 +317,7 @@ class AcademicSetupController extends Controller
             'entry_mode' => 'sometimes|in:utme,de,jupeb,transfer,pg',
             'opens_on' => 'sometimes|date',
             'closes_on' => 'sometimes|date|after_or_equal:opens_on',
-            'application_fee_amount' => 'sometimes|numeric|min:0',
+            'application_fee_amount' => 'nullable|numeric|min:0',
             'acceptance_fee_amount' => 'nullable|numeric|min:0',
             'is_open' => 'sometimes|boolean',
         ]);

@@ -7,6 +7,7 @@ use App\Models\CourseOffering;
 use App\Models\Enrollment;
 use App\Models\Student;
 use App\Services\CourseRegistrationService;
+use App\Support\ListSessionLevelFilter;
 use App\Support\RegistrationCriteria;
 use Illuminate\Http\Request;
 
@@ -29,6 +30,7 @@ class CourseRegistrationController extends Controller
         $query = Student::query()
             ->whereHas('application', fn ($application) => RegistrationCriteria::completedApplication($application))
             ->with(['user:id,name,email', 'program:id,name,code']);
+        ListSessionLevelFilter::applyToStudents($query, $request);
 
         if ($term !== '') {
             $like = '%'.$term.'%';

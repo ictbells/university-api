@@ -12,7 +12,18 @@ class Course extends BaseModel
 {
     public const TYPES = ['general', 'faculty', 'departmental'];
 
-    protected $fillable = ['department_id', 'code', 'title', 'units', 'course_type'];
+    public const STATUSES = ['core', 'elective', 'required'];
+
+    protected $fillable = ['department_id', 'code', 'title', 'units', 'course_type', 'status'];
+
+    public static function statusLabel(?string $status): string
+    {
+        return match ($status) {
+            'elective' => 'Elective',
+            'required' => 'Required',
+            default => 'Core',
+        };
+    }
 
     public function department(): BelongsTo
     {
