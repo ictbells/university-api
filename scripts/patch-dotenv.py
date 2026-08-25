@@ -8,6 +8,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 AES256_KEY_BYTES = 32
 
@@ -149,12 +150,101 @@ def check_app_key(path: Path) -> int:
     return 0
 
 
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _hostname(url: str) -> str:
+    host = (urlparse(url.strip()).hostname or "").lower()
+    return host.split("%")[0]
+
+
+def parent_cookie_domain(host: str) -> str | None:
+    host = host.split(":")[0].strip().lower()
+    if not host or host in _LOCAL_HOSTS:
+        return None
+    parts = [p for p in host.split(".") if p]
+    if len(parts) < 2:
+        return None
+    return "." + ".".join(parts[-2:])
+
+
+def hosts_from_url(url: str) -> list[str]:
+    host = _hostname(url)
+    if not host:
+        return []
+    hosts = [host]
+    if not host.startswith("www."):
+        hosts.append("www." + host)
+    return hosts
+
+
+def ensure_spa_session(path: Path) -> int:
+    """Set SESSION_DOMAIN / SANCTUM_STATEFUL_DOMAINS from APP_URL + SPA URLs on non-local hosts."""
+    app_url = get_key(path, "APP_URL") or ""
+    front = get_key(path, "FRONTEND_URL") or ""
+    student = get_key(path, "STUDENT_URL") or ""
+    domain = parent_cookie_domain(_hostname(app_url)) or parent_cookie_domain(_hostname(front))
+    if not domain:
+        print("SPA session: local APP_URL; leaving SESSION_DOMAIN unchanged.")
+        return 0
+
+    seen: list[str] = []
+    for url in (front, student, app_url):
+        for host in hosts_from_url(url):
+            if host not in seen:
+                seen.append(host)
+
+    existing = [
+        h.strip()
+        for h in (get_key(path, "SANCTUM_STATEFUL_DOMAINS") or "").split(",")
+        if h.strip() and h.strip().split(":")[0].lower() not in _LOCAL_HOSTS
+    ]
+    for host in existing:
+        if host not in seen:
+            seen.append(host)
+
+    cookie = (get_key(path, "SESSION_COOKIE") or "").strip()
+    if not cookie or cookie.lower() == "null":
+        cookie = "bells_sis_session"
+
+    cors: list[str] = []
+    for raw in (get_key(path, "CORS_ALLOWED_ORIGINS") or "").split(","):
+        origin = raw.strip().rstrip("/")
+        if origin and origin not in cors:
+            cors.append(origin)
+    for url in (front, student):
+        origin = url.strip().rstrip("/")
+        if not origin:
+            continue
+        if origin not in cors:
+            cors.append(origin)
+        parsed = urlparse(origin)
+        if parsed.scheme and parsed.hostname and not parsed.hostname.startswith("www."):
+            www = f"{parsed.scheme}://www.{parsed.hostname}"
+            if www not in cors:
+                cors.append(www)
+
+    apply_updates(
+        path,
+        {
+            "SESSION_DOMAIN": domain,
+            "SESSION_SECURE_COOKIE": "true",
+            "SESSION_COOKIE": cookie,
+            "SANCTUM_STATEFUL_DOMAINS": ",".join(seen),
+            "CORS_ALLOWED_ORIGINS": ",".join(cors),
+        },
+    )
+    print(f"SPA session: SESSION_DOMAIN={domain} stateful_hosts={len(seen)}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("env_file")
     parser.add_argument("--get")
     parser.add_argument("--check-app-key", action="store_true")
     parser.add_argument("--normalize-app-key", action="store_true")
+    parser.add_argument("--ensure-spa-session", action="store_true")
     args = parser.parse_args()
     path = Path(args.env_file)
     if args.get:
@@ -175,6 +265,8 @@ def main() -> int:
             return 1
         apply_updates(path, {"APP_KEY": normalize_app_key(current)})
         return 0
+    if args.ensure_spa_session:
+        return ensure_spa_session(path)
     updates = json.load(sys.stdin)
     parsed = {str(k): str(v) for k, v in updates.items()}
     if "APP_KEY" in parsed:

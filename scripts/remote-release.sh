@@ -55,6 +55,7 @@ bash "$ROOT/scripts/sync-rds-credentials.sh"
 # EC2: APP_KEY from Secrets Manager. Always validate 32-byte AES-256 length.
 # Cached config.php with a bad key must be removed before any artisan boot.
 bash "$ROOT/scripts/sync-app-key.sh"
+python3 "$ROOT/scripts/patch-dotenv.py" "$ROOT/.env" --ensure-spa-session
 rm -f "$ROOT/bootstrap/cache/config.php" \
   "$ROOT/bootstrap/cache/routes.php" \
   "$ROOT/bootstrap/cache/routes-v7.php" \

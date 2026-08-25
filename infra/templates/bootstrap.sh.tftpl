@@ -115,7 +115,6 @@ write_env() {
   app_user="$(echo "$app_json" | jq -r '.username')"
   app_pass="$(echo "$app_json" | jq -r '.password')"
   app_key="$(sm_get "$APP_KEY_SECRET_NAME" | tr -d '\r')"
-  app_key="${app_key%"${app_key##*[![:space:]]}"}"
   app_pass_q="$(printf '%s' "$app_pass" | quote_env_stdin)"
   cat >/var/www/api/.env <<EOF
 APP_NAME="Bells University of Technology"
