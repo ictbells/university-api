@@ -233,7 +233,9 @@ Configure structure under **Administration → Department Setup** (page title **
 4. Tick the sidebar items that office should access.
 5. Save.
 
-Staff placed at that node will see only those links (plus Home), subject to their role permissions.
+**Inheritance:** Units inherit portal links assigned on their department. Subunits inherit links from both the parent unit and the department. You only need to assign a module once at the department (or unit) level; child offices still only see modules their role permissions allow. Extra links can still be assigned directly on a unit or subunit when needed.
+
+Staff placed at a node see assigned links **plus inherited parent links** (and department placement also includes links assigned on child units/subunits), subject to their role permissions. Home is always available when no other links resolve.
 
 **Portal link keys** (used in Department Setup → Links):
 
@@ -671,6 +673,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.8 | Aug 2026 | Platform team | Distinguish admission sessions (enrolled students) from application sessions (intakes); student-portal signup requires an accepting application session |
 | 1.9 | Aug 2026 | Platform team | Applicants select an application session before account creation; UTME/DE JAMB and candidate-list checks apply at signup |
 | 1.10 | Aug 2026 | Platform team | Document programme workflow templates (UG/JUPEB, transfer, taught PG, research PG) and default-from-study-level rules |
+| 1.11 | Aug 2026 | Platform team | Units/subunits inherit department (and subunit inherits unit) portal links; permissions still gate actions |
 | 1.11 | Aug 2026 | Platform team | Staff can revert the last admissions decision on an application file |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.

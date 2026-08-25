@@ -49,24 +49,9 @@ class OfferAcceptancePortalTest extends TestCase
             ->assertJsonPath('unpaid_acceptance_fee', true);
     }
 
-    public function test_opening_the_file_creates_acceptance_invoice_from_intake_default(): void
+    public function test_opening_the_file_prefers_catalog_amount_over_intake_default(): void
     {
-        $user = $this->applicantWithOffer('offer_issued');
-        $application = $user->latestApplication;
-        $this->assertNull($application->acceptance_fee_invoice_id);
-
-        Sanctum::actingAs($user);
-
-        $response = $this->getJson("/api/applications/{$application->id}")->assertOk();
-        $this->assertSame('unpaid', $response->json('acceptance_fee_invoice.status'));
-        $this->assertEquals(7000, (float) $response->json('acceptance_fee_invoice.amount'));
-        $this->assertNotNull($application->fresh()->acceptance_fee_invoice_id);
-        $this->assertSame('awaiting_acceptance_fee', $application->fresh()->stage);
-    }
-
-    public function test_opening_the_file_uses_catalog_amount_when_intake_default_is_zero(): void
-    {
-        $user = $this->applicantWithOffer('offer_issued', 0);
+        $user = $this->applicantWithOffer('offer_issued', 7000);
         \App\Models\FeeItem::query()->create([
             'name' => 'Acceptance',
             'category' => 'acceptance_fee',
@@ -74,11 +59,25 @@ class OfferAcceptancePortalTest extends TestCase
             'is_active' => true,
             'wallet_allowed' => false,
         ]);
+        $application = $user->latestApplication;
+        $this->assertNull($application->acceptance_fee_invoice_id);
 
         Sanctum::actingAs($user);
 
-        $response = $this->getJson("/api/applications/{$user->latestApplication->id}")->assertOk();
+        $response = $this->getJson("/api/applications/{$application->id}")->assertOk();
+        $this->assertSame('unpaid', $response->json('acceptance_fee_invoice.status'));
         $this->assertEquals(8000, (float) $response->json('acceptance_fee_invoice.amount'));
+        $this->assertNotNull($application->fresh()->acceptance_fee_invoice_id);
+        $this->assertSame('awaiting_acceptance_fee', $application->fresh()->stage);
+    }
+
+    public function test_opening_the_file_uses_intake_default_when_catalog_is_missing(): void
+    {
+        $user = $this->applicantWithOffer('offer_issued', 7000);
+        Sanctum::actingAs($user);
+
+        $response = $this->getJson("/api/applications/{$user->latestApplication->id}")->assertOk();
+        $this->assertEquals(7000, (float) $response->json('acceptance_fee_invoice.amount'));
     }
 
     public function test_me_does_not_flag_acceptance_after_fee_is_paid(): void

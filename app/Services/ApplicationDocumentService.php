@@ -103,14 +103,12 @@ class ApplicationDocumentService
         $fee = $application->acceptanceFeeInvoice;
         if (! $fee) {
             try {
-                $amount = $application->intake
-                    ? $application->intake->acceptanceFeeAmount()
-                    : null;
-                if ($amount === null) {
-                    $amount = (float) (FeeItem::query()->where('category', 'acceptance_fee')->where('is_active', true)->value('amount') ?? 0);
+                $amount = (float) (FeeItem::query()->where('category', 'acceptance_fee')->where('is_active', true)->value('amount') ?? 0);
+                if ($amount <= 0) {
+                    $amount = (float) ($application->intake?->acceptanceFeeAmount() ?? 0);
                 }
             } catch (\Throwable) {
-                $amount = (float) (FeeItem::query()->where('category', 'acceptance_fee')->where('is_active', true)->value('amount') ?? 0);
+                $amount = (float) ($application->intake?->acceptanceFeeAmount() ?? 0);
             }
         } else {
             $amount = (float) $fee->amount;

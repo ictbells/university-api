@@ -232,14 +232,14 @@ class InvoiceService
             return $amount;
         }
 
-        $fromIntake = $intake?->acceptanceFeeAmount();
-        if ($fromIntake !== null && $fromIntake > 0) {
-            return $fromIntake;
-        }
-
         $fee = FeeItem::query()->where('category', 'acceptance_fee')->where('is_active', true)->first();
         if ($fee && (float) $fee->amount > 0) {
             return (float) $fee->amount;
+        }
+
+        $fromIntake = $intake?->acceptanceFeeAmount();
+        if ($fromIntake !== null && $fromIntake > 0) {
+            return $fromIntake;
         }
 
         throw new RuntimeException('Set an acceptance fee amount in the fee catalog or application session before students can pay.');

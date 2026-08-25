@@ -113,24 +113,36 @@ class OfficeStructureController extends Controller
 
     private function formatDepartment(OfficeDepartment $dept): array
     {
+        $departmentKeys = $dept->navKeys();
+
         return [
             ...$dept->toArray(),
-            'nav_keys' => $dept->navKeys(),
+            'nav_keys' => $departmentKeys,
             'nav_links' => $dept->navLinkConfigs(),
+            'inherited_nav_keys' => [],
             'head_staff' => $this->formatHeadStaff($dept->headStaff),
-            'needs_hod' => $dept->navKeys() !== [] && ! $dept->head_staff_id,
-            'units' => $dept->units->map(fn (OfficeUnit $unit) => [
-                ...$unit->toArray(),
-                'nav_keys' => $unit->navKeys(),
-                'nav_links' => $unit->navLinkConfigs(),
-                'head_staff' => $this->formatHeadStaff($unit->headStaff),
-                'needs_unit_head' => $unit->subunits->isNotEmpty() && ! $unit->head_staff_id,
-                'subunits' => $unit->subunits->map(fn (OfficeSubunit $sub) => [
-                    ...$sub->toArray(),
-                    'nav_keys' => $sub->navKeys(),
-                    'nav_links' => $sub->navLinkConfigs(),
-                ])->values(),
-            ])->values(),
+            'needs_hod' => $departmentKeys !== [] && ! $dept->head_staff_id,
+            'units' => $dept->units->map(function (OfficeUnit $unit) use ($departmentKeys) {
+                $unitKeys = $unit->navKeys();
+                $unitInherited = $departmentKeys;
+
+                return [
+                    ...$unit->toArray(),
+                    'nav_keys' => $unitKeys,
+                    'nav_links' => $unit->navLinkConfigs(),
+                    'inherited_nav_keys' => $unitInherited,
+                    'head_staff' => $this->formatHeadStaff($unit->headStaff),
+                    'needs_unit_head' => $unit->subunits->isNotEmpty() && ! $unit->head_staff_id,
+                    'subunits' => $unit->subunits->map(function (OfficeSubunit $sub) use ($departmentKeys, $unitKeys) {
+                        return [
+                            ...$sub->toArray(),
+                            'nav_keys' => $sub->navKeys(),
+                            'nav_links' => $sub->navLinkConfigs(),
+                            'inherited_nav_keys' => array_values(array_unique([...$departmentKeys, ...$unitKeys])),
+                        ];
+                    })->values(),
+                ];
+            })->values(),
         ];
     }
 

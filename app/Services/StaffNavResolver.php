@@ -80,19 +80,24 @@ class StaffNavResolver
     }
 
     /**
+     * Unit staff inherit department links; also see links assigned on child subunits.
+     *
      * @return list<string>
      */
     private function unitNavKeys(int $unitId): array
     {
         $unit = OfficeUnit::query()
-            ->with(['navLinks', 'subunits.navLinks'])
+            ->with(['navLinks', 'subunits.navLinks', 'department.navLinks'])
             ->find($unitId);
 
         if (! $unit) {
             return [];
         }
 
-        $keys = $unit->navKeys();
+        $keys = [
+            ...($unit->department?->navKeys() ?? []),
+            ...$unit->navKeys(),
+        ];
 
         foreach ($unit->subunits as $subunit) {
             $keys = [...$keys, ...$subunit->navKeys()];
@@ -102,13 +107,25 @@ class StaffNavResolver
     }
 
     /**
+     * Subunit staff inherit unit and department links.
+     *
      * @return list<string>
      */
     private function subunitNavKeys(int $subunitId): array
     {
-        $subunit = OfficeSubunit::query()->with('navLinks')->find($subunitId);
+        $subunit = OfficeSubunit::query()
+            ->with(['navLinks', 'unit.navLinks', 'unit.department.navLinks'])
+            ->find($subunitId);
 
-        return $subunit ? $subunit->navKeys() : [];
+        if (! $subunit) {
+            return [];
+        }
+
+        return [
+            ...($subunit->unit?->department?->navKeys() ?? []),
+            ...($subunit->unit?->navKeys() ?? []),
+            ...$subunit->navKeys(),
+        ];
     }
 
     public function catalog(): array
