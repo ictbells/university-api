@@ -12,6 +12,7 @@ use App\Models\Setting;
 use App\Services\AuditWriter;
 use App\Services\PremblyService;
 use App\Services\SessionCloseService;
+use App\Support\AdmissionCurrentGate;
 use App\Support\AdmissionsContactSettings;
 use App\Support\StaffSupportContactSettings;
 use Illuminate\Http\Request;
@@ -61,6 +62,8 @@ class InstitutionController extends Controller
         $before = Setting::query()->pluck('value', 'key');
         foreach ($data as $key => $value) {
             if ($key === 'current_term_id' && $value) {
+                $term = AcademicTerm::query()->findOrFail($value);
+                AdmissionCurrentGate::assertCanSetCurrent($term, 'current_term_id');
                 AcademicTerm::query()->update(['is_current' => false]);
                 AcademicTerm::query()->where('id', $value)->update(['is_current' => true]);
                 Setting::setValue('current_term_id', $value);
@@ -230,9 +233,14 @@ class InstitutionController extends Controller
         $session = AcademicSession::query()->findOrFail($data['academic_session_id']);
         $data['session_label'] = $session->label;
 
+        if (! empty($data['is_current'])) {
+            AdmissionCurrentGate::assertCanSetCurrentForSession((int) $data['academic_session_id']);
+        }
+
         return $this->officeGate('academic.store_term', null, $data, 'Create semester', function () use ($data) {
             $term = DB::transaction(function () use ($data) {
                 if (! empty($data['is_current'])) {
+                    AdmissionCurrentGate::assertCanSetCurrentForSession((int) $data['academic_session_id']);
                     AcademicTerm::query()->update(['is_current' => false]);
                 }
                 $term = AcademicTerm::query()->create($data);
@@ -263,9 +271,14 @@ class InstitutionController extends Controller
             'auto_schedule' => 'boolean',
         ]);
 
+        if (! empty($data['is_current'])) {
+            AdmissionCurrentGate::assertCanSetCurrent($term);
+        }
+
         return $this->officeGate('academic.update_term', $term, ['term_id' => $term->id, ...$data], 'Update semester', function () use ($term, $data, $before) {
             DB::transaction(function () use ($term, $data) {
                 if (! empty($data['is_current'])) {
+                    AdmissionCurrentGate::assertCanSetCurrent($term);
                     AcademicTerm::query()->where('id', '!=', $term->id)->update(['is_current' => false]);
                     Setting::setValue('current_term_id', $term->id);
                 }
@@ -337,6 +350,7 @@ class InstitutionController extends Controller
 
                 $hasCurrent = collect($data['semesters'])->contains(fn ($s) => ! empty($s['is_current']));
                 if ($hasCurrent) {
+                    AdmissionCurrentGate::assertCanSetCurrentForSession((int) $session->id, 'semesters');
                     AcademicTerm::query()->update(['is_current' => false]);
                 }
 

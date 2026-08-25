@@ -4,8 +4,11 @@ namespace App\Services;
 
 use App\Models\AcademicTerm;
 use App\Models\Setting;
+use App\Support\AdmissionCurrentGate;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 class AcademicCalendarService
 {
@@ -36,7 +39,15 @@ class AcademicCalendarService
 
         $opened = null;
         if ($candidate && ! $candidate->is_current) {
-            $opened = $this->activateSemester($candidate);
+            if (! AdmissionCurrentGate::canSetCurrent($candidate)) {
+                Log::info('Skipped semester auto-activation: application sessions still accepting', [
+                    'academic_term_id' => $candidate->id,
+                    'academic_session_id' => $candidate->academic_session_id,
+                    'accepting' => AdmissionCurrentGate::acceptingIntakeNamesForSession((int) $candidate->academic_session_id),
+                ]);
+            } else {
+                $opened = $this->activateSemester($candidate);
+            }
         } elseif ($candidate?->is_current) {
             Setting::setValue('current_term_id', $candidate->id);
         }
@@ -46,7 +57,14 @@ class AcademicCalendarService
 
     public function activateSemester(AcademicTerm $term): AcademicTerm
     {
+        if (! AdmissionCurrentGate::canSetCurrent($term)) {
+            throw ValidationException::withMessages([
+                'is_current' => AdmissionCurrentGate::MESSAGE,
+            ]);
+        }
+
         return DB::transaction(function () use ($term) {
+            AdmissionCurrentGate::assertCanSetCurrent($term);
             AcademicTerm::query()->update(['is_current' => false]);
             $term->update(['is_current' => true]);
             Setting::setValue('current_term_id', $term->id);

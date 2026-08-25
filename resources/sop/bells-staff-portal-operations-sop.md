@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.12  
+**Version:** 1.13  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -444,8 +444,18 @@ Leave the field on **Default from study level** unless the programme needs a dif
 
 These are two calendars, not one record with a type flag.
 
-- **Admission session** — Academic → Admission Setup → Admission sessions. Used by enrolled students (course registration, hostels, session close and promotion).
+- **Admission session** — Academic → Admission Setup → Admission sessions. Used by enrolled students (course registration, hostels, session close and promotion). A session becomes the live calendar only when one of its semesters is marked **Current**.
 - **Application session** — Academic → Application Setup → Application sessions (intake). Open when **Accepting applications** is on and today is within the open and close dates.
+
+**Lifecycle for a new year**
+
+1. Create the **admission session** (and semesters) **without** marking any semester current — the previous year stays current for enrolled students.
+2. Open **application sessions** on that admission session.
+3. **Stop accepting** when the application window ends.
+4. **Run admission** (review, offers, acceptance, matriculation).
+5. **Set a semester current** so this admission session becomes active for students.
+
+The platform blocks step 5 while any application session on that admission session is still accepting.
 
 New applicant **signup** on the student portal requires choosing a specific **application session** first. An open UTME session does not let a postgraduate or transfer applicant create an account. NIN preview and account creation are rejected unless that session is accepting. UTME and Direct Entry also require a JAMB number; if a candidate list has been uploaded for that session, the number must appear on it. Signup then starts the application for the chosen session. If no session is accepting, the API returns *Applications are not open. There is no active application session, so you cannot create an account.* Staff applicant import and existing applicant login are not blocked.
 
@@ -577,11 +587,14 @@ Use the audit trail for compliance reviews and incident investigation.
 
 ### 10.2 Prepare a new admissions cycle
 
-1. Confirm **Admission sessions** for the cycle.
+1. Create the **Admission session** for the new year with at least two semesters. Do **not** mark any semester current yet — keep the previous year current for enrolled students.
 2. Confirm **Programmes** have the correct entry modes and are active.
 3. Open **Application sessions** for each category (UTME, DE, JUPEB, Transfer, PG) with the application fee set. Applicants must select the session they qualify for at signup; opening only UTME does not admit other categories.
 4. Upload **Candidate data** for UTME/DE sessions before applicants register (if JAMB-list enforcement is required).
 5. If migrating from another portal, use **Import applicants** (see §8.5).
+6. When the window ends, **stop accepting** on those application sessions.
+7. **Run admission** (pipeline decisions, offers, acceptance fees, matriculation).
+8. **Set a semester current** on the new admission session so it becomes the live session for students. The system rejects this while any application session on that admission session is still accepting.
 
 ### 10.3 Import applicants from another portal
 
@@ -674,6 +687,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.11 | Aug 2026 | Platform team | Units/subunits inherit department (and subunit inherits unit) portal links; permissions still gate actions |
 | 1.11 | Aug 2026 | Platform team | Staff can revert the last admissions decision on an application file |
 | 1.12 | Aug 2026 | Platform team | Applicant import does not submit files; applicants must re-upload required documents and submit after login |
+| 1.13 | Aug 2026 | Platform team | Admission session lifecycle: create (not current) → open applications → stop accepting → run admission → set current; platform blocks current while intakes accepting |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

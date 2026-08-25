@@ -391,7 +391,8 @@ class AuthController extends Controller
                 'motto' => Setting::getValue('university_motto', 'Chords of Knowledge'),
             ],
             'current_session' => $this->currentSessionLabel($user),
-            'current_semester' => $this->currentSemesterName(),
+            'current_semester' => $this->currentSemesterName($user),
+            'current_session_kind' => $this->currentSessionKind($user),
             'current_term' => $this->currentTermPayload($user),
         ]);
     }
@@ -406,8 +407,21 @@ class AuthController extends Controller
         return $this->resolvedCurrentTerm;
     }
 
+    private function currentSessionKind(User $user): string
+    {
+        if (! $user->isStudent() && $user->latestApplication?->intake) {
+            return 'application';
+        }
+
+        return 'admission';
+    }
+
     private function currentSessionLabel(User $user): ?string
     {
+        if ($this->currentSessionKind($user) === 'application') {
+            return $user->latestApplication?->intake?->name;
+        }
+
         $current = $this->currentTerm();
 
         return $current?->session?->label
@@ -416,8 +430,12 @@ class AuthController extends Controller
             ?: $user->latestApplication?->intake?->term?->session_label;
     }
 
-    private function currentSemesterName(): ?string
+    private function currentSemesterName(?User $user = null): ?string
     {
+        if ($user && $this->currentSessionKind($user) === 'application') {
+            return null;
+        }
+
         return $this->currentTerm()?->name;
     }
 
@@ -426,7 +444,7 @@ class AuthController extends Controller
         $term = $this->currentTerm();
         if (! $term) {
             $label = $this->currentSessionLabel($user);
-            $semester = $this->currentSemesterName();
+            $semester = $this->currentSemesterName($user);
             if (! $label && ! $semester) {
                 return null;
             }

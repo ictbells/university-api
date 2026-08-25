@@ -14,6 +14,7 @@ use App\Models\OlevelSubject;
 use App\Models\Program;
 use App\Services\AcademicCatalogImportService;
 use App\Services\AuditWriter;
+use App\Support\AdmissionCurrentGate;
 use App\Support\AdmissionEntryRules;
 use App\Support\CandidateEligibility;
 use Illuminate\Http\Request;
@@ -94,8 +95,11 @@ class AcademicSetupController extends Controller
             ->orderByDesc('id')
             ->get()
             ->map(function (AcademicSession $session) {
+                $accepting = AdmissionCurrentGate::acceptingIntakeNamesForSession((int) $session->id);
                 $session->setAttribute('is_current', $session->semesters->contains(fn ($s) => $s->is_current));
                 $session->setAttribute('is_closed', $session->isClosed());
+                $session->setAttribute('accepting_application_sessions', $accepting);
+                $session->setAttribute('can_set_current', $accepting === []);
                 $closure = $session->latestClosure;
                 if ($closure) {
                     $session->setAttribute('last_closure', [
