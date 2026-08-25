@@ -542,6 +542,7 @@ class FinanceController extends Controller
                     'number' => $invoice->number,
                     'category' => $invoice->category,
                     'amount' => $settlement['billed'],
+                    'installment_amount' => $settlement['installment'],
                     'full_amount' => (float) ($invoice->full_amount ?: $invoice->amount),
                     'installment_percent' => $invoice->installment_percent !== null ? (int) $invoice->installment_percent : null,
                     'amount_paid' => $settlement['paid'],
@@ -775,7 +776,7 @@ class FinanceController extends Controller
     private function studentRosterQuery(Request $request, ?int $sessionId): Builder
     {
         $billed = Invoice::query()
-            ->selectRaw('COALESCE(SUM(amount), 0)')
+            ->selectRaw('COALESCE(SUM(COALESCE(full_amount, amount)), 0)')
             ->whereNotIn('status', ['cancelled', 'disabled'])
             ->where(function (Builder $query) {
                 $query->whereColumn('invoices.student_id', 'students.id')
@@ -783,13 +784,23 @@ class FinanceController extends Controller
             });
         $outstanding = Invoice::query()
             ->selectRaw(
-                'COALESCE(SUM(GREATEST(0, amount - COALESCE(rebate_total, 0) - COALESCE(('
+                'COALESCE(SUM(CASE WHEN ('
+                .'COALESCE(full_amount, amount) - COALESCE(rebate_total, 0) - COALESCE(('
                 .'SELECT SUM(p.amount) FROM payments p '
                 .'WHERE p.invoice_id = invoices.id '
                 .'AND p.deleted_at IS NULL '
                 .'AND p.status IN (\'successful\', \'paid\') '
                 .'AND (p.purpose IS NULL OR p.purpose NOT IN (\'wallet_topup\', \'wallet_funding\'))'
-                .'), 0))), 0)'
+                .'), 0)'
+                .') > 0 THEN ('
+                .'COALESCE(full_amount, amount) - COALESCE(rebate_total, 0) - COALESCE(('
+                .'SELECT SUM(p.amount) FROM payments p '
+                .'WHERE p.invoice_id = invoices.id '
+                .'AND p.deleted_at IS NULL '
+                .'AND p.status IN (\'successful\', \'paid\') '
+                .'AND (p.purpose IS NULL OR p.purpose NOT IN (\'wallet_topup\', \'wallet_funding\'))'
+                .'), 0)'
+                .') ELSE 0 END), 0)'
             )
             ->whereNotIn('status', ['cancelled', 'disabled'])
             ->where(function (Builder $query) {

@@ -21,7 +21,7 @@ class StudentFinanceInstallmentTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_student_status_bills_installment_amount_not_full_year_fee(): void
+    public function test_student_status_bills_full_tuition_and_keeps_remaining_balance(): void
     {
         $staff = $this->financeStaff();
         [$student, $tuition] = $this->studentWithPaidQuarterTuition();
@@ -31,27 +31,31 @@ class StudentFinanceInstallmentTest extends TestCase
             ->assertOk()
             ->json();
 
-        $this->assertEquals(4250.0, $payload['summary']['billed']);
+        $this->assertEquals(17000.0, $payload['summary']['billed']);
         $this->assertEquals(4250.0, $payload['summary']['paid']);
-        $this->assertEquals(0.0, $payload['summary']['outstanding']);
+        $this->assertEquals(12750.0, $payload['summary']['outstanding']);
 
         $invoiceRow = collect($payload['invoices'])->firstWhere('id', $tuition->id);
-        $this->assertEquals(4250.0, $invoiceRow['amount']);
+        $this->assertEquals(17000.0, $invoiceRow['amount']);
+        $this->assertEquals(4250.0, $invoiceRow['installment_amount']);
         $this->assertEquals(4250.0, $invoiceRow['amount_paid']);
-        $this->assertEquals(0.0, $invoiceRow['balance']);
-        $this->assertEquals('paid', $invoiceRow['status']);
-        $this->assertEquals(17000.0, $invoiceRow['full_amount']);
+        $this->assertEquals(12750.0, $invoiceRow['balance']);
+        $this->assertEquals('partial', $invoiceRow['status']);
         $this->assertEquals(25, $invoiceRow['installment_percent']);
 
-        $paymentAmounts = collect($payload['payments'])->pluck('amount')->map(fn ($v) => (float) $v)->all();
-        $this->assertEquals([4250.0], $paymentAmounts);
-        $this->assertFalse(
-            collect($payload['payments'])->contains(fn ($row) => ($row['method'] ?? '') === 'recorded'),
-            'Must not invent a recorded payment for the unpaid remainder of full_amount.',
-        );
+        // Payable installment on the invoice document stays settled for wallet/Paystack.
+        $this->assertEquals(0.0, (float) $tuition->fresh()->balance);
+        $this->assertEquals('paid', $tuition->fresh()->status);
+
+        $this->getJson('/api/finance/student-roster?student_id='.$student->id)
+            ->assertOk()
+            ->assertJsonPath('data.0.billed', 17000)
+            ->assertJsonPath('data.0.paid', 4250)
+            ->assertJsonPath('data.0.outstanding', 12750)
+            ->assertJsonPath('data.0.clearance', 'outstanding');
     }
 
-    public function test_student_status_recalculates_balance_from_receipts_when_status_is_wrong(): void
+    public function test_student_status_with_fees_and_partial_tuition(): void
     {
         $staff = $this->financeStaff();
         $user = User::factory()->create(['status' => 'active']);
@@ -71,8 +75,8 @@ class StudentFinanceInstallmentTest extends TestCase
             'student_id' => $student->id,
             'category' => 'tuition',
             'installment_percent' => 25,
-            'amount' => 17000,
-            'full_amount' => 68000,
+            'amount' => 4250,
+            'full_amount' => 17000,
             'balance' => 0,
             'status' => 'paid',
             'wallet_allowed' => true,
@@ -140,9 +144,6 @@ class StudentFinanceInstallmentTest extends TestCase
         $this->assertEquals(4250.0, $invoiceRow['amount_paid']);
         $this->assertEquals(12750.0, $invoiceRow['balance']);
         $this->assertEquals('partial', $invoiceRow['status']);
-
-        $this->assertEquals(12750.0, (float) $tuition->fresh()->balance);
-        $this->assertEquals('partial', $tuition->fresh()->status);
     }
 
     public function test_tuition_progress_uses_amount_paid_against_full_year(): void

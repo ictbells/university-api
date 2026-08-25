@@ -225,6 +225,96 @@ class StudentImportTest extends TestCase
         $this->assertSame(2, $student->wallet->transactions()->count());
     }
 
+    public function test_invoice_import_holds_application_fee_until_student_matched_by_application_number(): void
+    {
+        Sanctum::actingAs($this->staffUser(
+            ['finance.invoices.manage', 'students.import'],
+            ['import-invoices', 'import-students'],
+        ));
+
+        $this->post('/api/invoices/import', [
+            'file' => $this->spreadsheet('Invoices', InvoiceImportColumns::all(), $this->applicationFeeInvoiceRow([
+                'application_number' => 'APP/2019/0001',
+                'payment_reference' => 'LEG-APP-0001',
+            ])),
+        ], ['Accept' => 'application/json'])->assertOk()
+            ->assertJsonPath('data.pending', 1)
+            ->assertJsonPath('data.posted', 0);
+
+        $this->assertSame(1, LegacyInvoiceImport::query()->where('status', 'pending')->count());
+        $this->assertSame(0, Invoice::query()->count());
+
+        Mail::fake();
+        $this->post('/api/students/import', [
+            'file' => $this->spreadsheet('Students', StudentImportColumns::all(), array_merge(StudentImportColumns::sample(), [
+                'programme_id' => (string) $this->program->id,
+                'email' => 'legacy.appfee@example.com',
+                'nin' => '12345678931',
+                'jamb_registration' => '87654321CD',
+                'old_application_number' => 'APP/2019/0001',
+                'matric_number' => 'BUT/2019/M/0091',
+                'password' => 'OldPortal1!',
+            ])),
+            'intake_id' => $this->intake->id,
+            'entry_mode' => 'utme',
+            'send_credentials' => '0',
+        ], ['Accept' => 'application/json'])->assertOk()
+            ->assertJsonPath('data.created', 1)
+            ->assertJsonPath('data.invoices_posted', 1);
+
+        $student = Student::query()->where('matric_number', 'BUT/2019/M/0091')->first();
+        $this->assertNotNull($student);
+        $application = $student->application;
+        $this->assertSame('APP/2019/0001', $application->application_number);
+        $this->assertNotNull($application->application_fee_invoice_id);
+
+        $invoice = Invoice::query()->find($application->application_fee_invoice_id);
+        $this->assertNotNull($invoice);
+        $this->assertSame('application_fee', $invoice->category);
+        $this->assertSame('paid', $invoice->status);
+        $this->assertSame($student->id, $invoice->student_id);
+        $this->assertSame($application->id, $invoice->application_id);
+        $this->assertFalse($student->user->portalAccess()['unpaid_application_fee']);
+    }
+
+    public function test_invoice_import_holds_application_fee_until_student_matched_by_jamb(): void
+    {
+        Sanctum::actingAs($this->staffUser(
+            ['finance.invoices.manage', 'students.import'],
+            ['import-invoices', 'import-students'],
+        ));
+
+        $this->post('/api/invoices/import', [
+            'file' => $this->spreadsheet('Invoices', InvoiceImportColumns::all(), $this->applicationFeeInvoiceRow([
+                'jamb_registration' => '11223344EF',
+                'payment_reference' => 'LEG-APP-JAMB-1',
+            ])),
+        ], ['Accept' => 'application/json'])->assertOk()
+            ->assertJsonPath('data.pending', 1);
+
+        Mail::fake();
+        $this->post('/api/students/import', [
+            'file' => $this->spreadsheet('Students', StudentImportColumns::all(), array_merge(StudentImportColumns::sample(), [
+                'programme_id' => (string) $this->program->id,
+                'email' => 'legacy.jambfee@example.com',
+                'nin' => '12345678932',
+                'jamb_registration' => '11223344EF',
+                'matric_number' => 'BUT/2019/M/0092',
+                'password' => 'OldPortal1!',
+            ])),
+            'intake_id' => $this->intake->id,
+            'entry_mode' => 'utme',
+            'send_credentials' => '0',
+        ], ['Accept' => 'application/json'])->assertOk()
+            ->assertJsonPath('data.invoices_posted', 1);
+
+        $student = Student::query()->where('matric_number', 'BUT/2019/M/0092')->first();
+        $invoice = Invoice::query()->where('student_id', $student->id)->where('category', 'application_fee')->first();
+        $this->assertNotNull($invoice);
+        $this->assertSame('paid', $invoice->status);
+        $this->assertSame($invoice->id, $student->application->application_fee_invoice_id);
+    }
+
     public function test_duplicate_email_is_skipped(): void
     {
         Mail::fake();
@@ -255,6 +345,25 @@ class StudentImportTest extends TestCase
             ->assertJsonPath('data.skipped', 1);
 
         $this->assertSame(1, User::query()->where('email', 'dup.student@example.com')->count());
+    }
+
+    /**
+     * @param  array<string, string>  $overrides
+     * @return array<string, string>
+     */
+    private function applicationFeeInvoiceRow(array $overrides = []): array
+    {
+        $row = array_fill_keys(InvoiceImportColumns::all(), '');
+        $row['category'] = 'application_fee';
+        $row['amount'] = '5000';
+        $row['full_amount'] = '5000';
+        $row['description'] = 'Application fee';
+        $row['paid_amount'] = '5000';
+        $row['payment_date'] = '2019-08-01';
+        $row['payment_method'] = 'legacy_import';
+        $row['payment_reference'] = 'LEG-APP-0001';
+
+        return array_merge($row, $overrides);
     }
 
     /**

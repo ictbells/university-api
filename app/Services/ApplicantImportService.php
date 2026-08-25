@@ -33,8 +33,8 @@ class ApplicantImportService
 
     public function __construct(
         private PremblyService $prembly,
-        private WorkflowEngine $workflows,
         private ApplicationAdmissionService $admissions,
+        private InvoiceImportService $invoices,
         private AuditWriter $audit,
     ) {}
 
@@ -53,9 +53,10 @@ class ApplicantImportService
                 '3. Copy first_choice_programme_id from the Programmes sheet (id column). It must match a programme already set up for this entry mode.',
                 '4. Copy O-level subject names from the O-level subjects sheet. The application window (intake) is chosen on the import page, not in this file.',
                 '5. Lookup sheets (Campuses, Colleges, Departments, Programmes, Levels, O-level subjects) are for reference. Import reads only the Applicants sheet.',
-                '6. Documents are not imported from Excel. Applicants upload remaining files after they sign in.',
+                '6. Documents are not imported from Excel. Import does not submit the application. Applicants must upload required documents and submit after they sign in.',
                 '7. If Verify NIN is checked on upload, Prembly is called for every NIN.',
                 '8. Login on the student portal uses application number (APP/YYYY/#####) or JAMB registration, not email.',
+                '9. Import invoices first when application fee was paid on the old portal. Matching rows (application_number or JAMB) are posted and marked paid.',
                 '',
                 'Required columns: '.implode(', ', ApplicantImportColumns::required($entryMode)),
             ],
@@ -97,6 +98,7 @@ class ApplicantImportService
         $skipped = 0;
         $emailed = 0;
         $ninFailed = 0;
+        $invoicesPosted = 0;
         $errors = [];
         $role = $this->applicantRole();
 
@@ -115,6 +117,7 @@ class ApplicantImportService
                 if ($result['emailed']) {
                     $emailed++;
                 }
+                $invoicesPosted += $result['invoices_posted'];
             } catch (Throwable $e) {
                 $skipped++;
                 if ($verifyNin && str_contains(strtolower($e->getMessage()), 'nin')) {
@@ -134,6 +137,7 @@ class ApplicantImportService
             'skipped' => $skipped,
             'emailed' => $emailed,
             'nin_failed' => $ninFailed,
+            'invoices_posted' => $invoicesPosted,
             'errors' => $errors,
             'entry_mode' => $entryMode,
             'intake_id' => $intake->id,
@@ -217,7 +221,7 @@ class ApplicantImportService
 
     /**
      * @param  array<string, string>  $data
-     * @return array{emailed: bool}
+     * @return array{emailed: bool, invoices_posted: int}
      */
     private function importRow(
         array $data,
@@ -280,7 +284,6 @@ class ApplicantImportService
 
         $applicationNumber = $oldNumber !== '' ? $oldNumber : ApplicationReference::generate();
         $complete = $this->rowLooksComplete($data, $entryMode);
-        $stage = $complete ? 'submitted' : 'form_in_progress';
 
         $application = Application::query()->create([
             'application_number' => $applicationNumber,
@@ -290,15 +293,17 @@ class ApplicantImportService
             'entry_mode' => $entryMode,
             'jamb_registration' => $jamb !== '' ? $jamb : null,
             'jamb_status' => $jamb !== '' ? 'pending' : null,
-            'stage' => $stage,
+            'stage' => 'form_in_progress',
             'current_step' => $complete ? 'required_documents' : 'biodata',
-            'submitted_at' => $complete ? now() : null,
+            'submitted_at' => null,
         ]);
 
         foreach (Application::formSteps($entryMode) as $key) {
             $application->steps()->create([
                 'step_key' => $key,
-                'status' => $complete || $key === 'biodata' ? 'saved' : 'pending',
+                'status' => $key === 'required_documents'
+                    ? 'pending'
+                    : ($complete || $key === 'biodata' ? 'saved' : 'pending'),
                 'payload' => [],
             ]);
         }
@@ -315,13 +320,7 @@ class ApplicantImportService
             }
         }
 
-        if ($complete) {
-            try {
-                $this->workflows->ensureAdmissionRun($application->fresh());
-            } catch (Throwable) {
-                // Programme may not have a workflow yet; staff can still process the file.
-            }
-        }
+        $invoiceResult = $this->invoices->postPendingForApplication($application->fresh(['user', 'student']));
 
         $emailed = false;
         if ($sendCredentials) {
@@ -339,7 +338,10 @@ class ApplicantImportService
             }
         }
 
-        return ['emailed' => $emailed];
+        return [
+            'emailed' => $emailed,
+            'invoices_posted' => $invoiceResult['posted'],
+        ];
     }
 
     /**
@@ -470,7 +472,6 @@ class ApplicantImportService
             }
             $this->saveStep($application, 'pg_referees', ['referees' => $referees]);
         }
-        $this->saveStep($application, 'required_documents', ['files' => []]);
     }
 
     /**

@@ -105,7 +105,7 @@ class InvoiceImportController extends Controller
         $pending = (int) ($result['pending'] ?? 0);
         $skipped = (int) ($result['skipped'] ?? 0);
 
-        return "Posted {$posted} invoice(s). {$pending} held until the student exists. {$skipped} row(s) skipped.";
+        return "Posted {$posted} invoice(s). {$pending} held until a matching student or applicant is imported. {$skipped} row(s) skipped.";
     }
 
     private function authorizeImport(Request $request): void

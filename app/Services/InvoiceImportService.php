@@ -243,6 +243,12 @@ class InvoiceImportService
 
         $rows = LegacyInvoiceImport::query()
             ->where('status', 'pending')
+            ->where(function ($query) use ($keys) {
+                $query->whereIn('matric_number', $keys);
+                foreach ($keys as $key) {
+                    $query->orWhere('payload', 'like', '%'.addcslashes($key, '%_\\').'%');
+                }
+            })
             ->orderBy('id')
             ->get()
             ->filter(fn (LegacyInvoiceImport $row) => $this->stagingMatchesKeys($row, $keys));

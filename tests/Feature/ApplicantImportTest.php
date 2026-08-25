@@ -11,6 +11,7 @@ use App\Models\Campus;
 use App\Models\Department;
 use App\Models\Faculty;
 use App\Models\Intake;
+use App\Models\Invoice;
 use App\Models\OfficeDepartment;
 use App\Models\OlevelSubject;
 use App\Models\Permission;
@@ -20,6 +21,7 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\PremblyService;
 use App\Support\ApplicantImportColumns;
+use App\Support\InvoiceImportColumns;
 use App\Support\PermissionCatalog;
 use App\Support\WorkflowCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -106,7 +108,7 @@ class ApplicantImportTest extends TestCase
         $this->assertTrue($names->contains('English Language'));
     }
 
-    public function test_import_creates_submitted_application_and_allows_student_login(): void
+    public function test_import_creates_unsubmitted_application_and_allows_student_login(): void
     {
         Mail::fake();
         Sanctum::actingAs($this->staffUser());
@@ -128,8 +130,11 @@ class ApplicantImportTest extends TestCase
 
         $application = Application::query()->where('jamb_registration', '12345678AB')->first();
         $this->assertNotNull($application);
-        $this->assertSame('submitted', $application->stage);
-        $this->assertNotNull($application->submitted_at);
+        $this->assertSame('form_in_progress', $application->stage);
+        $this->assertSame('required_documents', $application->current_step);
+        $this->assertNull($application->submitted_at);
+        $this->assertSame('pending', $application->steps()->where('step_key', 'required_documents')->value('status'));
+        $this->assertSame(0, $application->documents()->count());
         $this->assertTrue($application->user->roles()->where('slug', 'applicant')->exists());
 
         $plain = null;
@@ -145,6 +150,18 @@ class ApplicantImportTest extends TestCase
             'login' => '12345678AB',
             'password' => $plain,
         ])->assertOk();
+
+        $biodata = $application->steps()->where('step_key', 'biodata')->first();
+        $payload = is_array($biodata?->payload) ? $biodata->payload : [];
+        $payload['nin_locked'] = true;
+        $biodata->update(['payload' => $payload]);
+
+        Sanctum::actingAs($application->user);
+        $this->postJson("/api/applications/{$application->id}/submit")
+            ->assertStatus(422)
+            ->assertJsonFragment(['missing' => ['required_documents']]);
+        $this->assertSame('form_in_progress', $application->fresh()->stage);
+        $this->assertNull($application->fresh()->submitted_at);
     }
 
     public function test_provided_password_is_kept_and_not_emailed_unless_forced(): void
@@ -203,6 +220,49 @@ class ApplicantImportTest extends TestCase
             ->assertJsonPath('data.nin_failed', 1);
 
         $this->assertDatabaseMissing('users', ['email' => 'nin.fail@example.com']);
+    }
+
+    public function test_applicant_import_posts_pending_application_fee_invoice_by_jamb(): void
+    {
+        Mail::fake();
+        Sanctum::actingAs($this->staffUser(['admissions.import', 'finance.invoices.manage'], ['import-applicants', 'import-invoices']));
+
+        $this->post('/api/invoices/import', [
+            'file' => $this->invoiceSpreadsheet([
+                'jamb_registration' => '99887766AB',
+                'category' => 'application_fee',
+                'amount' => '5000',
+                'full_amount' => '5000',
+                'paid_amount' => '5000',
+                'payment_date' => '2025-01-10',
+                'payment_method' => 'legacy_import',
+                'payment_reference' => 'LEG-APP-JAMB-2',
+            ]),
+        ], ['Accept' => 'application/json'])->assertOk()
+            ->assertJsonPath('data.pending', 1);
+
+        $this->post('/api/applicants/import', [
+            'file' => $this->spreadsheet([
+                'email' => 'app.fee.import@example.com',
+                'phone' => '08030000011',
+                'nin' => '12345678911',
+                'jamb_registration' => '99887766AB',
+            ]),
+            'intake_id' => $this->intake->id,
+            'entry_mode' => 'utme',
+            'send_credentials' => '0',
+        ], ['Accept' => 'application/json'])->assertOk()
+            ->assertJsonPath('data.created', 1)
+            ->assertJsonPath('data.invoices_posted', 1);
+
+        $application = Application::query()->where('jamb_registration', '99887766AB')->first();
+        $this->assertNotNull($application);
+        $this->assertNotNull($application->application_fee_invoice_id);
+        $invoice = Invoice::query()->find($application->application_fee_invoice_id);
+        $this->assertSame('application_fee', $invoice->category);
+        $this->assertSame('paid', $invoice->status);
+        $this->assertSame($application->id, $invoice->application_id);
+        $this->assertFalse($application->user->portalAccess()['unpaid_application_fee']);
     }
 
     public function test_duplicate_email_is_skipped(): void
@@ -291,7 +351,32 @@ class ApplicantImportTest extends TestCase
         return new UploadedFile($path, 'applicants.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
     }
 
-    private function staffUser(): User
+    /**
+     * @param  array<string, string>  $row
+     */
+    private function invoiceSpreadsheet(array $row): UploadedFile
+    {
+        $columns = InvoiceImportColumns::all();
+        $values = [];
+        foreach ($columns as $column) {
+            $values[] = $row[$column] ?? '';
+        }
+        $spreadsheet = new Spreadsheet;
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Invoices');
+        $sheet->fromArray($columns, null, 'A1');
+        $sheet->fromArray([$values], null, 'A2');
+        $path = sys_get_temp_dir().'/invoice-import-'.uniqid().'.xlsx';
+        (new Xlsx($spreadsheet))->save($path);
+
+        return new UploadedFile($path, 'invoices.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+    }
+
+    /**
+     * @param  list<string>  $permissions
+     * @param  list<string>  $navKeys
+     */
+    private function staffUser(array $permissions = ['admissions.import'], array $navKeys = ['import-applicants']): User
     {
         $role = Role::query()->create([
             'name' => 'Importer',
@@ -299,14 +384,14 @@ class ApplicantImportTest extends TestCase
             'is_system' => false,
             'is_active' => true,
         ]);
-        $ids = Permission::query()->whereIn('key', ['admissions.import'])->pluck('id');
+        $ids = Permission::query()->whereIn('key', $permissions)->pluck('id');
         $role->permissions()->sync($ids);
         $office = OfficeDepartment::query()->create([
             'name' => 'Admissions office '.$role->slug,
             'code' => substr($role->slug, 0, 20),
             'is_active' => true,
         ]);
-        $office->syncNavKeys(['import-applicants']);
+        $office->syncNavKeys($navKeys);
         $user = User::factory()->create();
         $user->roles()->attach($role->id);
         Staff::query()->create([

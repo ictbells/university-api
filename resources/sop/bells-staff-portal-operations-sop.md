@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.11  
+**Version:** 1.12  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -471,9 +471,7 @@ Use this when moving people from another admissions portal into this system.
 
 **Required columns (all categories):** email, phone, nin, first_name, last_name, first_choice_programme_id. UTME and Direct Entry also require `jamb_registration`.
 
-**Programme ids** must already exist for that entry mode (copy from the Programmes lookup sheet **id** column). **Documents are not imported** from Excel; applicants upload remaining files after they sign in.
-
-Complete rows land at stage **`submitted`** (application fee is skipped) so staff can process admission immediately. Incomplete rows stay in the form so the applicant can finish after login.
+**Programme ids** must already exist for that entry mode (copy from the Programmes lookup sheet **id** column). **Documents are not imported** from Excel. Import **does not submit** the application: rows stay at **`form_in_progress`** so the applicant must re-upload required documents and submit after they sign in. Incomplete rows also stay in the form so they can finish missing fields. Import invoices first when application fee was already paid (keyed by `application_number` or `jamb_registration`); this step posts matching rows, links them to the application, and records the fee as paid. Otherwise application fee is skipped.
 
 After import, the applicant signs in on the student portal with **application number or JAMB + password** (not email). Duplicate email, NIN, JAMB, or application number is skipped.
 
@@ -483,7 +481,7 @@ After import, the applicant signs in on the student portal with **application nu
 - **Course registration** — Staff view of student enrolments (`academic.enrollments.manage`). Students must have paid at least 25% tuition before self-registering. Staff can still register below that threshold when they provide a reason.
 - **Unit limits** — Credit-unit caps (`academic.enrollments.manage`)
 - **Registration extensions** — Review late-registration requests (`academic.extensions.review`)
-- **Import students** — Create continuing students with a supplied matric number (`students.import`). Import invoices and wallet history first. Login uses matric number. They appear under Registrations only when tuition invoices show at least 25% paid (same rule as other students).
+- **Import students** — Create continuing students with a supplied matric number (`students.import`). Import invoices and wallet history first. Invoice rows also match old application number or JAMB. Login uses matric number. They appear under Registrations only when tuition invoices show at least 25% paid (same rule as other students).
 - **PG research** — Postgraduate research records (`pg.view`)
 - **Exam clearance** — Exam clearance lists (`exam_clearance.view`)
 
@@ -524,9 +522,9 @@ E-exam sync is not included in this release.
 
 Use these when moving continuing students from another portal. **Do not** invent a “legacy registered” flag or auto-credit wallets from invoice `paid_amount`.
 
-1. **Fees & payments → Import invoices.** Spreadsheet keyed by `matric_number`. One row is one invoice. Extra rows with the same `invoice_number` add extra payments. Tuition requires `installment_percent` (25/50/75/100). `paid_amount` records money received on the invoice. If the student does not exist yet, rows stay **pending** until Import students runs.
+1. **Fees & payments → Import invoices.** Spreadsheet keyed by `matric_number`, `application_number`, or `jamb_registration` (at least one). Application fee is often paid with APP or JAMB before a matric exists. One row is one invoice. Extra rows with the same `invoice_number` add extra payments. Category may be `application_fee`, `tuition`, `acceptance_fee`, and the rest of the catalogue. Tuition requires `installment_percent` (25/50/75/100). `paid_amount` records money received on the invoice. If no matching student or applicant exists yet, rows stay **pending** until Import students or Import applicants runs.
 2. **Fees & payments → Import wallet history.** One row is one credit or debit. Replay is in `occurred_at` order. Wallet credit does **not** count as tuition paid. If a debit would take the wallet below zero, that row and remaining rows for the same matric are skipped.
-3. **Academic → Enrolment → Import students.** Select an application session and category. Download the template and copy `programme_id` from the **Programmes** lookup **id** column and `current_level` from **Levels**. Required: email, phone, nin, first_name, last_name, programme_id, matric_number, current_level. Creates a user (student role), a historical application at stage `matriculated`, and a student record with the **supplied** matric (not an auto-generated `BUT/{year}/M/{####}`). Then posts pending invoices and wallet rows for that matric.
+3. **Academic → Enrolment → Import students.** Select an application session and category. Download the template and copy `programme_id` from the **Programmes** lookup **id** column and `current_level` from **Levels**. Required: email, phone, nin, first_name, last_name, programme_id, matric_number, current_level. Fill `old_application_number` and `jamb_registration` when those ids were used to pay fees. Creates a user (student role), a historical application at stage `matriculated`, and a student record with the **supplied** matric (not an auto-generated `BUT/{year}/M/{####}`). Then posts pending invoices (matched by matric, application number, or JAMB) and wallet rows. Paid `application_fee` / `acceptance_fee` rows are linked on the application so student finance shows the correct payment status.
 
 If an old payment was wallet-funded, record `paid_amount` on the invoice sheet **and** a matching **debit** on the wallet sheet. These imports do not call Paystack and do not settle invoices from the wallet automatically.
 - **Clinic** — Queue, student charts, encounters, prescriptions, sick notes, NHIS-aware billing (`medical.view_any` / `medical.manage` / `medical.billing`)
@@ -675,6 +673,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.10 | Aug 2026 | Platform team | Document programme workflow templates (UG/JUPEB, transfer, taught PG, research PG) and default-from-study-level rules |
 | 1.11 | Aug 2026 | Platform team | Units/subunits inherit department (and subunit inherits unit) portal links; permissions still gate actions |
 | 1.11 | Aug 2026 | Platform team | Staff can revert the last admissions decision on an application file |
+| 1.12 | Aug 2026 | Platform team | Applicant import does not submit files; applicants must re-upload required documents and submit after login |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 
