@@ -13,9 +13,11 @@ use App\Models\WorkflowTemplateStage;
 use App\Support\WorkflowCatalog;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
 
 class WorkflowEngine
 {
+    public function __construct(private InvoiceService $invoices) {}
     public function templateFor(Program|Application|null $source): ?WorkflowTemplate
     {
         if ($source instanceof Application && $source->entry_mode === 'transfer') {
@@ -74,6 +76,7 @@ class WorkflowEngine
         $template = $this->templateFor($application);
         $stages = $this->admissionStages($application);
         $next = $this->nextAdmissionStage($application);
+        $revert = $this->revertSnapshot($application);
 
         return [
             'template_id' => $template?->id,
@@ -83,6 +86,8 @@ class WorkflowEngine
             'next_stage' => $next?->key,
             'next_label' => $next?->label,
             'next_permission' => $next?->permission_key,
+            'can_revert' => $revert !== null,
+            'revert' => $revert,
             'stages' => $stages->map(fn (WorkflowTemplateStage $stage) => [
                 'key' => $stage->key,
                 'label' => $stage->label,
@@ -170,6 +175,87 @@ class WorkflowEngine
         $application->update(['stage' => $to]);
 
         return $application->fresh();
+    }
+
+    /**
+     * @return array{restore_stage: string, restore_label: string, last_decision: string|null, last_to_stage: string}|null
+     */
+    public function revertSnapshot(Application $application): ?array
+    {
+        $last = $application->relationLoaded('latestReview')
+            ? $application->latestReview
+            : $application->latestReview()->first();
+        if (! $last || ! $last->from_stage || $last->to_stage !== $application->stage) {
+            return null;
+        }
+        if (in_array($application->stage, ['matriculated', 'fee_paid', 'form_in_progress', 'awaiting_application_fee'], true)) {
+            return null;
+        }
+
+        $label = $this->admissionStages($application)->firstWhere('key', $last->from_stage)?->label
+            ?: str_replace('_', ' ', $last->from_stage);
+
+        return [
+            'restore_stage' => $last->from_stage,
+            'restore_label' => $label,
+            'last_decision' => $last->decision,
+            'last_to_stage' => $last->to_stage,
+        ];
+    }
+
+    public function revertLastDecision(Application $application, User $actor, ?string $reason = null): Application
+    {
+        abort_if($application->stage === 'matriculated', 422, 'A matriculated application cannot be reverted.');
+        abort_if(
+            $application->student_id || Student::query()->where('application_id', $application->id)->exists(),
+            422,
+            'This application already has a student record and cannot be reverted.',
+        );
+
+        $last = $application->reviews()->latest('id')->first();
+        abort_unless($last && $last->from_stage, 422, 'There is no decision to revert.');
+        abort_unless($last->to_stage === $application->stage, 422, 'The file stage does not match the last decision.');
+
+        $previous = $last->from_stage;
+        $this->unwindOfferSideEffects($application, $last->to_stage);
+
+        $run = $this->ensureAdmissionRun($application);
+        $run->transitions()->create([
+            'actor_id' => $actor->id,
+            'from_stage' => $application->stage,
+            'to_stage' => $previous,
+            'decision' => 'reverted',
+            'reason' => $reason,
+        ]);
+        $run->update(['current_stage_key' => $previous]);
+
+        $application->reviews()->create([
+            'reviewer_id' => $actor->id,
+            'from_stage' => $application->stage,
+            'to_stage' => $previous,
+            'decision' => 'reverted',
+            'reason' => $reason,
+        ]);
+        $application->update(['stage' => $previous]);
+
+        return $application->fresh();
+    }
+
+    private function unwindOfferSideEffects(Application $application, string $leavingStage): void
+    {
+        if (! in_array($leavingStage, ['offer_issued', 'admission', 'awaiting_acceptance_fee'], true)) {
+            return;
+        }
+
+        $application->loadMissing('acceptanceFeeInvoice');
+        $invoice = $application->acceptanceFeeInvoice;
+        if ($invoice && in_array($invoice->status, ['paid', 'partial'], true)) {
+            throw new RuntimeException('Cannot revert after the acceptance fee has been paid.');
+        }
+        if ($invoice && $invoice->status === 'unpaid') {
+            $this->invoices->disable($invoice, 'Admissions decision reverted');
+            $application->update(['acceptance_fee_invoice_id' => null]);
+        }
     }
 
     public function startEnrolment(Student $student, Application $application): WorkflowRun

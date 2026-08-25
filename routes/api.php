@@ -138,6 +138,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/applications/{application}/passport', [ApplicationController::class, 'streamPassport']);
     Route::post('/applications/{application}/nin', [ApplicationController::class, 'verifyNin']);
     Route::post('/applications/{application}/transition', [ApplicationController::class, 'transition']);
+    Route::post('/applications/{application}/revert', [ApplicationController::class, 'revert']);
     Route::patch('/applications/{application}/acceptance-fee', [ApplicationController::class, 'updateAcceptanceFee']);
 
     Route::get('/registrations', [RegistrationController::class, 'index'])

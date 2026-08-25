@@ -24,6 +24,7 @@ class ApplicationListQuery
             'intake.term',
             'applicationFeeInvoice',
             'acceptanceFeeInvoice',
+            'latestReview',
             'steps',
             'refereeInvites',
         ]);

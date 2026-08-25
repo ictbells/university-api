@@ -36,6 +36,7 @@ class OfficeApprovalCatalog
             'hostel.disable_room' => ['nav_key' => 'hostel', 'label' => 'Disable hostel room', 'mutation' => self::MUTATION_UPDATE],
             'hostel.enable_room' => ['nav_key' => 'hostel', 'label' => 'Enable hostel room', 'mutation' => self::MUTATION_UPDATE],
             'admissions.transition' => ['nav_key' => 'admissions-undergraduate', 'label' => 'Advance application', 'mutation' => self::MUTATION_UPDATE],
+            'admissions.revert' => ['nav_key' => 'admissions-undergraduate', 'label' => 'Revert last application decision', 'mutation' => self::MUTATION_UPDATE],
             'admissions.staff_update' => ['nav_key' => 'admissions-undergraduate', 'label' => 'Update application file', 'mutation' => self::MUTATION_UPDATE],
             'admissions.update_acceptance_fee' => ['nav_key' => 'admissions-undergraduate', 'label' => 'Update acceptance fee', 'mutation' => self::MUTATION_UPDATE],
             'medical.approve_appointment' => ['nav_key' => 'medical', 'label' => 'Approve clinic appointment', 'mutation' => self::MUTATION_UPDATE],

@@ -154,6 +154,7 @@ class OfficeApprovalExecutor
             'hostel.disable_room' => [\App\Http\Controllers\HostelController::class, 'disableRoom', ['key' => 'hostel_room_id', 'class' => HostelRoom::class]],
             'hostel.enable_room' => [\App\Http\Controllers\HostelController::class, 'enableRoom', ['key' => 'hostel_room_id', 'class' => HostelRoom::class]],
             'admissions.transition' => [\App\Http\Controllers\ApplicationController::class, 'transition', ['key' => 'application_id', 'class' => Application::class]],
+            'admissions.revert' => [\App\Http\Controllers\ApplicationController::class, 'revert', ['key' => 'application_id', 'class' => Application::class]],
             'admissions.staff_update' => [\App\Http\Controllers\ApplicationController::class, 'staffUpdate', ['key' => 'application_id', 'class' => Application::class]],
             'admissions.update_acceptance_fee' => [\App\Http\Controllers\ApplicationController::class, 'updateAcceptanceFee', ['key' => 'application_id', 'class' => Application::class]],
             'medical.approve_appointment' => [\App\Http\Controllers\ClinicController::class, 'approveAppointment', ['key' => 'visit_id', 'class' => ClinicVisit::class]],

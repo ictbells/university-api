@@ -445,11 +445,11 @@ class ApplicationController extends Controller
             }
             foreach ($choices as $key => $label) {
                 $program = Program::query()->find($payload[$key]);
-                abort_unless(
-                    $program && $program->is_active && in_array($application->entry_mode, $program->entry_modes ?? [], true),
-                    422,
-                    'The selected '.$label.' programme is not available for your admission category.',
-                );
+                if (! $program || ! $program->isOffered() || ! $program->acceptsEntryMode($application->entry_mode)) {
+                    return response()->json([
+                        'message' => 'The selected '.$label.' programme is not available for your admission category.',
+                    ], 422);
+                }
             }
         }
         if ($data['step_key'] === 'direct_entry') {
@@ -647,7 +647,56 @@ class ApplicationController extends Controller
                 $this->audit->record('application.stage', "Moved from {$before} to {$application->stage}", 'admissions', 'application', $application->id, ['stage' => $before], ['stage' => $application->stage], $data['reason'] ?? null);
                 $this->notifier->send($application->user, 'application_stage', 'Application update', 'Your application is now at '.str_replace('_', ' ', $application->stage).'.', 'admissions', $application->id);
 
-                return $this->decorateFile($application->fresh(['acceptanceFeeInvoice', 'reviews']));
+                return $this->decorateFile($application->fresh(['acceptanceFeeInvoice', 'reviews', 'latestReview']));
+            },
+            $navKey,
+        );
+    }
+
+    public function revert(Request $request, Application $application)
+    {
+        $this->authorizeStaffEdit($request, $application);
+        $data = $request->validate([
+            'reason' => 'nullable|string|max:1000',
+        ]);
+        $before = $application->stage;
+        $navKey = \App\Support\OfficeApprovalCatalog::admissionsNavKey($application->entry_mode ?? $application->channel ?? null);
+
+        return $this->officeGate(
+            'admissions.revert',
+            $application,
+            $data + ['application_id' => $application->id],
+            'Revert last application decision',
+            function () use ($application, $before, $data, $request) {
+                try {
+                    $application = $this->workflows->revertLastDecision(
+                        $application,
+                        $request->user(),
+                        $data['reason'] ?? null,
+                    );
+                } catch (RuntimeException $e) {
+                    return response()->json(['message' => $e->getMessage()], 422);
+                }
+                $this->audit->record(
+                    'application.stage_reverted',
+                    "Reverted from {$before} to {$application->stage}",
+                    'admissions',
+                    'application',
+                    $application->id,
+                    ['stage' => $before],
+                    ['stage' => $application->stage],
+                    $data['reason'] ?? null,
+                );
+                $this->notifier->send(
+                    $application->user,
+                    'application_stage',
+                    'Application update',
+                    'Your application was returned to '.str_replace('_', ' ', $application->stage).'.',
+                    'admissions',
+                    $application->id,
+                );
+
+                return $this->decorateFile($application->fresh(['acceptanceFeeInvoice', 'reviews', 'latestReview']));
             },
             $navKey,
         );
@@ -789,7 +838,7 @@ class ApplicationController extends Controller
      */
     private function decorateFile(Application $application)
     {
-        $application->loadMissing(['program.workflowTemplate.stages', 'steps', 'refereeInvites', 'documents']);
+        $application->loadMissing(['program.workflowTemplate.stages', 'steps', 'refereeInvites', 'documents', 'latestReview']);
         $application->setAttribute('eligibility', ProgrammeEligibility::forApplication($application));
         $application->setAttribute('workflow', $this->workflows->snapshot($application));
         $application->setAttribute('referee_invites', $this->referees->statusFor($application));
@@ -810,8 +859,8 @@ class ApplicationController extends Controller
         $program = $programId ? Program::query()->find($programId) : null;
         if (
             ! $program
-            || ! $program->is_active
-            || ! in_array($application->entry_mode, $program->entry_modes ?? [], true)
+            || ! $program->isOffered()
+            || ! $program->acceptsEntryMode($application->entry_mode)
         ) {
             return response()->json([
                 'message' => 'Select a programme before submitting your application.',

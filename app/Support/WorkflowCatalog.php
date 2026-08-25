@@ -51,7 +51,7 @@ class WorkflowCatalog
 
     public static function defaultCodeFor(Program $program): string
     {
-        $modes = $program->entry_modes ?? [];
+        $modes = $program->entryModeList();
         if (in_array('pg', $modes, true) || $program->study_level === 'postgraduate') {
             return $program->is_research_degree ? self::PG_RESEARCH : self::PG_TAUGHT;
         }

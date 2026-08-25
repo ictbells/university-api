@@ -139,6 +139,7 @@ class ApplicationStaffUpdateService
             'steps',
             'documents',
             'reviews.reviewer',
+            'latestReview',
             'applicationFeeInvoice',
             'acceptanceFeeInvoice',
             'student',
@@ -228,7 +229,7 @@ class ApplicationStaffUpdateService
             }
             $program = Program::query()->find($id);
             abort_unless(
-                $program && $program->is_active && in_array($application->entry_mode, $program->entry_modes ?? [], true),
+                $program && $program->isOffered() && $program->acceptsEntryMode($application->entry_mode),
                 422,
                 'The selected programme is not available for this admission category.',
             );

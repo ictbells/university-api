@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Support\ApplicationFormSteps;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Application extends BaseModel
 {
@@ -241,6 +242,11 @@ class Application extends BaseModel
     public function reviews(): HasMany
     {
         return $this->hasMany(ApplicationReview::class);
+    }
+
+    public function latestReview(): HasOne
+    {
+        return $this->hasOne(ApplicationReview::class)->latestOfMany();
     }
 
     public function refereeInvites(): HasMany

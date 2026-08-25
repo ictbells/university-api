@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.9  
+**Version:** 1.11  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -337,6 +337,8 @@ Applicants who are **matriculated and have paid at least 25% of current-session 
 
 Staff can open an application file to review biodata, form answers, documents, eligibility, and (where permitted) update fields. Identity fields stay locked when NIN was verified.
 
+From the application **Decision** panel, staff can **revert the last decision** (advance or rejection). That returns the file to the previous stage. Matriculated files and files whose acceptance fee has already been paid cannot be reverted. Office-head approval still applies where the office requires it.
+
 ### 8.3 Registrations
 
 The **Registrations** section lists students who have:
@@ -410,6 +412,31 @@ Studentship is not ended by session close. The registrar confirms graduation, th
 | O'level | O'level subject catalogue; bulk spreadsheet import | `academic.olevel.manage` |
 
 Programme and O'level bulk import uses the same template + skip-duplicates pattern as Admission Setup (§8.4). Import programmes after departments. O'level does not depend on the college/department tree.
+
+#### Programme workflow template
+
+When creating or editing a programme, **Workflow** chooses the **admissions and enrolment stage path** used after an applicant submits. It does **not** define the student application form steps (NIN, JAMB, O'Level, and so on). Those follow the programme’s **admission categories** (UTME, DE, JUPEB, Transfer, PG).
+
+Leave the field on **Default from study level** unless the programme needs a different path. Defaults:
+
+| Condition | Template assigned |
+|-----------|-------------------|
+| Study level / entry mode is postgraduate **and** Research degree is on | Research postgraduate |
+| Study level / entry mode is postgraduate (not research) | Taught postgraduate |
+| Otherwise | Undergraduate / JUPEB |
+
+| Template | Typical programmes | Stage path (summary) |
+|----------|--------------------|----------------------|
+| **Undergraduate / JUPEB** | UTME, DE, JUPEB | Application → Screening → Verification → Shortlisting → Recommendation → Approval → Offer → Registration |
+| **Undergraduate transfer** | Transfer | Same as UG, with **Credit assessment** before shortlisting |
+| **Taught postgraduate** | Coursework PG | Shorter PG path: Screening → Recommendation → Approval → Offer → Registration |
+| **Research postgraduate** | MPhil / PhD-style | PG path plus proposal, supervisor, and panel; later research stages (progress, thesis, viva, corrections, final approval, graduation) |
+
+**Notes**
+
+- Transfer applicants can still follow the transfer workflow by **entry mode** even if the programme’s stored template is Undergraduate / JUPEB.
+- Pair **Research postgraduate** with **Research degree** when the applicant form must collect research proposal and supervisor preferences.
+- Bulk programme import assigns the default template from study level / entry modes / research flag; it does not accept a workflow column in the spreadsheet.
 
 #### Admission session vs application session
 
@@ -643,6 +670,8 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.7 | Aug 2026 | Platform team | Bulk uploads key parents by lookup id (campus_id, college_id, department_id, programme_id, level_id, hostel_id, block_id) |
 | 1.8 | Aug 2026 | Platform team | Distinguish admission sessions (enrolled students) from application sessions (intakes); student-portal signup requires an accepting application session |
 | 1.9 | Aug 2026 | Platform team | Applicants select an application session before account creation; UTME/DE JAMB and candidate-list checks apply at signup |
+| 1.10 | Aug 2026 | Platform team | Document programme workflow templates (UG/JUPEB, transfer, taught PG, research PG) and default-from-study-level rules |
+| 1.11 | Aug 2026 | Platform team | Staff can revert the last admissions decision on an application file |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

@@ -46,4 +46,44 @@ class Program extends BaseModel
     {
         return $this->hasMany(ProgrammeFee::class);
     }
+
+    /**
+     * @return list<string>
+     */
+    public function entryModeList(): array
+    {
+        $raw = $this->entry_modes;
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+            $raw = is_array($decoded)
+                ? $decoded
+                : preg_split('/\s*,\s*/', $raw);
+        }
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        return array_values(array_filter(array_map(
+            fn ($mode) => strtolower(trim((string) $mode)),
+            $raw,
+        )));
+    }
+
+    public function acceptsEntryMode(?string $mode): bool
+    {
+        if (! filled($mode)) {
+            return true;
+        }
+        $modes = $this->entryModeList();
+        if ($modes === []) {
+            return true;
+        }
+
+        return in_array(strtolower(trim($mode)), $modes, true);
+    }
+
+    public function isOffered(): bool
+    {
+        return $this->is_active !== false;
+    }
 }

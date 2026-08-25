@@ -9,6 +9,7 @@ use App\Models\Campus;
 use App\Models\Department;
 use App\Models\Faculty;
 use App\Models\Intake;
+use App\Models\Program;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -93,6 +94,43 @@ class ApplicantCollegeCatalogTest extends TestCase
 
         $this->assertSame('form_in_progress', $application->fresh()->stage);
         $this->assertNull($application->fresh()->program_id);
+    }
+
+    public function test_applicant_can_save_programme_selection_when_entry_modes_are_stored_as_a_string(): void
+    {
+        $application = $this->formInProgressApplication();
+        $campus = Campus::query()->create(['name' => 'Main', 'is_active' => true]);
+        $faculty = Faculty::query()->create(['campus_id' => $campus->id, 'name' => 'College of Law']);
+        $department = Department::query()->create(['faculty_id' => $faculty->id, 'name' => 'Private Law']);
+        $program = Program::query()->create([
+            'department_id' => $department->id,
+            'name' => 'LL.B Law',
+            'award_type' => 'LL.B',
+            'study_level' => 'undergraduate',
+            'entry_modes' => ['utme'],
+            'duration_years' => 5,
+            'is_active' => true,
+        ]);
+        $program->forceFill(['entry_modes' => 'utme'])->saveQuietly();
+
+        Sanctum::actingAs($application->user);
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'programme_selection',
+            'payload' => [
+                'first_choice_college_id' => $faculty->id,
+                'first_choice_department_id' => $department->id,
+                'first_choice_program_id' => $program->id,
+                'second_choice_college_id' => null,
+                'second_choice_department_id' => null,
+                'second_choice_program_id' => null,
+                'program_id' => $program->id,
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonPath('program_id', $program->id);
+
+        $this->assertSame($program->id, $application->fresh()->program_id);
     }
 
     private function applicant(): User

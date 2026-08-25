@@ -253,6 +253,42 @@ class PgFormWorkflowTest extends TestCase
             ->assertStatus(422);
     }
 
+    public function test_staff_can_revert_the_last_application_decision(): void
+    {
+        $ug = $this->ugApplication();
+        $staff = $this->staffUser([
+            'admissions.view', 'admissions.screen', 'admissions.verify',
+        ], ['home', 'admissions-undergraduate']);
+        Sanctum::actingAs($staff);
+
+        $this->postJson("/api/applications/{$ug->id}/revert")->assertStatus(422);
+
+        $this->postJson("/api/applications/{$ug->id}/transition", ['to_stage' => 'screening'])
+            ->assertOk()
+            ->assertJsonPath('workflow.can_revert', true)
+            ->assertJsonPath('workflow.revert.restore_stage', 'submitted');
+        $this->assertSame('screening', $ug->fresh()->stage);
+
+        $this->postJson("/api/applications/{$ug->id}/revert", ['reason' => 'Moved in error'])
+            ->assertOk()
+            ->assertJsonPath('stage', 'submitted')
+            ->assertJsonPath('workflow.can_revert', true);
+
+        $this->assertSame('submitted', $ug->fresh()->stage);
+        $this->assertSame('reverted', $ug->reviews()->latest('id')->value('decision'));
+
+        $this->postJson("/api/applications/{$ug->id}/transition", [
+            'to_stage' => 'rejected',
+            'decision' => 'rejected',
+            'reason' => 'Incomplete file',
+        ])->assertOk();
+        $this->assertSame('rejected', $ug->fresh()->stage);
+
+        $this->postJson("/api/applications/{$ug->id}/revert")
+            ->assertOk()
+            ->assertJsonPath('stage', 'submitted');
+    }
+
     public function test_referee_invite_token_upload_and_expired_link(): void
     {
         Mail::fake();
