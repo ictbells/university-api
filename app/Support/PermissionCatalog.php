@@ -22,7 +22,7 @@ class PermissionCatalog
             ['key' => 'academic.enrollments.grace', 'module' => 'academic', 'label' => 'Grant registration grace units'],
             ['key' => 'academic.extensions.review', 'module' => 'academic', 'label' => 'Review registration extensions'],
             ['key' => 'academic.programmes.manage', 'module' => 'academic', 'label' => 'Manage programmes'],
-            ['key' => 'academic.intakes.manage', 'module' => 'academic', 'label' => 'Manage application windows'],
+            ['key' => 'academic.intakes.manage', 'module' => 'academic', 'label' => 'Manage application sessions'],
             ['key' => 'academic.olevel.manage', 'module' => 'academic', 'label' => "Manage O'level subjects"],
             ['key' => 'students.view_own', 'module' => 'sis', 'label' => 'View own student record'],
             ['key' => 'students.view_any', 'module' => 'sis', 'label' => 'View any student record'],

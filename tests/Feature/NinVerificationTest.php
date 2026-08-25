@@ -2,6 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\AcademicSession;
+use App\Models\AcademicTerm;
+use App\Models\Intake;
 use App\Models\NinVerification;
 use App\Models\User;
 use App\Services\PremblyService;
@@ -24,7 +27,8 @@ class NinVerificationTest extends TestCase
         $this->getJson('/api/portal-info')
             ->assertOk()
             ->assertJsonPath('nin_live', false)
-            ->assertJsonPath('prembly_configured', false);
+            ->assertJsonPath('prembly_configured', false)
+            ->assertJsonPath('applications_open', false);
 
         config([
             'services.prembly.key' => 'test-key',
@@ -45,6 +49,7 @@ class NinVerificationTest extends TestCase
             'services.prembly.allow_demo' => true,
         ]);
         Http::fake();
+        $this->openApplicationSession();
 
         $this->postJson('/api/nin/preview', ['nin' => '12345678901'])
             ->assertOk()
@@ -63,6 +68,7 @@ class NinVerificationTest extends TestCase
             'services.prembly.allow_demo' => false,
         ]);
         Http::fake();
+        $this->openApplicationSession();
 
         $this->postJson('/api/nin/preview', ['nin' => '12345678901'])
             ->assertStatus(422)
@@ -94,6 +100,7 @@ class NinVerificationTest extends TestCase
                 ],
             ], 200),
         ]);
+        $this->openApplicationSession();
 
         $this->postJson('/api/nin/preview', ['nin' => '12345678901'])
             ->assertOk()
@@ -126,6 +133,7 @@ class NinVerificationTest extends TestCase
                 'detail' => 'Invalid NIN supplied',
             ], 200),
         ]);
+        $this->openApplicationSession();
 
         $this->postJson('/api/nin/preview', ['nin' => '12345678901'])
             ->assertStatus(422)
@@ -205,5 +213,25 @@ class NinVerificationTest extends TestCase
         $this->assertSame('ref-live-2', $record->prembly_reference);
         $this->assertFalse($record->raw_snapshot['demo'] ?? false);
         Http::assertSentCount(1);
+    }
+
+    private function openApplicationSession(): void
+    {
+        $session = AcademicSession::query()->create(['label' => '2025/2026']);
+        $term = AcademicTerm::query()->create([
+            'academic_session_id' => $session->id,
+            'name' => 'First',
+            'session_label' => '2025/2026',
+            'is_current' => true,
+        ]);
+        Intake::query()->create([
+            'academic_term_id' => $term->id,
+            'name' => 'UTME 2025',
+            'entry_mode' => 'utme',
+            'is_open' => true,
+            'application_fee_amount' => 5000,
+            'opens_on' => now()->subDay()->toDateString(),
+            'closes_on' => now()->addMonth()->toDateString(),
+        ]);
     }
 }

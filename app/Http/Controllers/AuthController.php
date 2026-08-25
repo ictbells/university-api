@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\RegisterApplicantRequest;
 use App\Models\AcademicTerm;
+use App\Models\Intake;
 use App\Models\Role;
 use App\Models\Setting;
 use App\Models\User;
@@ -42,6 +43,7 @@ class AuthController extends Controller
 
     public function previewNin(Request $request): JsonResponse
     {
+        Intake::abortUnlessAccepting();
         $data = $request->validate(['nin' => 'required|string']);
         $nin = $this->prembly->normalizeNin($data['nin']);
         $this->prembly->assertNinAvailable($nin);
@@ -64,6 +66,7 @@ class AuthController extends Controller
 
     public function register(RegisterApplicantRequest $request): JsonResponse
     {
+        Intake::abortUnlessAccepting();
         $data = $request->validated();
         $applicantRole = Role::query()->where('slug', 'applicant')->where('is_active', true)->firstOrFail();
         try {

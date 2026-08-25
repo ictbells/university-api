@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.7  
+**Version:** 1.8  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -23,7 +23,7 @@ This document covers:
 - Department / office structure and portal link assignment
 - User management and office placement
 - Global application security settings (2FA, password rotation, inactivity logout)
-- Academic catalogue, application windows, candidate lists, applicant import, and continuing-student import
+- Academic catalogue, admission and application sessions, candidate lists, applicant import, and continuing-student import
 - Applications and registrations pipelines
 - Fees, clinic, hostel, documents, audit, and reports
 - Office heads of department / unit heads and the Approvals inbox
@@ -106,11 +106,11 @@ Academic pages use **per-resource** permissions:
 | `academic.campuses.manage` | Campuses |
 | `academic.colleges.manage` | Colleges |
 | `academic.departments.manage` | Departments |
-| `academic.sessions.manage` | Sessions & semesters |
+| `academic.sessions.manage` | Admission sessions |
 | `academic.levels.manage` | Levels |
 | `academic.courses.manage` | Courses |
 | `academic.programmes.manage` | Programmes |
-| `academic.intakes.manage` | Application windows |
+| `academic.intakes.manage` | Application sessions |
 | `academic.olevel.manage` | O'level |
 | `academic.offerings.manage` | Offerings |
 | `academic.enrollments.manage` | Course registration and unit limits |
@@ -199,9 +199,9 @@ When a section (for example Administration) contains a single dropdown whose lab
 | **Administration** | Users, Roles, Permissions, Department Setup |
 | **System** | Audit, Reports, Announcements, Integrations, Application settings, Resources |
 
-**Admission Setup** contains: Campuses, Colleges, Departments, Sessions & semesters, Graduation, Levels, Courses.
+**Admission Setup** contains: Campuses, Colleges, Departments, Admission sessions, Graduation, Levels, Courses.
 
-**Application Setup** contains: Programmes, Application windows, Candidate data, Import applicants, O'level.
+**Application Setup** contains: Programmes, Application sessions, Candidate data, Import applicants, O'level.
 
 **Enrolment** contains: Offerings, Course registration, Unit limits, Registration extensions, Import students.
 
@@ -355,7 +355,7 @@ Course registration, unit limits, and registration extensions are under **Academ
 | Campuses | Campus catalogue | `academic.campuses.manage` |
 | Colleges | Colleges / faculties; bulk spreadsheet import | `academic.colleges.manage` |
 | Departments | Academic departments; bulk spreadsheet import | `academic.departments.manage` |
-| Sessions & semesters | Academic sessions, terms, and end-of-session promotion | `academic.sessions.manage`, `academic.sessions.close` |
+| Admission sessions | Academic sessions, terms, and end-of-session promotion | `academic.sessions.manage`, `academic.sessions.close` |
 | Graduation | Confirm conferment and start the studentship clock | `academic.graduate` |
 | Levels | Study levels (100, 200, …) | `academic.levels.manage` |
 | Courses | Course catalogue; bulk spreadsheet import | `academic.courses.manage` |
@@ -380,7 +380,7 @@ Unknown parent ids fail that row only. Course `course_type` is `general`, `facul
 
 At the end of an academic year, close the session to promote students and lock the session record.
 
-1. Open **Academic → Admission Setup → Sessions & semesters**.
+1. Open **Academic → Admission Setup → Admission sessions**.
 2. Confirm programme **duration** values are correct (they define final year: 4-year UG → 400L, 2-year PG → level 2).
 3. Click **Close session** on the target session. Review the preview counts (promoted, final-year unchanged, inactive skipped).
 4. Confirm **Close session and promote**. All **active** students with a programme move up one level (100→200 for UG, +1 for PG) until the programme final year. Students already at final year stay **active** with no level change (graduation is separate).
@@ -404,12 +404,21 @@ Studentship is not ended by session close. The registrar confirms graduation, th
 | Page | Purpose | Permission |
 |------|---------|------------|
 | Programmes | Programmes, entry modes, eligibility, workflow template; bulk spreadsheet import | `academic.programmes.manage` |
-| Application windows | Open/close intakes by entry mode and session, with application fee | `academic.intakes.manage` |
+| Application sessions | Open/close intakes by entry mode and admission session, with application fee | `academic.intakes.manage` |
 | Candidate data | Upload JAMB candidate lists used at student signup | `admissions.import` |
 | Import applicants | Create applicant accounts and applications from another portal | `admissions.import` |
 | O'level | O'level subject catalogue; bulk spreadsheet import | `academic.olevel.manage` |
 
 Programme and O'level bulk import uses the same template + skip-duplicates pattern as Admission Setup (§8.4). Import programmes after departments. O'level does not depend on the college/department tree.
+
+#### Admission session vs application session
+
+These are two calendars, not one record with a type flag.
+
+- **Admission session** — Academic → Admission Setup → Admission sessions. Used by enrolled students (course registration, hostels, session close and promotion).
+- **Application session** — Academic → Application Setup → Application sessions (intake). Open when **Accepting applications** is on and today is within the open and close dates.
+
+New applicant **signup** on the student portal is allowed only while at least one application session is accepting. If none is open, NIN preview and account creation return *Applications are not open. There is no active application session, so you cannot create an account.* Staff applicant import and existing applicant login are not blocked.
 
 #### Candidate data
 
@@ -424,8 +433,8 @@ Upload JAMB candidate spreadsheets **before** new applicants register. Students 
 
 Use this when moving people from another admissions portal into this system.
 
-1. Select the **application window** (intake) and **category** (UTME, Direct Entry, JUPEB, Transfer, or Postgraduate). The window's entry mode must match the category.
-2. Download the **template** for that category and fill one row per applicant on the **Applicants** sheet. Do not rename columns. Extra sheets (**Campuses**, **Colleges**, **Departments**, **Programmes**, **Levels**, **O-level subjects**) are lookup lists — copy the programme **id** onto the Applicants sheet; do not paste rows into those sheets. The application window is selected on the page, not in the file.
+1. Select the **application session** (intake) and **category** (UTME, Direct Entry, JUPEB, Transfer, or Postgraduate). The session's entry mode must match the category.
+2. Download the **template** for that category and fill one row per applicant on the **Applicants** sheet. Do not rename columns. Extra sheets (**Campuses**, **Colleges**, **Departments**, **Programmes**, **Levels**, **O-level subjects**) are lookup lists — copy the programme **id** onto the Applicants sheet; do not paste rows into those sheets. The application session is selected on the page, not in the file.
 3. Optionally tick **Verify NIN during upload (Prembly is called for every row)**. Failed NINs are skipped and no account is created. Leave this off to store NIN without live verification; the applicant can verify later in the form.
 4. Optionally tick **Email portal passwords** (default on). If the spreadsheet `password` column is filled, that plaintext is hashed and stored and is not emailed unless this box is checked. If the column is blank, a new password is generated and emailed when the box is on.
 5. Upload `.xlsx`, `.xls`, or `.csv`. The job is queued when NIN verification is on **or** the file has 40 or more data rows (unless the queue driver is `sync`). Wait for the result summary.
@@ -488,7 +497,7 @@ Use these when moving continuing students from another portal. **Do not** invent
 
 1. **Fees & payments → Import invoices.** Spreadsheet keyed by `matric_number`. One row is one invoice. Extra rows with the same `invoice_number` add extra payments. Tuition requires `installment_percent` (25/50/75/100). `paid_amount` records money received on the invoice. If the student does not exist yet, rows stay **pending** until Import students runs.
 2. **Fees & payments → Import wallet history.** One row is one credit or debit. Replay is in `occurred_at` order. Wallet credit does **not** count as tuition paid. If a debit would take the wallet below zero, that row and remaining rows for the same matric are skipped.
-3. **Academic → Enrolment → Import students.** Select an application window and category. Download the template and copy `programme_id` from the **Programmes** lookup **id** column and `current_level` from **Levels**. Required: email, phone, nin, first_name, last_name, programme_id, matric_number, current_level. Creates a user (student role), a historical application at stage `matriculated`, and a student record with the **supplied** matric (not an auto-generated `BUT/{year}/M/{####}`). Then posts pending invoices and wallet rows for that matric.
+3. **Academic → Enrolment → Import students.** Select an application session and category. Download the template and copy `programme_id` from the **Programmes** lookup **id** column and `current_level` from **Levels**. Required: email, phone, nin, first_name, last_name, programme_id, matric_number, current_level. Creates a user (student role), a historical application at stage `matriculated`, and a student record with the **supplied** matric (not an auto-generated `BUT/{year}/M/{####}`). Then posts pending invoices and wallet rows for that matric.
 
 If an old payment was wallet-funded, record `paid_amount` on the invoice sheet **and** a matching **debit** on the wallet sheet. These imports do not call Paystack and do not settle invoices from the wallet automatically.
 - **Clinic** — Queue, student charts, encounters, prescriptions, sick notes, NHIS-aware billing (`medical.view_any` / `medical.manage` / `medical.billing`)
@@ -541,16 +550,16 @@ Use the audit trail for compliance reviews and incident investigation.
 
 ### 10.2 Prepare a new admissions cycle
 
-1. Confirm **Sessions & semesters** for the cycle.
+1. Confirm **Admission sessions** for the cycle.
 2. Confirm **Programmes** have the correct entry modes and are active.
-3. Open **Application windows** for each category (UTME, DE, JUPEB, Transfer, PG) with the application fee set.
+3. Open **Application sessions** for each category (UTME, DE, JUPEB, Transfer, PG) with the application fee set. At least one must be accepting before new applicants can create student-portal accounts.
 4. Upload **Candidate data** for UTME/DE sessions before applicants register (if JAMB-list enforcement is required).
 5. If migrating from another portal, use **Import applicants** (see §8.5).
 
 ### 10.3 Import applicants from another portal
 
 1. Open **Academic → Application Setup → Import applicants**.
-2. Choose category and matching application window.
+2. Choose category and matching application session.
 3. Download the template; fill from the old-portal export on the Applicants sheet. Copy programme **ids** from the Programmes lookup sheet. Leave `password` blank unless the old portal provided a reusable plaintext password (never paste a password hash).
 4. Leave **Verify NIN** off unless Prembly should run during the upload.
 5. Upload the file and review created / skipped / emailed counts.
@@ -632,6 +641,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.5 | Aug 2026 | Platform team | Catalogue bulk spreadsheet import for colleges, departments, programmes, O'level, and courses; matching rows skipped; import order Colleges → Departments → Programmes → Courses |
 | 1.6 | Aug 2026 | Platform team | Hostel room bulk spreadsheet import (template + skip-duplicates; hostels and blocks must already exist) |
 | 1.7 | Aug 2026 | Platform team | Bulk uploads key parents by lookup id (campus_id, college_id, department_id, programme_id, level_id, hostel_id, block_id) |
+| 1.8 | Aug 2026 | Platform team | Distinguish admission sessions (enrolled students) from application sessions (intakes); student-portal signup requires an accepting application session |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

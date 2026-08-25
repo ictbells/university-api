@@ -7,6 +7,7 @@ use App\Models\AcademicTerm;
 use App\Models\Campus;
 use App\Models\Department;
 use App\Models\Faculty;
+use App\Models\Intake;
 use App\Models\Setting;
 use App\Services\AuditWriter;
 use App\Services\PremblyService;
@@ -45,6 +46,7 @@ class InstitutionController extends Controller
             ...StaffSupportContactSettings::all(),
             'nin_live' => $premblyConfigured,
             'prembly_configured' => $premblyConfigured,
+            'applications_open' => Intake::hasAccepting(),
         ]);
     }
 

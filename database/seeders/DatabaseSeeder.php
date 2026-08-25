@@ -20,6 +20,7 @@ class DatabaseSeeder extends Seeder
         }
         WorkflowCatalog::seed();
         $this->call(GradingScaleSeeder::class);
+        $this->call(StateOfOriginSeeder::class);
         $allIds = Permission::query()->pluck('id');
 
         $roles = [

@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Intake;
 use App\Support\PasswordRules;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -9,6 +10,8 @@ class RegisterApplicantRequest extends FormRequest
 {
     public function authorize(): bool
     {
+        Intake::abortUnlessAccepting();
+
         return true;
     }
 

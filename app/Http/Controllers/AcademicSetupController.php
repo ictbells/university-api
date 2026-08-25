@@ -254,7 +254,7 @@ class AcademicSetupController extends Controller
         ]);
         $validated['is_open'] = $request->boolean('is_open', true);
 
-        return $this->officeGate('academic.store_intake', null, $validated, 'Create application window', function () use ($validated) {
+        return $this->officeGate('academic.store_intake', null, $validated, 'Create application session', function () use ($validated) {
             $intake = Intake::query()->create($validated);
             $this->audit->record('intake.created', 'Admission intake created', 'admissions', 'intake', $intake->id, null, $intake);
 
@@ -279,7 +279,7 @@ class AcademicSetupController extends Controller
             $validated['is_open'] = $request->boolean('is_open');
         }
 
-        return $this->officeGate('academic.update_intake', $intake, ['intake_id' => $intake->id, ...$validated], 'Update application window', function () use ($intake, $validated, $before) {
+        return $this->officeGate('academic.update_intake', $intake, ['intake_id' => $intake->id, ...$validated], 'Update application session', function () use ($intake, $validated, $before) {
             $intake->update($validated);
             $this->audit->record('intake.updated', 'Admission intake updated', 'admissions', 'intake', $intake->id, $before, $intake);
 
@@ -291,7 +291,7 @@ class AcademicSetupController extends Controller
     {
         $before = $intake->toArray();
 
-        return $this->officeGate('academic.destroy_intake', $intake, ['intake_id' => $intake->id], 'Delete application window', function () use ($intake, $before) {
+        return $this->officeGate('academic.destroy_intake', $intake, ['intake_id' => $intake->id], 'Delete application session', function () use ($intake, $before) {
             $intake->delete();
             $this->audit->record('intake.deleted', 'Admission intake deleted', 'admissions', 'intake', $intake->id, $before, null);
 

@@ -27,7 +27,8 @@ class AdmissionsContactTest extends TestCase
             ->assertJson([
                 'admissions_email' => 'admissions@example.edu.ng',
                 'admissions_phone' => '+234 801 234 5678',
-            ]);
+            ])
+            ->assertJsonPath('applications_open', false);
     }
 
     public function test_staff_can_update_admissions_contact_from_application_settings(): void

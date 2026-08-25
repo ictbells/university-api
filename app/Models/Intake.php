@@ -3,10 +3,15 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use RuntimeException;
 
 class Intake extends BaseModel
 {
+    public const CLOSED_SIGNUP_MESSAGE = 'Applications are not open. There is no active application session, so you cannot create an account.';
+
+    public const CLOSED_SIGNUP_CODE = 'applications_closed';
+
     protected $fillable = ['academic_term_id', 'name', 'entry_mode', 'opens_on', 'closes_on', 'is_open', 'application_fee_amount', 'acceptance_fee_amount'];
 
     protected function casts(): array
@@ -44,7 +49,7 @@ class Intake extends BaseModel
     public function applicationFeeAmount(): float
     {
         if ($this->application_fee_amount === null) {
-            throw new RuntimeException('Set the application fee on this application window before applicants can apply.');
+            throw new RuntimeException('Set the application fee on this application session before applicants can apply.');
         }
 
         return (float) $this->application_fee_amount;
@@ -68,5 +73,22 @@ class Intake extends BaseModel
             ->where(function ($q) {
                 $q->whereNull('closes_on')->orWhereDate('closes_on', '>=', now());
             });
+    }
+
+    public static function hasAccepting(): bool
+    {
+        return static::query()->accepting()->exists();
+    }
+
+    public static function abortUnlessAccepting(): void
+    {
+        if (static::hasAccepting()) {
+            return;
+        }
+
+        throw new HttpResponseException(response()->json([
+            'message' => self::CLOSED_SIGNUP_MESSAGE,
+            'code' => self::CLOSED_SIGNUP_CODE,
+        ], 422));
     }
 }
