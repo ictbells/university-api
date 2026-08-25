@@ -320,13 +320,14 @@ class ApplicationStaffUpdateService
             'second_sitting' => $data['second_sitting'] ?? null,
             'other_qualifications' => $data['other_qualifications'] ?? null,
         ];
-        if (array_key_exists('utme', $data)) {
-            $academic['utme'] = $data['utme'];
-        }
         if ($jamb) {
             $academic['jamb_registration'] = $jamb;
         }
         $this->mergeStep($application, 'academic_qualifications', $academic);
+
+        if (($application->entry_mode ?? '') === 'utme' && array_key_exists('utme', $data)) {
+            $this->mergeStep($application, 'utme', ['utme' => $data['utme']]);
+        }
 
         if (($application->entry_mode ?? '') === 'de' && is_array($data['direct_entry'] ?? null)) {
             $this->mergeStep($application, 'direct_entry', $data['direct_entry']);

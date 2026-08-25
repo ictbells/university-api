@@ -397,6 +397,12 @@ class ApplicantImportService
             'declaration' => true,
         ]);
         $this->saveStep($application, 'academic_qualifications', $this->academicPayload($data));
+        if ($application->entry_mode === 'utme') {
+            $utme = $this->utmePayload($data);
+            if ($utme !== null) {
+                $this->saveStep($application, 'utme', ['utme' => $utme]);
+            }
+        }
         $this->saveStep($application, 'programme_selection', [
             'first_choice_program_id' => $first->id,
             'second_choice_program_id' => $second?->id,
@@ -487,10 +493,18 @@ class ApplicantImportService
      */
     private function academicPayload(array $data): array
     {
-        $payload = [
+        return [
             'first_sitting' => $this->sittingPayload($data, 1),
             'second_sitting' => $this->sittingPayload($data, 2),
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>|null
+     */
+    private function utmePayload(array $data): ?array
+    {
         $utmeSubjects = [];
         for ($i = 1; $i <= 4; $i++) {
             if (blank($data["utme_subject_{$i}"] ?? null) && blank($data["utme_score_{$i}"] ?? null)) {
@@ -512,18 +526,18 @@ class ApplicantImportService
                 'programme_name' => $data["utme_programme_{$i}"] ?? '',
             ];
         }
-        if ($utmeSubjects !== [] || filled($data['utme_aggregate'] ?? null) || filled($data['utme_year'] ?? null)) {
-            $payload['utme'] = [
-                'aggregate' => $data['utme_aggregate'] ?? '',
-                'course_choice' => $data['utme_course_choice'] ?? '',
-                'exam_year' => $data['utme_year'] ?? '',
-                'english_score' => $data['utme_english_score'] ?? '',
-                'subjects' => $utmeSubjects,
-                'institution_choices' => $choices,
-            ];
+        if ($utmeSubjects === [] && blank($data['utme_aggregate'] ?? null) && blank($data['utme_year'] ?? null)) {
+            return null;
         }
 
-        return $payload;
+        return [
+            'aggregate' => $data['utme_aggregate'] ?? '',
+            'course_choice' => $data['utme_course_choice'] ?? '',
+            'exam_year' => $data['utme_year'] ?? '',
+            'english_score' => $data['utme_english_score'] ?? '',
+            'subjects' => $utmeSubjects,
+            'institution_choices' => $choices,
+        ];
     }
 
     /**

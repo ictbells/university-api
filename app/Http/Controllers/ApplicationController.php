@@ -404,7 +404,6 @@ class ApplicationController extends Controller
         if ($data['step_key'] === 'academic_qualifications') {
             $request->merge(['payload' => $payload]);
             $payload = $request->validate([
-                'payload.utme' => 'nullable|array',
                 'payload.other_qualifications' => 'nullable|string|max:2000',
                 'payload.first_sitting' => 'required|array',
                 'payload.first_sitting.exam_type' => 'required|string|in:WAEC,NECO,GCE,NABTEB,Other',
@@ -425,6 +424,9 @@ class ApplicationController extends Controller
                 'payload.second_sitting.results.*.subject_name' => 'nullable|string|max:120',
                 'payload.second_sitting.results.*.grade' => 'nullable|string|max:10',
             ])['payload'] + $payload;
+
+            // UTME lives on the dedicated `utme` step; ignore legacy nested blob.
+            unset($payload['utme']);
 
             $second = $payload['second_sitting'] ?? null;
             if (is_array($second)) {
@@ -452,12 +454,8 @@ class ApplicationController extends Controller
                 }
             }
         }
-        if ($data['step_key'] === 'academic_qualifications') {
-            if ($application->entry_mode === 'utme') {
-                $payload = ApplicationFormSteps::validateUtme($request, $payload, true);
-            } elseif (array_key_exists('utme', $payload)) {
-                $payload = ApplicationFormSteps::validateUtme($request, $payload, false);
-            }
+        if ($data['step_key'] === 'utme') {
+            $payload = ApplicationFormSteps::validateUtme($request, $payload, true);
         }
         if ($data['step_key'] === 'programme_selection') {
             $request->merge(['payload' => $payload]);

@@ -117,6 +117,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/students/import/{importId}', [StudentImportController::class, 'status']);
     Route::get('/students/import/{importId}/errors', [StudentImportController::class, 'errors']);
 
+    Route::get('/colleges', [AcademicSetupController::class, 'applicantColleges']);
     Route::get('/programs', [AcademicController::class, 'programs']);
     Route::get('/applications', [ApplicationController::class, 'index']);
     Route::get('/applications/export', [ApplicationController::class, 'export'])

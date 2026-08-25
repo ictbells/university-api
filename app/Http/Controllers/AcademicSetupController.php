@@ -52,6 +52,30 @@ class AcademicSetupController extends Controller
         return Faculty::query()->with('campus')->orderBy('name')->get();
     }
 
+    public function applicantColleges()
+    {
+        return Faculty::query()
+            ->with(['campus', 'departments' => fn ($query) => $query->orderBy('name')])
+            ->orderBy('name')
+            ->get()
+            ->map(fn (Faculty $faculty) => [
+                'id' => $faculty->id,
+                'name' => $faculty->name,
+                'code' => $faculty->code,
+                'campus' => $faculty->campus
+                    ? ['id' => $faculty->campus->id, 'name' => $faculty->campus->name]
+                    : null,
+                'departments' => $faculty->departments
+                    ->map(fn (Department $department) => [
+                        'id' => $department->id,
+                        'name' => $department->name,
+                        'code' => $department->code,
+                    ])
+                    ->values(),
+            ])
+            ->values();
+    }
+
     public function departments()
     {
         return Department::query()->with('faculty.campus')->orderBy('name')->get();

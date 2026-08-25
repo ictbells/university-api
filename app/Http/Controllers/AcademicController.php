@@ -76,10 +76,12 @@ class AcademicController extends Controller
             'is_research_degree' => 'boolean',
             'eligibility' => 'nullable|array',
             'workflow_template_id' => 'nullable|exists:workflow_templates,id',
+            'is_active' => 'boolean',
         ]);
         $courseIds = $data['course_ids'] ?? null;
         unset($data['course_ids']);
         $data['is_research_degree'] = (bool) ($data['is_research_degree'] ?? false);
+        $data['is_active'] = array_key_exists('is_active', $data) ? (bool) $data['is_active'] : true;
         if (empty($data['workflow_template_id'])) {
             $data['workflow_template_id'] = WorkflowCatalog::idByCode(
                 WorkflowCatalog::defaultCodeFor(new Program($data))

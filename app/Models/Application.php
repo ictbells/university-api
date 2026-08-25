@@ -15,6 +15,7 @@ class Application extends BaseModel
         'next_of_kin',
         'sponsor',
         'application_form',
+        'utme',
         'academic_qualifications',
         'programme_selection',
         'required_documents',
@@ -53,8 +54,11 @@ class Application extends BaseModel
             'next_of_kin',
             'sponsor',
             'application_form',
-            'academic_qualifications',
         ];
+        if ($entryMode === 'utme') {
+            $steps[] = 'utme';
+        }
+        $steps[] = 'academic_qualifications';
         if ($entryMode === 'de') {
             $steps[] = 'direct_entry';
         }
@@ -137,6 +141,44 @@ class Application extends BaseModel
                 'payload' => [],
             ]);
         }
+        $this->unsetRelation('steps');
+        $this->load('steps');
+        $this->migrateUtmeFromAcademicQualifications();
+    }
+
+    /**
+     * Move legacy UTME blob out of academic_qualifications into the dedicated utme step.
+     */
+    public function migrateUtmeFromAcademicQualifications(): void
+    {
+        if ($this->entry_mode !== 'utme') {
+            return;
+        }
+
+        $this->loadMissing('steps');
+        $academic = $this->steps->firstWhere('step_key', 'academic_qualifications');
+        $utmeStep = $this->steps->firstWhere('step_key', 'utme');
+        if (! $academic || ! $utmeStep) {
+            return;
+        }
+
+        $academicPayload = is_array($academic->payload) ? $academic->payload : [];
+        $legacyUtme = is_array($academicPayload['utme'] ?? null) ? $academicPayload['utme'] : null;
+        if (! $legacyUtme || ApplicationFormSteps::utmeIsEmpty($legacyUtme)) {
+            return;
+        }
+
+        $utmePayload = is_array($utmeStep->payload) ? $utmeStep->payload : [];
+        $existingUtme = is_array($utmePayload['utme'] ?? null) ? $utmePayload['utme'] : null;
+        if (ApplicationFormSteps::utmeIsEmpty($existingUtme)) {
+            $utmeStep->update([
+                'payload' => ['utme' => $legacyUtme],
+                'status' => $utmeStep->status === 'pending' ? 'saved' : $utmeStep->status,
+            ]);
+        }
+
+        unset($academicPayload['utme']);
+        $academic->update(['payload' => $academicPayload]);
         $this->unsetRelation('steps');
         $this->load('steps');
     }

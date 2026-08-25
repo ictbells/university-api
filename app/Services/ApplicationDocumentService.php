@@ -27,6 +27,10 @@ class ApplicationDocumentService
         $biodata = $profile;
         $contact = $this->stepPayload($application, 'application_form');
         $academic = $this->normalizeAcademicPayload($this->stepPayload($application, 'academic_qualifications'));
+        $utmeStep = $this->stepPayload($application, 'utme');
+        if (! empty($utmeStep['utme']) && is_array($utmeStep['utme'])) {
+            $academic['utme'] = $utmeStep['utme'];
+        }
         $programmeStep = $this->stepPayload($application, 'programme_selection');
         $firstChoiceId = $programmeStep['first_choice_program_id']
             ?? $programmeStep['first_choice_program_id']
