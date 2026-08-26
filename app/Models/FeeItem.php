@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
 class FeeItem extends BaseModel
 {
     protected $fillable = [
@@ -10,6 +12,8 @@ class FeeItem extends BaseModel
         'category',
         'installment_tranche',
         'entry_mode',
+        'transcript_type',
+        'program_id',
         'amount',
         'wallet_allowed',
         'is_required',
@@ -27,5 +31,10 @@ class FeeItem extends BaseModel
             'display_order' => 'integer',
             'installment_tranche' => 'integer',
         ];
+    }
+
+    public function program(): BelongsTo
+    {
+        return $this->belongsTo(Program::class);
     }
 }

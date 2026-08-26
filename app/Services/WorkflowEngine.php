@@ -35,6 +35,7 @@ class WorkflowEngine
         if ($program->workflowTemplate) {
             return $program->workflowTemplate;
         }
+        WorkflowCatalog::seed();
         $code = WorkflowCatalog::defaultCodeFor($program);
 
         return WorkflowTemplate::query()->where('code', $code)->with('stages')->first();

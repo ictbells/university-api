@@ -8,7 +8,6 @@ use App\Models\Student;
 use App\Models\User;
 use App\Support\NinCipher;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
@@ -92,7 +91,7 @@ class PremblyService
         }
 
         $path = "nin-photos/{$user->id}/{$nin}.{$extension}";
-        Storage::disk('public')->put($path, $binary);
+        \App\Support\AppStorage::disk()->put($path, $binary);
 
         return $path;
     }
@@ -107,7 +106,7 @@ class PremblyService
             return $path;
         }
 
-        return url('storage/'.ltrim($path, '/'));
+        return \App\Support\AppStorage::url(ltrim($path, '/'));
     }
 
     /**

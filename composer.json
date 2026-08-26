@@ -13,6 +13,7 @@
         "laravel/sanctum": "^4.3",
         "laravel/tinker": "^3.0",
         "league/commonmark": "^2.10",
+        "league/flysystem-aws-s3-v3": "^3.25.1",
         "phpoffice/phpspreadsheet": "^5.9",
         "phpoffice/phpword": "^1.4"
     },

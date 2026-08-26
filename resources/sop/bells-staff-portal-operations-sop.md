@@ -207,7 +207,7 @@ When a section (for example Administration) contains a single dropdown whose lab
 
 **Results** contains: Results dashboard, Result entry, CSV import, Department uploads, Faculty Approval, Board, Release, Grading scale. Grade changes appear under System → Audit (module `results`).
 
-**Fees & payments** contains: Fee catalog, Fee category, Rebates, Programme fees, Generate invoice, Invoices, Students Financial Status, Import invoices, Import wallet history.
+**Fees & payments** contains: Fee catalog (categories + priced lines), Rebates, Programme fees, Generate invoice, Invoices, Students Financial Status, Import invoices, Import wallet history.
 
 ### 6.3 Office hierarchy
 
@@ -420,13 +420,13 @@ Programme and O'level bulk import uses the same template + skip-duplicates patte
 
 When creating or editing a programme, **Workflow** chooses the **admissions and enrolment stage path** used after an applicant submits. It does **not** define the student application form steps (NIN, JAMB, O'Level, and so on). Those follow the programme’s **admission categories** (UTME, DE, JUPEB, Transfer, PG).
 
-Leave the field on **Default from study level** unless the programme needs a different path. Defaults:
+Leave the field blank unless the programme needs a different path. If none is selected when creating or saving, the system creates the catalog (if missing) and assigns:
 
 | Condition | Template assigned |
 |-----------|-------------------|
 | Study level / entry mode is postgraduate **and** Research degree is on | Research postgraduate |
 | Study level / entry mode is postgraduate (not research) | Taught postgraduate |
-| Otherwise | Undergraduate / JUPEB |
+| Otherwise | Undergraduate / JUPEB (`screening` → `verification` → `shortlisting` → `recommended` → `approved` → `offer_issued`) |
 
 | Template | Typical programmes | Stage path (summary) |
 |----------|--------------------|----------------------|
@@ -530,18 +530,27 @@ On the **student portal → Academic**, students can view and print an **unoffic
 
 ### 8.6b Official transcript requests (Registry)
 
-Public requests (for the school website) use the student portal path **`/transcript-request`** (no login). Requesters enter **matric number + account email**, select the **programme** linked to their record (current programme, prior programmes from level progression / applications / enrolled curricula), pay the Finance-set **Official transcript** fee online (Paystack), then Registry processes the queue.
+Public requests (for the school website) use the student portal paths **`/transcript-request/undergraduate`**, **`/transcript-request/jupeb`**, and **`/transcript-request/postgraduate`** (no login). **`/transcript-request`** is a chooser for those three. Requesters enter **matric number + account email**, select the **programme** linked to their record for that channel, then select a **transcript type**:
+
+- **E-copy** — email address to send the signed PDF to
+- **Within Nigeria** — postal address in Nigeria
+- **Outside Nigeria** — postal address outside Nigeria
+- **Student copy** — collect at the Registry **or** give a postal address
+
+The fee is quoted only after both programme and type are selected. Finance owns the amount: one catalog line per **programme + transcript type**. Payment is online, then Registry processes the matching channel queue.
 
 **Setup**
 
-1. **Fees & payments → Fee catalog** — create an active fee item under category **Official transcript** (`transcript`). Amount is owned by Finance.
+1. **Fees & payments → Fee catalog** — create an active **Official transcript** (`transcript`) line for each programme and transcript type you offer. Amount is owned by Finance.
 2. **Application settings** — enable **Accept public transcript requests** and at least one delivery mode (collect at Registry, system PDF, staff-uploaded PDF). Optionally edit collection instructions.
-3. **Department Setup** — assign portal link **`transcript-requests`** and grant `transcripts.view` / `transcripts.process` (Registrar role includes these when re-seeded).
+3. **Department Setup** — assign portal links **`transcript-undergraduate`**, **`transcript-jupeb`**, and **`transcript-postgraduate`**, and grant `transcripts.view` / `transcripts.process` (Registrar role includes these when re-seeded).
+
+**File storage:** uploads (application documents, NIN photos, transcript PDFs, import spreadsheets) use `FILESYSTEM_DISK`. Set `FILESYSTEM_DISK=s3` plus `AWS_*` credentials to store them on S3.
 
 **Flow**
 
-1. Requester submits and pays on `/transcript-request`.
-2. Staff open **Services → Transcript requests**, start processing, then **Mark ready** with an enabled delivery mode (upload PDF when required).
+1. Requester opens the matching public form, submits, and pays online.
+2. Staff open **Services → Transcript Requests** (Undergraduate, JUPEB, or Postgraduate), start processing, then **Mark ready** with an enabled delivery mode (upload PDF when required).
 3. Requester is emailed; PDF modes include a download link on the public request page.
 
 Unofficial Academic transcript viewing is separate and remains free.
@@ -550,7 +559,7 @@ E-exam sync is not included in this release.
 
 ### 8.7 Services
 
-- **Fees & payments** — Fee catalogue (including **application fees per entry mode**, **Clinic services** visit charges, and **tuition installment shares**: separate tuition catalog lines for 1st/2nd/3rd/4th 25% plus optional Full 100% pay-at-once; other categories do not use installment shares), fee categories, rebates, programme fees, invoice generation, invoices, student financial status, **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices and Generate invoice filter by session and level; Programme fees filter by level. When tuition catalog lines are tagged with installment shares, student tuition invoices bill those fixed amounts (already-paid fee items are skipped); untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices.
+- **Fees & payments** — **Fee catalog** (categories + priced lines in one screen: **application fees per entry mode**, **official transcript fees per programme and transcript type**, **Clinic services** visit charges, and **tuition installment shares**: separate tuition catalog lines for 1st/2nd/3rd/4th 25% plus optional Full 100% pay-at-once; other categories do not use installment shares), rebates, programme fees, invoice generation, invoices, student financial status, **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices and Generate invoice filter by session and level; Programme fees filter by level. When tuition catalog lines are tagged with installment shares, student tuition invoices bill those fixed amounts (already-paid fee items are skipped); untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices.
 
 #### Import invoices and wallet history
 

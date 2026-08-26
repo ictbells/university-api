@@ -13,13 +13,15 @@ use App\Models\Student;
 use App\Models\StudentLevelProgression;
 use App\Models\TranscriptRequest;
 use App\Models\User;
+use App\Support\AppStorage;
 use App\Support\TranscriptBuilder;
+use App\Support\TranscriptChannel;
 use App\Support\TranscriptRequestSettings;
+use App\Support\TranscriptType;
 use Dompdf\Dompdf;
 use Dompdf\Options;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use RuntimeException;
@@ -35,32 +37,76 @@ class TranscriptRequestService
     public function meta(): array
     {
         $settings = TranscriptRequestSettings::all();
-        $fee = $this->resolveFeeItem();
+        $hasFee = $this->hasConfiguredFee();
 
         return [
-            'enabled' => TranscriptRequestSettings::enabled() && $fee !== null,
+            'enabled' => TranscriptRequestSettings::enabled() && $hasFee,
             'university' => (string) Setting::getValue('university_name', 'Bells University of Technology'),
-            'fee' => $fee ? [
-                'name' => $fee->name,
-                'amount' => (float) $fee->amount,
-                'category' => $fee->category,
-            ] : null,
+            'transcript_types' => TranscriptType::options(),
+            'channels' => TranscriptChannel::all(),
             'delivery_modes' => TranscriptRequestSettings::enabledDeliveryModes(),
             'collect_instructions' => $settings['transcript_collect_instructions'],
-            'unavailable_reason' => $this->unavailableReason($fee),
+            'unavailable_reason' => $this->unavailableReason($hasFee),
         ];
     }
 
-    public function lookup(string $matricNumber, string $email): array
+    public function quote(int $programId, string $transcriptType): array
     {
-        $fee = $this->resolveFeeItem();
-        if (! TranscriptRequestSettings::enabled() || ! $fee) {
-            throw new RuntimeException($this->unavailableReason($fee) ?: 'Official transcript requests are not available.');
+        if (! TranscriptRequestSettings::enabled()) {
+            throw new RuntimeException($this->unavailableReason($this->hasConfiguredFee()) ?: 'Official transcript requests are not available.');
+        }
+
+        $program = Program::query()->findOrFail($programId);
+        $fee = $this->resolveFeeItem($program, $transcriptType);
+        if (! $fee) {
+            throw new RuntimeException('Finance has not set a fee for this programme and transcript type.');
+        }
+
+        return [
+            'fee' => [
+                'name' => $fee->name,
+                'amount' => (float) $fee->amount,
+                'category' => $fee->category,
+                'transcript_type' => $fee->transcript_type,
+                'program_id' => $fee->program_id,
+            ],
+            'program' => [
+                'id' => $program->id,
+                'name' => $program->name,
+                'code' => $program->code,
+            ],
+            'transcript_type' => $transcriptType,
+            'transcript_type_label' => TranscriptType::label($transcriptType),
+        ];
+    }
+
+    public function lookup(string $matricNumber, string $email, ?string $channel = null): array
+    {
+        if (! TranscriptRequestSettings::enabled() || ! $this->hasConfiguredFee()) {
+            throw new RuntimeException($this->unavailableReason($this->hasConfiguredFee()) ?: 'Official transcript requests are not available.');
         }
 
         $student = $this->findStudentForRequest($matricNumber, $email);
         $programmes = $this->programmesForStudent($student);
+        if ($channel && TranscriptChannel::isValid($channel)) {
+            $programmes = array_values(array_filter(
+                $programmes,
+                function (array $row) use ($channel) {
+                    $program = new Program([
+                        'study_level' => $row['study_level'] ?? null,
+                        'entry_modes' => $row['entry_modes'] ?? [],
+                    ]);
+
+                    return TranscriptChannel::matches($program, $channel);
+                },
+            ));
+        }
         if ($programmes === []) {
+            if ($channel && TranscriptChannel::isValid($channel)) {
+                throw new RuntimeException(
+                    'No '.TranscriptChannel::label($channel).' programme is linked to this student record. Use the matching transcript request page or contact the Registry.',
+                );
+            }
             throw new RuntimeException('No programme is linked to this student record. Contact the Registry.');
         }
 
@@ -70,10 +116,6 @@ class TranscriptRequestService
                 'matric_number' => $student->matric_number,
             ],
             'programmes' => $programmes,
-            'fee' => [
-                'name' => $fee->name,
-                'amount' => (float) $fee->amount,
-            ],
         ];
     }
 
@@ -81,12 +123,16 @@ class TranscriptRequestService
         string $matricNumber,
         string $email,
         int $programId,
+        string $transcriptType,
         int $copies = 1,
         ?string $purpose = null,
+        ?string $deliveryEmail = null,
+        ?string $deliveryAddress = null,
+        ?string $collectionMethod = null,
+        ?string $channel = null,
     ): array {
-        $fee = $this->resolveFeeItem();
-        if (! TranscriptRequestSettings::enabled() || ! $fee) {
-            throw new RuntimeException($this->unavailableReason($fee) ?: 'Official transcript requests are not available.');
+        if (! TranscriptRequestSettings::enabled() || ! $this->hasConfiguredFee()) {
+            throw new RuntimeException($this->unavailableReason($this->hasConfiguredFee()) ?: 'Official transcript requests are not available.');
         }
 
         $student = $this->findStudentForRequest($matricNumber, $email);
@@ -101,19 +147,35 @@ class TranscriptRequestService
         }
 
         $program = Program::query()->findOrFail($programId);
+        if ($channel && TranscriptChannel::isValid($channel) && ! TranscriptChannel::matches($program, $channel)) {
+            throw new RuntimeException('Select a programme that belongs to this transcript request page.');
+        }
+
+        $fee = $this->resolveFeeItem($program, $transcriptType);
+        if (! $fee) {
+            throw new RuntimeException('Finance has not set a fee for this programme and transcript type.');
+        }
+
+        $destination = $this->destinationFields($transcriptType, $deliveryEmail, $deliveryAddress, $collectionMethod);
+        $copies = max(1, min(10, $copies));
+        $purpose = $purpose ? Str::limit(trim($purpose), 255, '') : null;
+        $contactEmail = strtolower(trim($email));
+        $invoiceLabel = $fee->name.' — '.$program->name.' ('.$copies.' '.Str::plural('copy', $copies).')';
 
         $existing = TranscriptRequest::query()
             ->where('student_id', $student->id)
             ->where('program_id', $programId)
+            ->where('transcript_type', $transcriptType)
             ->where('status', 'awaiting_payment')
             ->latest('id')
             ->first();
 
         if ($existing) {
             $existing->update([
-                'contact_email' => strtolower(trim($email)),
-                'copies' => max(1, min(10, $copies)),
-                'purpose' => $purpose ? Str::limit(trim($purpose), 255, '') : null,
+                'contact_email' => $contactEmail,
+                'copies' => $copies,
+                'purpose' => $purpose,
+                ...$destination,
             ]);
             $request = $existing->fresh(['invoice', 'program']);
             if (! $request->invoice || ! $request->invoice->isPayable()) {
@@ -123,7 +185,7 @@ class TranscriptRequestService
                     null,
                     $student->id,
                     null,
-                    $fee->name.' — '.$program->name.' ('.$copies.' '.Str::plural('copy', $copies).')',
+                    $invoiceLabel,
                 );
                 $request->update(['invoice_id' => $invoice->id]);
                 $request = $request->fresh(['invoice', 'program']);
@@ -135,7 +197,7 @@ class TranscriptRequestService
                 null,
                 $student->id,
                 null,
-                $fee->name.' — '.$program->name.' ('.$copies.' '.Str::plural('copy', $copies).')',
+                $invoiceLabel,
             );
 
             $request = TranscriptRequest::query()->create([
@@ -143,10 +205,12 @@ class TranscriptRequestService
                 'student_id' => $student->id,
                 'program_id' => $programId,
                 'invoice_id' => $invoice->id,
-                'contact_email' => strtolower(trim($email)),
-                'copies' => max(1, min(10, $copies)),
-                'purpose' => $purpose ? Str::limit(trim($purpose), 255, '') : null,
+                'contact_email' => $contactEmail,
+                'copies' => $copies,
+                'purpose' => $purpose,
+                'transcript_type' => $transcriptType,
                 'status' => 'awaiting_payment',
+                ...$destination,
             ]);
             $request->load(['invoice', 'program']);
         }
@@ -263,7 +327,7 @@ class TranscriptRequestService
             $path = $upload->storeAs(
                 'transcripts/'.$request->id,
                 'official-'.Str::random(8).'.pdf',
-                'local',
+                AppStorage::diskName(),
             );
         } elseif ($deliveryMode === 'generated_pdf') {
             $path = $this->storeGeneratedPdf($request, $staff);
@@ -323,11 +387,11 @@ class TranscriptRequestService
     public function downloadResponse(TranscriptRequest $request)
     {
         abort_unless($request->isDownloadable(), 404, 'Download is not available for this request.');
-        abort_unless(Storage::disk('local')->exists($request->artifact_path), 404, 'File not found.');
+        abort_unless(AppStorage::exists($request->artifact_path), 404, 'File not found.');
 
         $matric = preg_replace('/[^A-Za-z0-9_-]+/', '-', (string) ($request->student?->matric_number ?: 'student')) ?: 'student';
 
-        return Storage::disk('local')->download(
+        return AppStorage::download(
             $request->artifact_path,
             'official-transcript-'.$matric.'.pdf',
         );
@@ -344,6 +408,11 @@ class TranscriptRequestService
             'public_token' => $request->public_token,
             'status' => $request->status,
             'delivery_mode' => $request->delivery_mode,
+            'transcript_type' => $request->transcript_type,
+            'transcript_type_label' => $request->transcript_type ? TranscriptType::label($request->transcript_type) : null,
+            'delivery_email' => $request->delivery_email,
+            'delivery_address' => $request->delivery_address,
+            'collection_method' => $request->collection_method,
             'copies' => $request->copies,
             'purpose' => $request->purpose,
             'contact_email' => $request->contact_email,
@@ -360,6 +429,7 @@ class TranscriptRequestService
                 'name' => $request->program->name,
                 'code' => $request->program->code,
                 'department' => $request->program->department?->name,
+                'study_level' => $request->program->study_level,
             ] : null,
             'student' => $student ? [
                 'id' => $student->id,
@@ -386,6 +456,11 @@ class TranscriptRequestService
                 'name' => $request->program->name,
                 'code' => $request->program->code,
             ] : null,
+            'transcript_type' => $request->transcript_type,
+            'transcript_type_label' => $request->transcript_type ? TranscriptType::label($request->transcript_type) : null,
+            'delivery_email' => $request->delivery_email,
+            'delivery_address' => $request->delivery_address,
+            'collection_method' => $request->collection_method,
             'delivery_mode' => $request->delivery_mode,
             'downloadable' => $request->isDownloadable(),
             'paid_at' => $request->paid_at?->toIso8601String(),
@@ -491,6 +566,7 @@ class TranscriptRequestService
                 'name' => $program->name,
                 'code' => $program->code,
                 'study_level' => $program->study_level,
+                'entry_modes' => $program->entryModeList(),
                 'department' => $program->department?->name,
                 'is_current' => $currentId !== null && (int) $program->id === $currentId,
             ])
@@ -498,10 +574,77 @@ class TranscriptRequestService
             ->all();
     }
 
-    private function resolveFeeItem(): ?FeeItem
+    private function destinationFields(
+        string $transcriptType,
+        ?string $deliveryEmail,
+        ?string $deliveryAddress,
+        ?string $collectionMethod,
+    ): array {
+        if (! in_array($transcriptType, TranscriptType::ALL, true)) {
+            throw new RuntimeException('Select a valid transcript type.');
+        }
+
+        $email = $deliveryEmail ? strtolower(trim($deliveryEmail)) : null;
+        $address = $deliveryAddress ? trim($deliveryAddress) : null;
+        $collection = $collectionMethod ? strtolower(trim($collectionMethod)) : null;
+
+        if (TranscriptType::requiresEmail($transcriptType)) {
+            if (! $email || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                throw new RuntimeException('Enter the email address the e-copy should be sent to.');
+            }
+
+            return [
+                'delivery_email' => $email,
+                'delivery_address' => null,
+                'collection_method' => null,
+            ];
+        }
+
+        if (TranscriptType::requiresAddress($transcriptType)) {
+            if (! $address) {
+                throw new RuntimeException('Enter the address this transcript should be sent to.');
+            }
+
+            return [
+                'delivery_email' => null,
+                'delivery_address' => Str::limit($address, 1000, ''),
+                'collection_method' => TranscriptType::COLLECTION_POST,
+            ];
+        }
+
+        if (! in_array($collection, TranscriptType::COLLECTION_METHODS, true)) {
+            throw new RuntimeException('Choose collection at the Registry or a postal address for the student copy.');
+        }
+        if ($collection === TranscriptType::COLLECTION_POST && ! $address) {
+            throw new RuntimeException('Enter the address this student copy should be sent to.');
+        }
+
+        return [
+            'delivery_email' => null,
+            'delivery_address' => $collection === TranscriptType::COLLECTION_POST
+                ? Str::limit((string) $address, 1000, '')
+                : ($address ? Str::limit($address, 1000, '') : null),
+            'collection_method' => $collection,
+        ];
+    }
+
+    private function hasConfiguredFee(): bool
     {
         return FeeItem::query()
             ->where('category', 'transcript')
+            ->where('is_active', true)
+            ->where('amount', '>', 0)
+            ->whereNotNull('transcript_type')
+            ->whereNotNull('program_id')
+            ->exists();
+    }
+
+    private function resolveFeeItem(Program $program, string $transcriptType): ?FeeItem
+    {
+        return FeeItem::query()
+            ->where('category', 'transcript')
+            ->where('transcript_type', $transcriptType)
+            ->where('program_id', $program->id)
             ->where('is_active', true)
             ->where('amount', '>', 0)
             ->orderBy('display_order')
@@ -509,7 +652,7 @@ class TranscriptRequestService
             ->first();
     }
 
-    private function unavailableReason(?FeeItem $fee): ?string
+    private function unavailableReason(bool $hasFee): ?string
     {
         if (! TranscriptRequestSettings::all()['transcript_requests_enabled']) {
             return 'Official transcript requests are currently closed.';
@@ -517,7 +660,7 @@ class TranscriptRequestService
         if (count(TranscriptRequestSettings::enabledDeliveryModes()) === 0) {
             return 'Official transcript requests are not configured.';
         }
-        if (! $fee) {
+        if (! $hasFee) {
             return 'The transcript fee has not been set by Finance yet.';
         }
 
@@ -559,7 +702,7 @@ class TranscriptRequestService
         $dompdf->render();
 
         $relative = 'transcripts/'.$request->id.'/official-'.Str::random(8).'.pdf';
-        Storage::disk('local')->put($relative, $dompdf->output());
+        AppStorage::disk()->put($relative, $dompdf->output());
 
         return $relative;
     }

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\WorkflowCatalog;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -85,5 +86,15 @@ class Program extends BaseModel
     public function isOffered(): bool
     {
         return $this->is_active !== false;
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (Program $program) {
+            if (filled($program->workflow_template_id)) {
+                return;
+            }
+            $program->workflow_template_id = WorkflowCatalog::ensureDefaultId($program);
+        });
     }
 }

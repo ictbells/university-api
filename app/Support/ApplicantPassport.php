@@ -4,15 +4,16 @@ namespace App\Support;
 
 use App\Models\Application;
 use App\Models\User;
-use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 
 class ApplicantPassport
 {
     public static function relativePathForApplication(Application $application): ?string
     {
         foreach (self::candidatesForApplication($application) as $value) {
-            if (self::absolutePath($value)) {
+            if (self::storageExists($value)) {
                 return self::normalize($value);
             }
         }
@@ -24,7 +25,7 @@ class ApplicantPassport
     {
         $user->loadMissing(['student', 'latestNinVerification', 'latestApplication.documents', 'latestApplication.steps']);
 
-        if ($user->student?->photo_path && self::absolutePath($user->student->photo_path)) {
+        if ($user->student?->photo_path && self::storageExists($user->student->photo_path)) {
             return self::normalize($user->student->photo_path);
         }
 
@@ -36,7 +37,7 @@ class ApplicantPassport
         }
 
         foreach (self::payloadPhotoValues($user->latestNinVerification?->mapped_fields ?? []) as $value) {
-            if (self::absolutePath($value)) {
+            if (self::storageExists($value)) {
                 return self::normalize($value);
             }
         }
@@ -67,17 +68,22 @@ class ApplicantPassport
             return $embedded;
         }
 
-        $absolute = self::absolutePath($path);
-        if (! $absolute) {
+        if (! self::storageExists($path)) {
             return null;
         }
 
-        $mime = mime_content_type($absolute) ?: 'image/jpeg';
+        try {
+            $binary = AppStorage::get(self::normalize($path));
+        } catch (Throwable) {
+            return null;
+        }
 
-        return 'data:'.$mime.';base64,'.base64_encode((string) file_get_contents($absolute));
+        $mime = self::mimeFromBinary($binary) ?: 'image/jpeg';
+
+        return 'data:'.$mime.';base64,'.base64_encode($binary);
     }
 
-    public static function fileResponseForApplication(Application $application): BinaryFileResponse
+    public static function fileResponseForApplication(Application $application): BinaryFileResponse|StreamedResponse
     {
         foreach (self::candidatesForApplication($application) as $value) {
             $response = self::tryFileResponse($value);
@@ -89,7 +95,7 @@ class ApplicantPassport
         abort(404, 'Passport photograph not found.');
     }
 
-    public static function fileResponseForUser(User $user): BinaryFileResponse
+    public static function fileResponseForUser(User $user): BinaryFileResponse|StreamedResponse
     {
         $user->loadMissing(['student', 'latestNinVerification', 'latestApplication.documents', 'latestApplication.steps']);
 
@@ -111,7 +117,7 @@ class ApplicantPassport
         abort(404, 'Passport photograph not found.');
     }
 
-    public static function fileResponse(?string $path): BinaryFileResponse
+    public static function fileResponse(?string $path): BinaryFileResponse|StreamedResponse
     {
         $response = self::tryFileResponse($path);
         abort_unless($response, 404, 'Passport photograph not found.');
@@ -119,6 +125,9 @@ class ApplicantPassport
         return $response;
     }
 
+    /**
+     * Prefer storage existence; keep absolutePath() for callers that still need a local file.
+     */
     public static function absolutePath(?string $path): ?string
     {
         if (! is_string($path) || trim($path) === '') {
@@ -129,22 +138,17 @@ class ApplicantPassport
         }
 
         $relative = self::normalize($path);
-        $candidates = [
-            Storage::disk('public')->path($relative),
-            storage_path('app/public/'.$relative),
-            storage_path('app/'.$relative),
-        ];
-        foreach ($candidates as $full) {
-            if (is_file($full)) {
-                return $full;
-            }
+        if (! self::storageExists($relative)) {
+            return null;
         }
 
-        if (Storage::disk('public')->exists($relative)) {
-            return Storage::disk('public')->path($relative);
-        }
+        try {
+            [$local] = AppStorage::localCopy($relative);
 
-        return null;
+            return $local;
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     /**
@@ -189,7 +193,7 @@ class ApplicantPassport
         return $values;
     }
 
-    private static function tryFileResponse(?string $path): ?BinaryFileResponse
+    private static function tryFileResponse(?string $path): BinaryFileResponse|StreamedResponse|null
     {
         if (! is_string($path) || trim($path) === '') {
             return null;
@@ -214,18 +218,52 @@ class ApplicantPassport
             ])->deleteFileAfterSend(true);
         }
 
-        $absolute = self::absolutePath($path);
-        if (! $absolute) {
+        $relative = self::normalize($path);
+        if (! self::storageExists($relative)) {
             return null;
         }
 
-        $mime = mime_content_type($absolute) ?: 'image/jpeg';
+        try {
+            $binary = AppStorage::get($relative);
+        } catch (Throwable) {
+            return null;
+        }
 
-        return response()->file($absolute, [
+        $mime = self::mimeFromBinary($binary) ?: 'image/jpeg';
+        $extension = str_contains($mime, 'png') ? 'png' : 'jpg';
+
+        return AppStorage::response($relative, 'passport.'.$extension, [
             'Content-Type' => $mime,
-            'Content-Disposition' => 'inline; filename="passport.jpg"',
+            'Content-Disposition' => 'inline; filename="passport.'.$extension.'"',
             'Cache-Control' => 'private, max-age=3600',
         ]);
+    }
+
+    private static function storageExists(string $path): bool
+    {
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://') || str_starts_with($path, 'data:')) {
+            return false;
+        }
+
+        return AppStorage::exists(self::normalize($path));
+    }
+
+    private static function mimeFromBinary(string $binary): ?string
+    {
+        if (str_starts_with($binary, "\x89PNG")) {
+            return 'image/png';
+        }
+        if (str_starts_with($binary, "\xff\xd8")) {
+            return 'image/jpeg';
+        }
+        if (str_starts_with($binary, 'GIF8')) {
+            return 'image/gif';
+        }
+        if (str_starts_with($binary, 'RIFF') && str_contains(substr($binary, 0, 16), 'WEBP')) {
+            return 'image/webp';
+        }
+
+        return null;
     }
 
     private static function embeddedDataUri(string $value): ?string

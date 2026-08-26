@@ -64,6 +64,8 @@ Route::post('/payments/paystack/webhook', [PaymentController::class, 'webhook'])
 Route::get('/transcript-requests/meta', [TranscriptRequestController::class, 'meta']);
 Route::post('/transcript-requests/lookup', [TranscriptRequestController::class, 'lookup'])
     ->middleware('throttle:20,1');
+Route::post('/transcript-requests/quote', [TranscriptRequestController::class, 'quote'])
+    ->middleware('throttle:30,1');
 Route::post('/transcript-requests', [TranscriptRequestController::class, 'store'])
     ->middleware('throttle:10,1');
 Route::get('/transcript-requests/{token}', [TranscriptRequestController::class, 'show'])

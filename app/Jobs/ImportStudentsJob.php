@@ -8,7 +8,7 @@ use App\Services\StudentImportService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
+use App\Support\AppStorage;
 use Throwable;
 
 class ImportStudentsJob implements ShouldQueue
@@ -29,7 +29,7 @@ class ImportStudentsJob implements ShouldQueue
 
     public function handle(StudentImportService $importer): void
     {
-        $fullPath = Storage::path($this->path);
+        [$fullPath, $isTemp] = AppStorage::localCopy($this->path);
         $importer->cacheResult($this->importId, [
             'status' => 'processing',
             'import_id' => $this->importId,
@@ -66,7 +66,8 @@ class ImportStudentsJob implements ShouldQueue
                 'message' => $e->getMessage(),
             ]);
         } finally {
-            Storage::delete($this->path);
+            AppStorage::deleteLocalCopy($fullPath, $isTemp);
+            AppStorage::disk()->delete($this->path);
         }
     }
 }

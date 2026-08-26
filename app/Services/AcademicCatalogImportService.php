@@ -204,9 +204,7 @@ class AcademicCatalogImportService
             'is_research_degree' => $this->boolish($data['is_research_degree'] ?? null),
             'is_active' => true,
         ];
-        $payload['workflow_template_id'] = WorkflowCatalog::idByCode(
-            WorkflowCatalog::defaultCodeFor(new Program($payload))
-        );
+        $payload['workflow_template_id'] = WorkflowCatalog::ensureDefaultId(new Program($payload));
 
         Program::query()->create($payload);
     }

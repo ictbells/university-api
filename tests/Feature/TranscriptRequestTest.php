@@ -88,7 +88,7 @@ class TranscriptRequestTest extends TestCase
             'code' => 'REG-TR',
             'is_active' => true,
         ]);
-        $office->syncNavKeys(['transcript-requests']);
+        $office->syncNavKeys(['transcript-undergraduate', 'transcript-jupeb', 'transcript-postgraduate']);
         Staff::query()->create([
             'user_id' => $this->staffUser->id,
             'staff_number' => 'REG-TR-1',
@@ -96,8 +96,10 @@ class TranscriptRequestTest extends TestCase
         ]);
 
         FeeItem::query()->create([
-            'name' => 'Official transcript',
+            'name' => 'Official transcript e-copy',
             'category' => 'transcript',
+            'transcript_type' => 'e_copy',
+            'program_id' => $this->program->id,
             'amount' => 5000,
             'wallet_allowed' => false,
             'is_required' => true,
@@ -113,12 +115,31 @@ class TranscriptRequestTest extends TestCase
         ]);
     }
 
-    public function test_meta_reports_fee_when_enabled(): void
+    /**
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    private function requestPayload(array $overrides = []): array
     {
-        $this->getJson('/api/transcript-requests/meta')
+        return array_merge([
+            'matric_number' => 'BUT/2018/0001',
+            'email' => 'alumni@example.com',
+            'program_id' => $this->program->id,
+            'transcript_type' => 'e_copy',
+            'delivery_email' => 'alumni@example.com',
+            'channel' => 'undergraduate',
+        ], $overrides);
+    }
+
+    public function test_meta_reports_types_without_a_single_fee(): void
+    {
+        $json = $this->getJson('/api/transcript-requests/meta')
             ->assertOk()
-            ->assertJsonPath('enabled', true)
-            ->assertJsonPath('fee.amount', 5000);
+            ->json();
+
+        $this->assertTrue($json['enabled']);
+        $this->assertArrayNotHasKey('fee', $json);
+        $this->assertSame('e_copy', $json['transcript_types'][0]['value']);
     }
 
     public function test_lookup_returns_programmes_for_matched_student(): void
@@ -151,6 +172,7 @@ class TranscriptRequestTest extends TestCase
         $this->postJson('/api/transcript-requests/lookup', [
             'matric_number' => 'BUT/2018/0001',
             'email' => 'alumni@example.com',
+            'channel' => 'undergraduate',
         ])
             ->assertOk()
             ->assertJsonPath('student.matric_number', 'BUT/2018/0001')
@@ -159,22 +181,16 @@ class TranscriptRequestTest extends TestCase
 
     public function test_create_rejects_email_mismatch(): void
     {
-        $this->postJson('/api/transcript-requests', [
-            'matric_number' => 'BUT/2018/0001',
+        $this->postJson('/api/transcript-requests', $this->requestPayload([
             'email' => 'wrong@example.com',
-            'program_id' => $this->program->id,
-        ])->assertStatus(422);
+        ]))->assertStatus(422);
     }
 
     public function test_create_blocked_without_fee(): void
     {
         FeeItem::query()->where('category', 'transcript')->update(['is_active' => false]);
 
-        $this->postJson('/api/transcript-requests', [
-            'matric_number' => 'BUT/2018/0001',
-            'email' => 'alumni@example.com',
-            'program_id' => $this->program->id,
-        ])->assertStatus(422)
+        $this->postJson('/api/transcript-requests', $this->requestPayload())->assertStatus(422)
             ->assertJsonFragment(['message' => 'The transcript fee has not been set by Finance yet.']);
     }
 
@@ -182,13 +198,10 @@ class TranscriptRequestTest extends TestCase
     {
         Mail::fake();
 
-        $create = $this->postJson('/api/transcript-requests', [
-            'matric_number' => 'BUT/2018/0001',
-            'email' => 'alumni@example.com',
-            'program_id' => $this->program->id,
+        $create = $this->postJson('/api/transcript-requests', $this->requestPayload([
             'copies' => 2,
             'purpose' => 'Further studies',
-        ])->assertCreated();
+        ]))->assertCreated();
 
         $token = $create->json('request.token');
         $reference = $create->json('payment.reference');
@@ -205,6 +218,7 @@ class TranscriptRequestTest extends TestCase
             'status' => 'paid',
             'copies' => 2,
             'program_id' => $this->program->id,
+            'transcript_type' => 'e_copy',
         ]);
 
         Mail::assertSent(TranscriptRequestPaidMail::class);
@@ -213,13 +227,9 @@ class TranscriptRequestTest extends TestCase
     public function test_staff_can_mark_ready_collect_and_generated_pdf(): void
     {
         Mail::fake();
-        Storage::fake('local');
+        Storage::fake(config('filesystems.default', 'local'));
 
-        $create = $this->postJson('/api/transcript-requests', [
-            'matric_number' => 'BUT/2018/0001',
-            'email' => 'alumni@example.com',
-            'program_id' => $this->program->id,
-        ])->assertCreated();
+        $create = $this->postJson('/api/transcript-requests', $this->requestPayload())->assertCreated();
         $token = $create->json('request.token');
         $reference = $create->json('payment.reference');
         $this->getJson('/api/transcript-requests/'.$token.'/verify/'.$reference)->assertOk();
@@ -241,11 +251,7 @@ class TranscriptRequestTest extends TestCase
 
         // Second request with generated PDF
         Mail::fake();
-        $create2 = $this->postJson('/api/transcript-requests', [
-            'matric_number' => 'BUT/2018/0001',
-            'email' => 'alumni@example.com',
-            'program_id' => $this->program->id,
-        ])->assertCreated();
+        $create2 = $this->postJson('/api/transcript-requests', $this->requestPayload())->assertCreated();
         $token2 = $create2->json('request.token');
         $this->getJson('/api/transcript-requests/'.$token2.'/verify/'.$create2->json('payment.reference'))->assertOk();
         $request2 = TranscriptRequest::query()->where('public_token', $token2)->firstOrFail();
@@ -263,13 +269,9 @@ class TranscriptRequestTest extends TestCase
     public function test_staff_upload_and_reject(): void
     {
         Mail::fake();
-        Storage::fake('local');
+        Storage::fake(config('filesystems.default', 'local'));
 
-        $create = $this->postJson('/api/transcript-requests', [
-            'matric_number' => 'BUT/2018/0001',
-            'email' => 'alumni@example.com',
-            'program_id' => $this->program->id,
-        ])->assertCreated();
+        $create = $this->postJson('/api/transcript-requests', $this->requestPayload())->assertCreated();
         $token = $create->json('request.token');
         $this->getJson('/api/transcript-requests/'.$token.'/verify/'.$create->json('payment.reference'))->assertOk();
         $request = TranscriptRequest::query()->where('public_token', $token)->firstOrFail();
@@ -286,11 +288,7 @@ class TranscriptRequestTest extends TestCase
 
         Mail::assertSent(TranscriptRequestReadyMail::class);
 
-        $create2 = $this->postJson('/api/transcript-requests', [
-            'matric_number' => 'BUT/2018/0001',
-            'email' => 'alumni@example.com',
-            'program_id' => $this->program->id,
-        ])->assertCreated();
+        $create2 = $this->postJson('/api/transcript-requests', $this->requestPayload())->assertCreated();
         $token2 = $create2->json('request.token');
         $this->getJson('/api/transcript-requests/'.$token2.'/verify/'.$create2->json('payment.reference'))->assertOk();
         $request2 = TranscriptRequest::query()->where('public_token', $token2)->firstOrFail();
@@ -307,13 +305,169 @@ class TranscriptRequestTest extends TestCase
 
     public function test_download_gated_until_ready(): void
     {
-        $create = $this->postJson('/api/transcript-requests', [
-            'matric_number' => 'BUT/2018/0001',
-            'email' => 'alumni@example.com',
-            'program_id' => $this->program->id,
-        ])->assertCreated();
+        $create = $this->postJson('/api/transcript-requests', $this->requestPayload())->assertCreated();
         $token = $create->json('request.token');
 
         $this->get('/api/transcript-requests/'.$token.'/download')->assertNotFound();
+    }
+
+    public function test_quote_returns_fee_for_programme_and_type(): void
+    {
+        FeeItem::query()->create([
+            'name' => 'Within Nigeria transcript',
+            'category' => 'transcript',
+            'transcript_type' => 'within_nigeria',
+            'program_id' => $this->program->id,
+            'amount' => 15000,
+            'wallet_allowed' => false,
+            'is_required' => true,
+            'is_active' => true,
+            'display_order' => 2,
+        ]);
+
+        $this->postJson('/api/transcript-requests/quote', [
+            'program_id' => $this->program->id,
+            'transcript_type' => 'e_copy',
+        ])->assertOk()
+            ->assertJsonPath('fee.amount', 5000);
+
+        $this->postJson('/api/transcript-requests/quote', [
+            'program_id' => $this->program->id,
+            'transcript_type' => 'within_nigeria',
+        ])->assertOk()
+            ->assertJsonPath('fee.amount', 15000);
+
+        $this->postJson('/api/transcript-requests/quote', [
+            'program_id' => $this->program->id,
+            'transcript_type' => 'outside_nigeria',
+        ])->assertStatus(422)
+            ->assertJsonFragment(['message' => 'Finance has not set a fee for this programme and transcript type.']);
+    }
+
+    public function test_create_requires_destination_fields_for_type(): void
+    {
+        $this->postJson('/api/transcript-requests', $this->requestPayload([
+            'delivery_email' => null,
+        ]))->assertStatus(422);
+
+        $this->postJson('/api/transcript-requests', $this->requestPayload([
+            'transcript_type' => 'within_nigeria',
+            'delivery_email' => null,
+        ]))->assertStatus(422);
+
+        FeeItem::query()->create([
+            'name' => 'Within Nigeria transcript',
+            'category' => 'transcript',
+            'transcript_type' => 'within_nigeria',
+            'program_id' => $this->program->id,
+            'amount' => 8000,
+            'wallet_allowed' => false,
+            'is_required' => true,
+            'is_active' => true,
+            'display_order' => 2,
+        ]);
+        FeeItem::query()->create([
+            'name' => 'Student copy transcript',
+            'category' => 'transcript',
+            'transcript_type' => 'student_copy',
+            'program_id' => $this->program->id,
+            'amount' => 3000,
+            'wallet_allowed' => false,
+            'is_required' => true,
+            'is_active' => true,
+            'display_order' => 3,
+        ]);
+
+        $this->postJson('/api/transcript-requests', $this->requestPayload([
+            'transcript_type' => 'within_nigeria',
+            'delivery_email' => null,
+            'delivery_address' => '12 Registry Road, Ota',
+        ]))->assertCreated()
+            ->assertJsonPath('request.transcript_type', 'within_nigeria');
+
+        $this->postJson('/api/transcript-requests', $this->requestPayload([
+            'transcript_type' => 'student_copy',
+            'delivery_email' => null,
+            'collection_method' => 'collect',
+        ]))->assertCreated()
+            ->assertJsonPath('request.collection_method', 'collect');
+    }
+
+    public function test_lookup_filters_programmes_by_channel(): void
+    {
+        Program::query()->create([
+            'department_id' => $this->program->department_id,
+            'name' => 'JUPEB Science',
+            'code' => 'JUPEB-SCI',
+            'award_type' => 'JUPEB',
+            'study_level' => 'undergraduate',
+            'entry_modes' => ['jupeb'],
+            'duration_years' => 1,
+            'is_active' => true,
+        ]);
+
+        $this->postJson('/api/transcript-requests/lookup', [
+            'matric_number' => 'BUT/2018/0001',
+            'email' => 'alumni@example.com',
+            'channel' => 'jupeb',
+        ])->assertStatus(422);
+    }
+
+    public function test_staff_queue_filters_by_channel(): void
+    {
+        $this->postJson('/api/transcript-requests', $this->requestPayload())->assertCreated();
+
+        Sanctum::actingAs($this->staffUser);
+        $this->getJson('/api/staff/transcript-requests?channel=undergraduate')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1);
+        $this->getJson('/api/staff/transcript-requests?channel=jupeb')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 0);
+    }
+
+    public function test_staff_queue_filters_by_type_programme_date_and_collection(): void
+    {
+        $this->postJson('/api/transcript-requests', $this->requestPayload())->assertCreated();
+
+        FeeItem::query()->create([
+            'name' => 'Student copy transcript',
+            'category' => 'transcript',
+            'transcript_type' => 'student_copy',
+            'program_id' => $this->program->id,
+            'amount' => 3000,
+            'wallet_allowed' => false,
+            'is_required' => true,
+            'is_active' => true,
+            'display_order' => 3,
+        ]);
+        $this->postJson('/api/transcript-requests', $this->requestPayload([
+            'transcript_type' => 'student_copy',
+            'delivery_email' => null,
+            'collection_method' => 'collect',
+        ]))->assertCreated();
+
+        Sanctum::actingAs($this->staffUser);
+        $today = now()->toDateString();
+        $yesterday = now()->subDay()->toDateString();
+
+        $this->getJson('/api/staff/transcript-requests?channel=undergraduate&transcript_type=e_copy')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1);
+        $this->getJson('/api/staff/transcript-requests?channel=undergraduate&collection_method=collect')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1);
+        $this->getJson('/api/staff/transcript-requests?channel=undergraduate&program_id='.$this->program->id)
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2);
+        $this->getJson('/api/staff/transcript-requests?channel=undergraduate&from='.$today.'&to='.$today)
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2);
+        $this->getJson('/api/staff/transcript-requests?channel=undergraduate&to='.$yesterday)
+            ->assertOk()
+            ->assertJsonPath('meta.total', 0);
+        $this->getJson('/api/staff/transcript-requests?channel=undergraduate&search=BSC-CS')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2);
     }
 }

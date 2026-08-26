@@ -292,7 +292,7 @@ class PgFormWorkflowTest extends TestCase
     public function test_referee_invite_token_upload_and_expired_link(): void
     {
         Mail::fake();
-        Storage::fake('public');
+        Storage::fake(config('filesystems.default', 'local'));
         $application = $this->pgApplication($this->taught);
         Sanctum::actingAs($application->user);
         $this->postJson("/api/applications/{$application->id}/steps", [

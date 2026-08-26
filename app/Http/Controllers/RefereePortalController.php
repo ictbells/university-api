@@ -34,7 +34,7 @@ class RefereePortalController extends Controller
 
         $application = $invite->application;
         abort_unless($application, 404);
-        $path = $request->file('file')->store('applications/'.$application->id.'/recommendations', 'public');
+        $path = $request->file('file')->store('applications/'.$application->id.'/recommendations', \App\Support\AppStorage::diskName());
         $docType = 'recommendation_'.$invite->position;
         $application->documents()->updateOrCreate(
             ['doc_type' => $docType],

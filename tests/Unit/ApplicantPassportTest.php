@@ -10,9 +10,9 @@ class ApplicantPassportTest extends TestCase
 {
     public function test_it_embeds_a_public_disk_photo_as_a_data_uri(): void
     {
-        Storage::fake('public');
+        Storage::fake(config('filesystems.default', 'local'));
         $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', true);
-        Storage::disk('public')->put('nin-photos/1/12345678901.png', $png);
+        Storage::disk(config('filesystems.default', 'local'))->put('nin-photos/1/12345678901.png', $png);
 
         $uri = ApplicantPassport::dataUri('nin-photos/1/12345678901.png');
 

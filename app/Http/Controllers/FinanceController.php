@@ -23,6 +23,7 @@ use App\Services\InvoiceService;
 use App\Services\StudentFinanceExportService;
 use App\Support\AdmissionEntryRules;
 use App\Support\FeeSchedule;
+use App\Support\TranscriptType;
 use App\Support\InstitutionLogo;
 use App\Support\InvoiceSettlement;
 use App\Support\ListSessionLevelFilter;
@@ -32,6 +33,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -55,7 +57,7 @@ class FinanceController extends Controller
             $query->where('category', (string) $request->input('category'));
         }
 
-        return $query->get();
+        return $query->with('program:id,name,code,study_level')->get();
     }
 
     public function feeMeta()
@@ -66,6 +68,7 @@ class FinanceController extends Controller
             'installment_percents' => FeeSchedule::INSTALLMENT_PERCENTS,
             'installment_tranches' => FeeSchedule::installmentTrancheOptions(),
             'semesters' => FeeSchedule::SEMESTERS,
+            'transcript_types' => TranscriptType::options(),
         ];
     }
 
@@ -188,6 +191,17 @@ class FinanceController extends Controller
                 'nullable',
                 Rule::in(AdmissionEntryRules::ENTRY_MODE_ORDER),
             ],
+            'transcript_type' => [
+                Rule::requiredIf(fn () => $request->input('category') === 'transcript'),
+                'nullable',
+                Rule::in(TranscriptType::ALL),
+            ],
+            'program_id' => [
+                Rule::requiredIf(fn () => $request->input('category') === 'transcript'),
+                'nullable',
+                'integer',
+                'exists:programs,id',
+            ],
             'installment_tranche' => ['nullable', 'integer', Rule::in(FeeSchedule::INSTALLMENT_TRANCHES)],
             'amount' => 'required|numeric|min:0',
             'is_required' => 'boolean',
@@ -197,6 +211,15 @@ class FinanceController extends Controller
         $data['wallet_allowed'] = FeeSchedule::walletAllowed($data['category']);
         if ($data['category'] !== 'application_fee') {
             $data['entry_mode'] = null;
+        }
+        if ($data['category'] !== 'transcript') {
+            $data['transcript_type'] = null;
+            $data['program_id'] = null;
+        } else {
+            $this->assertUniqueTranscriptFee(
+                (string) $data['transcript_type'],
+                (int) $data['program_id'],
+            );
         }
         if (! FeeSchedule::allowsInstallmentTranche($data['category'])) {
             $data['installment_tranche'] = null;
@@ -227,6 +250,17 @@ class FinanceController extends Controller
                 'nullable',
                 Rule::in(AdmissionEntryRules::ENTRY_MODE_ORDER),
             ],
+            'transcript_type' => [
+                Rule::requiredIf(fn () => ($request->input('category') ?? $fee->category) === 'transcript'),
+                'nullable',
+                Rule::in(TranscriptType::ALL),
+            ],
+            'program_id' => [
+                Rule::requiredIf(fn () => ($request->input('category') ?? $fee->category) === 'transcript'),
+                'nullable',
+                'integer',
+                'exists:programs,id',
+            ],
             'installment_tranche' => ['nullable', 'integer', Rule::in(FeeSchedule::INSTALLMENT_TRANCHES)],
             'amount' => 'sometimes|numeric|min:0',
             'is_required' => 'boolean',
@@ -237,6 +271,16 @@ class FinanceController extends Controller
         $data['wallet_allowed'] = FeeSchedule::walletAllowed($category);
         if ($category !== 'application_fee') {
             $data['entry_mode'] = null;
+        }
+        if ($category !== 'transcript') {
+            $data['transcript_type'] = null;
+            $data['program_id'] = null;
+        } else {
+            $this->assertUniqueTranscriptFee(
+                (string) ($data['transcript_type'] ?? $fee->transcript_type),
+                (int) ($data['program_id'] ?? $fee->program_id),
+                $fee->id,
+            );
         }
         if (! FeeSchedule::allowsInstallmentTranche($category)) {
             $data['installment_tranche'] = null;
@@ -267,6 +311,22 @@ class FinanceController extends Controller
 
             return response()->noContent();
         });
+    }
+
+    private function assertUniqueTranscriptFee(string $transcriptType, int $programId, ?int $ignoreId = null): void
+    {
+        $exists = FeeItem::query()
+            ->where('category', 'transcript')
+            ->where('transcript_type', $transcriptType)
+            ->where('program_id', $programId)
+            ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
+            ->exists();
+
+        if ($exists) {
+            throw ValidationException::withMessages([
+                'transcript_type' => ['A transcript fee already exists for this programme and transcript type.'],
+            ]);
+        }
     }
 
     public function invoices(Request $request)

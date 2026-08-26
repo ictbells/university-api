@@ -84,9 +84,7 @@ class AcademicController extends Controller
         $data['is_research_degree'] = (bool) ($data['is_research_degree'] ?? false);
         $data['is_active'] = array_key_exists('is_active', $data) ? (bool) $data['is_active'] : true;
         if (empty($data['workflow_template_id'])) {
-            $data['workflow_template_id'] = WorkflowCatalog::idByCode(
-                WorkflowCatalog::defaultCodeFor(new Program($data))
-            );
+            $data['workflow_template_id'] = WorkflowCatalog::ensureDefaultId(new Program($data));
         }
         return $this->officeGate('academic.store_program', null, $data + ['course_ids' => $courseIds], 'Create programme', function () use ($data, $courseIds) {
             $program = Program::query()->create($data);
@@ -119,6 +117,15 @@ class AcademicController extends Controller
             'eligibility' => 'nullable|array',
             'workflow_template_id' => 'nullable|exists:workflow_templates,id',
         ]);
+        $nextWorkflowId = array_key_exists('workflow_template_id', $data)
+            ? $data['workflow_template_id']
+            : $program->workflow_template_id;
+        if (empty($nextWorkflowId)) {
+            $data['workflow_template_id'] = WorkflowCatalog::ensureDefaultId(new Program(array_merge(
+                $program->only(['study_level', 'entry_modes', 'is_research_degree']),
+                $data,
+            )));
+        }
         return $this->officeGate('academic.update_program', $program, ['program_id' => $program->id, ...$data], 'Update programme', function () use ($program, $data, $before) {
             if (array_key_exists('course_ids', $data)) {
                 $program->courses()->sync($data['course_ids'] ?? []);
@@ -323,6 +330,8 @@ class AcademicController extends Controller
 
     public function workflowTemplates()
     {
+        WorkflowCatalog::seed();
+
         return WorkflowTemplate::query()->with('stages')->orderBy('name')->get();
     }
 

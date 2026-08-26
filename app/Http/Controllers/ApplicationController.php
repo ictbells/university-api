@@ -29,7 +29,6 @@ use App\Support\RegistrationCriteria;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -570,7 +569,7 @@ class ApplicationController extends Controller
             'doc_type' => 'required|string|in:'.implode(',', $allowed),
             'file' => 'required|file|max:5120|mimes:pdf,jpg,jpeg,png',
         ]);
-        $path = $request->file('file')->store('applications/'.$application->id, 'public');
+        $path = $request->file('file')->store('applications/'.$application->id, \App\Support\AppStorage::diskName());
         $existing = $application->documents()->where('doc_type', $data['doc_type'])->first();
         if ($existing) {
             $existing->update([
@@ -609,12 +608,12 @@ class ApplicationController extends Controller
             $path = substr($path, strlen('storage/'));
         }
 
-        abort_unless($path !== '' && Storage::disk('public')->exists($path), 404, 'Document file not found.');
+        abort_unless($path !== '' && \App\Support\AppStorage::exists($path), 404, 'Document file not found.');
 
         $filename = $document->original_name ?: basename($path);
-        $mime = Storage::disk('public')->mimeType($path) ?: 'application/octet-stream';
+        $mime = \App\Support\AppStorage::mimeType($path);
 
-        return Storage::disk('public')->response($path, $filename, [
+        return \App\Support\AppStorage::response($path, $filename, [
             'Content-Type' => $mime,
             'Content-Disposition' => 'inline; filename="'.$filename.'"',
         ]);

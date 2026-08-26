@@ -20,9 +20,8 @@ return [
     | Filesystem Disks
     |--------------------------------------------------------------------------
     |
-    | Below you may configure as many filesystem disks as necessary, and you
-    | may even configure multiple disks for the same driver. Examples for
-    | most supported storage drivers are configured here for reference.
+    | Set FILESYSTEM_DISK=s3 (and AWS_* credentials) to store application files
+    | on S3. App code uses the default disk via App\Support\AppStorage.
     |
     | Supported drivers: "local", "ftp", "sftp", "s3"
     |

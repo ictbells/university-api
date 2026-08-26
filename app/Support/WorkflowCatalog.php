@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\Program;
 use App\Models\WorkflowTemplate;
 use App\Models\WorkflowTemplateStage;
+use Illuminate\Support\Facades\Schema;
 
 class WorkflowCatalog
 {
@@ -61,6 +62,10 @@ class WorkflowCatalog
 
     public static function seed(): void
     {
+        if (! Schema::hasTable('workflow_templates') || ! Schema::hasTable('workflow_template_stages')) {
+            return;
+        }
+
         foreach (self::definitions() as $definition) {
             $template = WorkflowTemplate::query()->updateOrCreate(
                 ['code' => $definition['code']],
@@ -90,6 +95,14 @@ class WorkflowCatalog
                 ->whereNotIn('id', $keep)
                 ->delete();
         }
+    }
+
+    public static function ensureDefaultId(?Program $program = null): ?int
+    {
+        self::seed();
+        $code = $program ? self::defaultCodeFor($program) : self::UG_STANDARD;
+
+        return self::idByCode($code);
     }
 
     public static function idByCode(string $code): ?int
