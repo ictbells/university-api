@@ -365,6 +365,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/academic/lecturers', [CourseOfferingController::class, 'lecturers'])
         ->middleware('academic.resource:offerings');
     Route::middleware('academic.resource:offerings')->group(function () {
+        Route::post('/academic/offerings/from-curriculum', [CourseOfferingController::class, 'publishFromCurriculum']);
         Route::post('/academic/offerings', [CourseOfferingController::class, 'store']);
         Route::patch('/academic/offerings/{offering}', [CourseOfferingController::class, 'update']);
         Route::delete('/academic/offerings/{offering}', [CourseOfferingController::class, 'destroy']);
@@ -417,6 +418,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
 
     Route::middleware('permission:academic.offerings.manage')->group(function () {
         Route::get('/course-offerings', [CourseOfferingController::class, 'index']);
+        Route::post('/course-offerings/from-curriculum', [CourseOfferingController::class, 'publishFromCurriculum']);
         Route::post('/course-offerings', [CourseOfferingController::class, 'store']);
         Route::patch('/course-offerings/{offering}', [CourseOfferingController::class, 'update']);
         Route::delete('/course-offerings/{offering}', [CourseOfferingController::class, 'destroy']);

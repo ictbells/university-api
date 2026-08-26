@@ -157,6 +157,24 @@ class HostelLevelWindowTest extends TestCase
         $this->assertSame('pending', $allocation->status);
     }
 
+    public function test_jupeb_windows_use_jupeb_levels_not_undergraduate(): void
+    {
+        [, $ugLevel] = $this->studentWithLevel();
+        $jupebLevel = AcademicLevel::query()->create([
+            'name' => 'JUPEB Year 1',
+            'code' => '100',
+            'study_level' => 'jupeb',
+            'sort_order' => 1,
+            'is_active' => true,
+        ]);
+
+        $windows = app(HostelService::class)->levelWindows('jupeb');
+        $ids = $windows->pluck('academic_level_id')->all();
+
+        $this->assertContains($jupebLevel->id, $ids);
+        $this->assertNotContains($ugLevel->id, $ids);
+    }
+
     /**
      * @return array{0: Student, 1: AcademicLevel, 2: AcademicTerm}
      */

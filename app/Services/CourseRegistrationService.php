@@ -7,6 +7,7 @@ use App\Models\AcademicTerm;
 use App\Models\CourseOffering;
 use App\Models\Enrollment;
 use App\Models\Invoice;
+use App\Models\Program;
 use App\Models\RegistrationExtension;
 use App\Models\Student;
 use App\Models\UnitGrace;
@@ -141,6 +142,61 @@ class CourseRegistrationService
                 ];
             })
             ->values();
+    }
+
+    /**
+     * @return array{created: int, skipped: int, course_count: int, term: array{id: int, name: string, session_label: ?string}, program_id: ?int}
+     */
+    public function publishCurriculumOfferings(AcademicTerm $term, ?Program $program = null): array
+    {
+        $courseIds = $program
+            ? $program->courses()->pluck('courses.id')
+            : DB::table('program_course')->distinct()->pluck('course_id');
+
+        $courseIds = $courseIds->map(fn ($id) => (int) $id)->filter()->unique()->values();
+        if ($courseIds->isEmpty()) {
+            throw ValidationException::withMessages([
+                'program_id' => $program
+                    ? 'This programme has no courses assigned yet. Map them on Programme courses first.'
+                    : 'No programme courses are assigned yet. Map catalog courses to programmes first.',
+            ]);
+        }
+
+        $existing = CourseOffering::query()
+            ->where('academic_term_id', $term->id)
+            ->whereIn('course_id', $courseIds)
+            ->pluck('course_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->all();
+
+        $created = 0;
+        foreach ($courseIds as $courseId) {
+            if (in_array($courseId, $existing, true)) {
+                continue;
+            }
+            CourseOffering::query()->firstOrCreate(
+                [
+                    'course_id' => $courseId,
+                    'academic_term_id' => $term->id,
+                    'section' => 'A',
+                ],
+                ['capacity' => null],
+            );
+            $created++;
+        }
+
+        return [
+            'created' => $created,
+            'skipped' => $courseIds->count() - $created,
+            'course_count' => $courseIds->count(),
+            'term' => [
+                'id' => $term->id,
+                'name' => $term->name,
+                'session_label' => $term->session_label,
+            ],
+            'program_id' => $program?->id,
+        ];
     }
 
     public function register(

@@ -174,6 +174,96 @@ class ProgrammeCourseAssignmentTest extends TestCase
         ]);
     }
 
+    public function test_jupeb_programme_cannot_mix_undergraduate_entry_modes(): void
+    {
+        [$user, $program] = $this->seedCatalog();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/programs', [
+            'department_id' => $program->department_id,
+            'name' => 'Architecture JUPEB',
+            'code' => 'ARC-JUPEB',
+            'award_type' => 'JUPEB',
+            'study_level' => 'undergraduate',
+            'entry_modes' => ['utme', 'jupeb'],
+            'duration_years' => 1,
+            'is_active' => true,
+        ])->assertUnprocessable()
+            ->assertJsonFragment(['entry_modes' => ['JUPEB cannot share a programme with undergraduate or postgraduate. Create a separate JUPEB programme with its own levels and courses.']]);
+    }
+
+    public function test_jupeb_curriculum_rejects_undergraduate_levels(): void
+    {
+        [$user, $program, $course, $ugLevel] = $this->seedCatalog();
+        $jupeb = Program::query()->create([
+            'department_id' => $program->department_id,
+            'name' => 'Architecture JUPEB',
+            'code' => 'ARC-JPB',
+            'award_type' => 'JUPEB',
+            'study_level' => 'jupeb',
+            'entry_modes' => ['jupeb'],
+            'duration_years' => 1,
+            'is_active' => true,
+        ]);
+        $jupebLevel = AcademicLevel::query()->create([
+            'name' => 'JUPEB Year 1',
+            'code' => '100',
+            'study_level' => 'jupeb',
+            'sort_order' => 1,
+            'is_active' => true,
+        ]);
+        Sanctum::actingAs($user);
+
+        $this->putJson("/api/academic/programs/{$jupeb->id}/courses", [
+            'courses' => [
+                ['course_id' => $course->id, 'academic_level_id' => $ugLevel->id],
+            ],
+        ])->assertUnprocessable();
+
+        $this->putJson("/api/academic/programs/{$jupeb->id}/courses", [
+            'courses' => [
+                ['course_id' => $course->id, 'academic_level_id' => $jupebLevel->id],
+            ],
+        ])->assertOk()
+            ->assertJsonPath('courses.0.pivot.academic_level_id', $jupebLevel->id);
+    }
+
+    public function test_jupeb_student_matches_jupeb_level_not_undergraduate_100(): void
+    {
+        [, $program, $course, $ugLevel, $term] = $this->seedCatalog();
+        $jupeb = Program::query()->create([
+            'department_id' => $program->department_id,
+            'name' => 'Architecture JUPEB',
+            'code' => 'ARC-JPB',
+            'award_type' => 'JUPEB',
+            'study_level' => 'jupeb',
+            'entry_modes' => ['jupeb'],
+            'duration_years' => 1,
+            'is_active' => true,
+        ]);
+        $jupebLevel = AcademicLevel::query()->create([
+            'name' => 'JUPEB Year 1',
+            'code' => '100',
+            'study_level' => 'jupeb',
+            'sort_order' => 1,
+            'is_active' => true,
+        ]);
+        $jupeb->courses()->sync([
+            $course->id => ['academic_level_id' => $jupebLevel->id, 'bucket' => 'departmental'],
+        ]);
+        $offering = CourseOffering::query()->create([
+            'course_id' => $course->id,
+            'academic_term_id' => $term->id,
+            'section' => 'A',
+        ]);
+        $student = $this->studentOn($jupeb, 'jupeb');
+        $service = app(CourseRegistrationService::class);
+
+        $this->assertSame($jupebLevel->id, $service->studentLevel($student)?->id);
+        $this->assertNotSame($ugLevel->id, $service->studentLevel($student)?->id);
+        $this->assertContains($offering->id, $service->availableOfferings($student, $term)->pluck('id')->all());
+    }
+
     /**
      * @return array{0: User, 1: Program, 2: Course, 3: AcademicLevel, 4: AcademicTerm, 5: Program}
      */
@@ -249,7 +339,7 @@ class ProgrammeCourseAssignmentTest extends TestCase
         return [$user->fresh(['roles.permissions', 'staff']), $programA, $course, $level, $term, $programB];
     }
 
-    private function studentOn(Program $program): Student
+    private function studentOn(Program $program, string $studyLevel = 'undergraduate'): Student
     {
         $user = User::factory()->create(['status' => 'active']);
 
@@ -258,9 +348,9 @@ class ProgrammeCourseAssignmentTest extends TestCase
             'program_id' => $program->id,
             'first_name' => 'Ada',
             'last_name' => 'Lovelace',
-            'current_level' => 100,
-            'study_level' => 'undergraduate',
+            'current_level' => $studyLevel === 'postgraduate' ? 1 : 100,
+            'study_level' => $studyLevel,
             'status' => 'active',
-        ])->load('program.department');
+        ])->load(['program.department', 'application']);
     }
 }

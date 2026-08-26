@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\AcademicTerm;
 use App\Models\Course;
 use App\Models\CourseOffering;
+use App\Models\Program;
 use App\Models\Staff;
 use App\Services\AuditWriter;
+use App\Services\CourseRegistrationService;
 use App\Support\ListSessionLevelFilter;
 use Illuminate\Http\Request;
 
@@ -14,12 +16,15 @@ class CourseOfferingController extends Controller
 {
     use Concerns\AuthorizesOfficeApprovals;
 
-    public function __construct(private AuditWriter $audit) {}
+    public function __construct(
+        private AuditWriter $audit,
+        private CourseRegistrationService $registration,
+    ) {}
 
     public function index(Request $request)
     {
         $query = CourseOffering::query()
-            ->with(['course.department', 'term', 'lecturer.user'])
+            ->with(['course.department', 'course.programs:id,name,code', 'term', 'lecturer.user'])
             ->withCount(['enrollments as enrolled_count' => fn ($q) => $q->enrolled()]);
 
         if ($request->filled('academic_term_id')) {
@@ -69,6 +74,44 @@ class CourseOfferingController extends Controller
 
             return $offering->load(['course.department', 'term', 'lecturer.user']);
         });
+    }
+
+    public function publishFromCurriculum(Request $request)
+    {
+        $data = $request->validate([
+            'academic_term_id' => 'required|exists:academic_terms,id',
+            'program_id' => 'nullable|exists:programs,id',
+        ]);
+
+        $term = AcademicTerm::query()->findOrFail($data['academic_term_id']);
+        $program = ! empty($data['program_id'])
+            ? Program::query()->findOrFail($data['program_id'])
+            : null;
+        $termLabel = trim(($term->session_label ?: '').' '.$term->name);
+        $summary = $program
+            ? 'Publish '.$program->name.' courses as offerings for '.$termLabel
+            : 'Publish programme courses as offerings for '.$termLabel;
+
+        return $this->officeGate(
+            'academic.publish_curriculum_offerings',
+            $program,
+            $data,
+            $summary,
+            function () use ($term, $program, $termLabel) {
+                $result = $this->registration->publishCurriculumOfferings($term, $program);
+                $this->audit->record(
+                    'offering.curriculum_published',
+                    $result['created'].' offering'.($result['created'] === 1 ? '' : 's').' published for '.$termLabel,
+                    'academic',
+                    'course_offering',
+                    $program?->id,
+                    null,
+                    $result,
+                );
+
+                return $result;
+            },
+        );
     }
 
     public function update(Request $request, CourseOffering $offering)

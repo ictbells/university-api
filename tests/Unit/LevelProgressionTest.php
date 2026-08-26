@@ -32,4 +32,15 @@ class LevelProgressionTest extends TestCase
         $this->assertSame(2, LevelProgression::nextLevel(1, $program));
         $this->assertNull(LevelProgression::nextLevel(2, $program));
     }
+
+    public function test_jupeb_one_year_programme_stays_at_100(): void
+    {
+        $program = new Program([
+            'study_level' => 'jupeb',
+            'duration_years' => 1,
+        ]);
+
+        $this->assertSame(100, LevelProgression::finalLevelForProgram($program));
+        $this->assertNull(LevelProgression::nextLevel(100, $program));
+    }
 }

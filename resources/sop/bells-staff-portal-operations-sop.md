@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.25  
+**Version:** 1.26  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -493,8 +493,8 @@ After import, the applicant signs in on the student portal with **application nu
 ### 8.6 Academic — Courses and exam clearance
 
 - **Course catalog** — Course catalogue with Core / Elective / Required status; bulk spreadsheet import (`academic.courses.manage`).
-- **Programme courses** — Assign catalog courses to a programme by college, department, and admission category (UTME, Direct Entry, JUPEB, Transfer, Postgraduate). A programme that accepts several categories appears under each of them. Students on that programme can register only from current-term offerings of the mapped courses (`academic.programmes.manage`).
-- **Offerings** — Course offerings per session (`academic.offerings.manage`). Filter by admission session and study level.
+- **Programme courses** — Assign catalog courses to a programme by college, department, and admission category (UTME, Direct Entry, JUPEB, Transfer, Postgraduate). A programme that accepts several categories appears under each of them. This is the curriculum map; it is not the student registration list (`academic.programmes.manage`).
+- **Offerings** — Course offerings per semester (`academic.offerings.manage`). Filter by admission session and study level. Use **Publish programme courses** to create a section A (unlimited seats) for every mapped catalog course in the chosen semester; courses that already have an offering are skipped. Then add lecturers, extra sections, or capacity. Students register only from offerings in the **current** semester.
 - **Course registration** — Staff view of student enrolments (`academic.enrollments.manage`). Students start add/drop on the student portal **Course registration** page. They must have paid at least 25% tuition before Register/Drop succeed; the catalogue stays visible while they are blocked. Staff can still register below that threshold when they provide a reason. Unit usage is shown on **one row** (General | Faculty | Departmental | Overall). Search the student picker by session and level.
 - **Unit limits** — Credit-unit caps (`academic.enrollments.manage`). Filter by session and level.
 - **Registration extensions** — Review late-registration requests (`academic.extensions.review`). Filter by session and level.
@@ -743,6 +743,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.19 | Aug 2026 | Platform team | Every assigned office portal link shows Create/Update/Delete approval settings (not only modules that already have gated actions) |
 | 1.24 | Aug 2026 | Platform team | Acceptance fees are set in the fee catalog by entry mode, matching application fees |
 | 1.25 | Aug 2026 | Platform team | Hostel level toggles save immediately; student bed requests require ≥25% current-session tuition; Undergraduate and JUPEB windows stay separate |
+| 1.26 | Aug 2026 | Platform team | Offerings can publish mapped programme courses for a semester (section A, unlimited; skips courses already offered) |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 
