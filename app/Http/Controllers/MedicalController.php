@@ -11,6 +11,7 @@ use App\Services\AuditWriter;
 use App\Services\ClinicBillingService;
 use App\Support\ClinicSettings;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class MedicalController extends Controller
 {
@@ -74,10 +75,12 @@ class MedicalController extends Controller
         $page = $query->paginate($perPage);
         $page->getCollection()->transform(function (Student $student) {
             $profile = $student->medicalProfile;
-            $student->setAttribute(
-                'effective_coverage_percent',
-                $profile ? $this->billing->resolveCoveragePercent($profile) : 0.0
-            );
+            $cover = $profile
+                ? $this->billing->describeCoverage($profile)
+                : ['mode' => 'none', 'percent' => 0.0, 'amount' => null];
+            $student->setAttribute('effective_coverage_percent', $cover['percent']);
+            $student->setAttribute('effective_coverage_amount', $cover['amount']);
+            $student->setAttribute('coverage_mode', $cover['mode']);
 
             return $student;
         });
@@ -122,10 +125,14 @@ class MedicalController extends Controller
             });
         }
 
+        $cover = $this->billing->describeCoverage($profile);
+
         return [
             'profile' => $profile,
             'settings' => ClinicSettings::all(),
-            'effective_coverage_percent' => $this->billing->resolveCoveragePercent($profile),
+            'effective_coverage_percent' => $cover['percent'],
+            'effective_coverage_amount' => $cover['amount'],
+            'coverage_mode' => $cover['mode'],
             'immunizations' => Immunization::query()->where('student_id', $student->id)->orderByDesc('given_on')->get(),
             'visits' => $visits,
             'sick_notes' => SickNote::query()->where('student_id', $student->id)->latest()->get(),
@@ -133,44 +140,22 @@ class MedicalController extends Controller
         ];
     }
 
+    public function enrolByMatric(Request $request)
+    {
+        abort_unless($request->user()->hasPermission('medical.manage'), 403);
+        $data = $this->validatedProfileData($request, nhisOnly: true);
+        $student = $this->findStudentByMatric((string) $request->input('matric_number'));
+        abort_unless($student, 422, 'No student found with that matric number.');
+
+        return $this->persistProfile($student, $data);
+    }
+
     public function updateProfile(Request $request, Student $student)
     {
         abort_unless($request->user()->hasPermission('medical.manage'), 403);
-        $profile = MedicalProfile::query()->firstOrCreate(['student_id' => $student->id]);
-        $data = $request->validate([
-            'blood_type' => 'nullable|string',
-            'genotype' => 'nullable|string|in:AA,AS,AC,SS,SC,CC',
-            'has_medical_condition' => 'nullable|boolean',
-            'allergies' => 'nullable|string',
-            'conditions' => 'nullable|string',
-            'nhis_enrolled' => 'nullable|boolean',
-            'nhis_number' => 'nullable|string|max:100',
-            'nhis_provider' => 'nullable|string|max:255',
-            'nhis_coverage_percent' => 'nullable|numeric|min:0|max:100',
-            'nhis_valid_until' => 'nullable|date',
-        ]);
-        $before = $profile->toArray();
+        $data = $this->validatedProfileData($request, nhisOnly: false);
 
-        return $this->officeGate(
-            'medical.update_profile',
-            $student,
-            ['student_id' => $student->id, ...$data],
-            'Update medical profile',
-            function () use ($profile, $data, $before) {
-                $profile->update($data);
-                $this->audit->record(
-                    'medical.profile_updated',
-                    'Medical profile updated',
-                    'medical',
-                    'medical_profile',
-                    $profile->id,
-                    $before,
-                    $profile->fresh()->toArray()
-                );
-
-                return $profile->fresh();
-            },
-        );
+        return $this->persistProfile($student, $data);
     }
 
     public function addImmunization(Request $request, Student $student)
@@ -202,5 +187,90 @@ class MedicalController extends Controller
             return;
         }
         abort(403);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function validatedProfileData(Request $request, bool $nhisOnly): array
+    {
+        $rules = [
+            'nhis_enrolled' => 'nullable|boolean',
+            'nhis_number' => 'nullable|string|max:100',
+            'nhis_provider' => 'nullable|string|max:255',
+            'nhis_coverage_percent' => 'nullable|numeric|min:0|max:100',
+            'nhis_coverage_amount' => 'nullable|numeric|min:0',
+            'nhis_valid_until' => 'nullable|date',
+        ];
+        if ($nhisOnly) {
+            $rules['matric_number'] = 'required|string|max:80';
+        } else {
+            $rules['blood_type'] = 'nullable|string';
+            $rules['genotype'] = 'nullable|string|in:AA,AS,AC,SS,SC,CC';
+            $rules['has_medical_condition'] = 'nullable|boolean';
+            $rules['allergies'] = 'nullable|string';
+            $rules['conditions'] = 'nullable|string';
+        }
+
+        $data = $request->validate($rules);
+        unset($data['matric_number']);
+
+        if ($request->filled('nhis_coverage_percent') && $request->filled('nhis_coverage_amount')) {
+            throw ValidationException::withMessages([
+                'nhis_coverage_amount' => ['Enter a coverage percent or a fixed amount, not both.'],
+            ]);
+        }
+        if (array_key_exists('nhis_coverage_amount', $data) && $data['nhis_coverage_amount'] !== null) {
+            $data['nhis_coverage_percent'] = null;
+        } elseif (array_key_exists('nhis_coverage_percent', $data) && $data['nhis_coverage_percent'] !== null) {
+            $data['nhis_coverage_amount'] = null;
+        }
+
+        return $data;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function persistProfile(Student $student, array $data): mixed
+    {
+        $profile = MedicalProfile::query()->firstOrCreate(['student_id' => $student->id]);
+        $before = $profile->toArray();
+
+        return $this->officeGate(
+            'medical.update_profile',
+            $student,
+            ['student_id' => $student->id, ...$data],
+            'Update medical profile',
+            function () use ($profile, $data, $before) {
+                $profile->update($data);
+                $this->audit->record(
+                    'medical.profile_updated',
+                    'Medical profile updated',
+                    'medical',
+                    'medical_profile',
+                    $profile->id,
+                    $before,
+                    $profile->fresh()->toArray()
+                );
+
+                return $profile->fresh();
+            },
+        );
+    }
+
+    private function findStudentByMatric(string $matric): ?Student
+    {
+        $key = strtoupper(preg_replace('/\s+/', '', trim($matric)) ?: '');
+        if ($key === '') {
+            return null;
+        }
+
+        return Student::query()
+            ->where(function ($builder) use ($key) {
+                $builder->whereRaw('UPPER(REPLACE(COALESCE(matric_number, ""), " ", "")) = ?', [$key])
+                    ->orWhereRaw('UPPER(REPLACE(COALESCE(student_number, ""), " ", "")) = ?', [$key]);
+            })
+            ->first();
     }
 }

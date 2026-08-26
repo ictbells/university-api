@@ -479,6 +479,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/clinic/sick-notes/{sickNote}/print', [ClinicController::class, 'printSickNote']);
 
     Route::get('/medical/nhis', [MedicalController::class, 'nhisRoster']);
+    Route::put('/medical/nhis', [MedicalController::class, 'enrolByMatric']);
     Route::get('/medical/{student}', [MedicalController::class, 'profile']);
     Route::put('/medical/{student}', [MedicalController::class, 'updateProfile']);
     Route::post('/medical/{student}/immunizations', [MedicalController::class, 'addImmunization']);

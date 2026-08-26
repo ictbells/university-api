@@ -110,6 +110,7 @@ class FeeSchedule
             'acceptance_fee',
             'application_fee',
             'hostel',
+            'clinic',
             'sundry',
             'course_registration_extension',
         ];
@@ -215,7 +216,8 @@ class FeeSchedule
             'acceptance_fee' => 'Acceptance fee',
             'tuition' => 'Tuition',
             'library' => 'Library',
-            'medical' => 'Medical / clinic',
+            'medical' => 'Medical levy',
+            'clinic' => 'Clinic services',
             'sports' => 'Sports',
             'ict' => 'ICT',
             'laboratory' => 'Laboratory',

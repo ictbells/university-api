@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Models\ClinicVisit;
-use App\Models\FeeItem;
 use App\Models\MedicalBill;
 use App\Models\MedicalProfile;
 use App\Models\Student;
@@ -14,43 +13,73 @@ class ClinicBillingService
 {
     public function __construct(private InvoiceService $invoices) {}
 
-    public function resolveCoveragePercent(MedicalProfile $profile, ?float $visitOverride = null): float
+    /**
+     * @return array{mode: 'none'|'percent'|'amount', percent: float, amount: ?float}
+     */
+    public function describeCoverage(MedicalProfile $profile, ?float $visitOverride = null): array
     {
         if (! ClinicSettings::nhisEnabled() || ! $profile->nhis_enrolled) {
-            return 0;
+            return ['mode' => 'none', 'percent' => 0.0, 'amount' => null];
         }
         if ($visitOverride !== null) {
-            return max(0, min(100, $visitOverride));
+            return [
+                'mode' => 'percent',
+                'percent' => max(0, min(100, $visitOverride)),
+                'amount' => null,
+            ];
         }
-        if ($profile->nhis_coverage_percent !== null) {
-            return max(0, min(100, (float) $profile->nhis_coverage_percent));
+        if ($profile->nhis_coverage_amount !== null) {
+            return [
+                'mode' => 'amount',
+                'percent' => 0.0,
+                'amount' => max(0, round((float) $profile->nhis_coverage_amount, 2)),
+            ];
         }
+        $percent = $profile->nhis_coverage_percent !== null
+            ? max(0, min(100, (float) $profile->nhis_coverage_percent))
+            : ClinicSettings::nhisDefaultCoveragePercent();
 
-        return ClinicSettings::nhisDefaultCoveragePercent();
+        return ['mode' => 'percent', 'percent' => $percent, 'amount' => null];
+    }
+
+    public function resolveCoveragePercent(MedicalProfile $profile, ?float $visitOverride = null): float
+    {
+        return $this->describeCoverage($profile, $visitOverride)['percent'];
     }
 
     /**
-     * @return array{gross: float, covered: float, payable: float, nhis_applied: bool, coverage_percent: float}
+     * @return array{gross: float, covered: float, payable: float, nhis_applied: bool, coverage_percent: float, coverage_amount: ?float, coverage_mode: string}
      */
     public function splitAmounts(ClinicVisit $visit, MedicalProfile $profile, ?float $visitOverride = null): array
     {
         $items = $visit->items;
         $gross = round((float) $items->sum('line_total'), 2);
-        $coverage = $this->resolveCoveragePercent($profile, $visitOverride);
+        $cover = $this->describeCoverage($profile, $visitOverride);
+        $empty = [
+            'gross' => $gross,
+            'covered' => 0.0,
+            'payable' => $gross,
+            'nhis_applied' => false,
+            'coverage_percent' => 0.0,
+            'coverage_amount' => null,
+            'coverage_mode' => 'none',
+        ];
 
-        if ($coverage <= 0 || ! $profile->nhis_enrolled || ! ClinicSettings::nhisEnabled()) {
-            return [
-                'gross' => $gross,
-                'covered' => 0.0,
-                'payable' => $gross,
-                'nhis_applied' => false,
-                'coverage_percent' => 0.0,
-            ];
+        if ($cover['mode'] === 'none') {
+            return $empty;
+        }
+        if ($cover['mode'] === 'percent' && $cover['percent'] <= 0) {
+            return $empty;
+        }
+        if ($cover['mode'] === 'amount' && ($cover['amount'] ?? 0) <= 0) {
+            return $empty;
         }
 
         $coveredGross = round((float) $items->where('nhis_covered', true)->sum('line_total'), 2);
         $uncoveredGross = round($gross - $coveredGross, 2);
-        $nhisCovered = round($coveredGross * ($coverage / 100), 2);
+        $nhisCovered = $cover['mode'] === 'amount'
+            ? round(min((float) $cover['amount'], $coveredGross), 2)
+            : round($coveredGross * ($cover['percent'] / 100), 2);
         $payable = round(($coveredGross - $nhisCovered) + $uncoveredGross, 2);
 
         return [
@@ -58,7 +87,9 @@ class ClinicBillingService
             'covered' => $nhisCovered,
             'payable' => max(0, $payable),
             'nhis_applied' => $nhisCovered > 0,
-            'coverage_percent' => $coverage,
+            'coverage_percent' => $cover['percent'],
+            'coverage_amount' => $cover['amount'],
+            'coverage_mode' => $cover['mode'],
         ];
     }
 
@@ -77,17 +108,11 @@ class ClinicBillingService
             $invoice = null;
             $status = 'covered';
             if ($split['payable'] > 0) {
-                $fee = FeeItem::query()->firstOrCreate(
-                    ['category' => 'medical', 'name' => 'Clinic charge'],
-                    ['amount' => $split['payable'], 'wallet_allowed' => true, 'is_active' => true]
-                );
-                $invoice = $this->invoices->createForFee(
-                    $student->user,
-                    $fee,
-                    $student->application_id,
-                    $student->id,
+                $invoice = $this->invoices->createClinicVisitInvoice(
+                    $student,
+                    $visit->items,
                     $split['payable'],
-                    'Clinic charge',
+                    $split['covered'],
                 );
                 $status = 'unpaid';
             }

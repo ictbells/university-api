@@ -29,7 +29,7 @@ return new class extends Migration
         $schedule = [
             'tuition' => 'Tuition',
             'library' => 'Library',
-            'medical' => 'Medical / clinic',
+            'medical' => 'Medical levy',
             'sports' => 'Sports',
             'ict' => 'ICT',
             'laboratory' => 'Laboratory',
@@ -53,6 +53,7 @@ return new class extends Migration
         $operational = [
             'acceptance_fee' => 'Acceptance fee',
             'hostel' => 'Hostel',
+            'clinic' => 'Clinic services',
             'sundry' => 'Sundry',
             'course_registration_extension' => 'Course registration extension',
         ];

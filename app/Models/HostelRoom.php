@@ -10,6 +10,7 @@ class HostelRoom extends BaseModel
     protected $fillable = [
         'hostel_block_id',
         'number',
+        'room_type',
         'capacity',
         'bedding_type',
         'gender',
@@ -27,6 +28,21 @@ class HostelRoom extends BaseModel
         self::BEDDING_BUNK,
     ];
 
+    public const TYPE_STANDARD = 'standard';
+
+    public const TYPE_STORE = 'store';
+
+    public const TYPE_COMMON = 'common';
+
+    public const TYPE_SUITE = 'suite';
+
+    public const ROOM_TYPES = [
+        self::TYPE_STANDARD,
+        self::TYPE_STORE,
+        self::TYPE_COMMON,
+        self::TYPE_SUITE,
+    ];
+
     protected function casts(): array
     {
         return [
@@ -38,6 +54,28 @@ class HostelRoom extends BaseModel
     public function usesBunks(): bool
     {
         return $this->bedding_type === self::BEDDING_BUNK;
+    }
+
+    public function isResidential(): bool
+    {
+        return $this->normalizedRoomType() !== self::TYPE_STORE;
+    }
+
+    public function normalizedRoomType(): string
+    {
+        $type = strtolower((string) ($this->room_type ?: self::TYPE_STANDARD));
+
+        return in_array($type, self::ROOM_TYPES, true) ? $type : self::TYPE_STANDARD;
+    }
+
+    public static function roomTypeLabel(string $type): string
+    {
+        return match ($type) {
+            self::TYPE_STORE => 'Store',
+            self::TYPE_COMMON => 'Common room',
+            self::TYPE_SUITE => 'Suite',
+            default => 'Standard',
+        };
     }
 
     public function block(): BelongsTo

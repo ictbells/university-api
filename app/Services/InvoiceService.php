@@ -90,6 +90,62 @@ class InvoiceService
     }
 
     /**
+     * Invoice clinic visit charges. Lines snapshot the visit catalog prices;
+     * the invoice total is the student-payable share after NHIS.
+     *
+     * @param  iterable<\App\Models\ClinicVisitItem>  $visitItems
+     */
+    public function createClinicVisitInvoice(
+        Student $student,
+        iterable $visitItems,
+        float $payable,
+        float $nhisCovered = 0,
+    ): Invoice {
+        $student->loadMissing('user');
+        if (! $student->user) {
+            throw new RuntimeException('This student record has no login account.');
+        }
+
+        $amount = round($payable, 2);
+        if ($amount <= 0) {
+            throw new InvalidArgumentException('Charge amount must be greater than zero.');
+        }
+
+        $number = 'INV-'.now()->format('Ymd').'-'.str_pad((string) (Invoice::query()->count() + 1), 5, '0', STR_PAD_LEFT);
+        $invoice = Invoice::query()->create([
+            'number' => $number,
+            'user_id' => $student->user_id,
+            'student_id' => $student->id,
+            'application_id' => $student->application_id,
+            'category' => 'clinic',
+            'amount' => $amount,
+            'full_amount' => $amount,
+            'balance' => $amount,
+            'status' => 'unpaid',
+            'wallet_allowed' => FeeSchedule::walletAllowed('clinic'),
+        ]);
+
+        foreach ($visitItems as $item) {
+            $invoice->items()->create([
+                'fee_item_id' => $item->fee_item_id,
+                'description' => $item->description,
+                'amount' => round((float) $item->line_total, 2),
+            ]);
+        }
+
+        $covered = round($nhisCovered, 2);
+        if ($covered > 0) {
+            $invoice->items()->create([
+                'fee_item_id' => null,
+                'description' => 'NHIS coverage',
+                'amount' => -$covered,
+            ]);
+        }
+
+        return $invoice->fresh('items');
+    }
+
+    /**
      * @param  list<FeeItem>  $fees
      */
     public function createFromFeeItems(Student $student, array $fees, int $percent = 100): Invoice
@@ -553,11 +609,7 @@ class InvoiceService
         $invoice->status = $invoice->balance <= 0 ? 'paid' : 'partial';
         $invoice->save();
 
-        if ($invoice->category === 'medical') {
-            MedicalBill::query()
-                ->where('invoice_id', $invoice->id)
-                ->update(['status' => $invoice->status]);
-        }
+        MedicalBill::syncStatusFromInvoice($invoice);
 
         if ($invoice->category === 'course_registration_extension' && $invoice->status === 'paid') {
             app(CourseRegistrationService::class)->markExtensionPaid($invoice);

@@ -8,6 +8,7 @@ class ClinicVisitItem extends BaseModel
 {
     protected $fillable = [
         'clinic_visit_id',
+        'fee_item_id',
         'description',
         'quantity',
         'unit_amount',
@@ -28,5 +29,10 @@ class ClinicVisitItem extends BaseModel
     public function visit(): BelongsTo
     {
         return $this->belongsTo(ClinicVisit::class, 'clinic_visit_id');
+    }
+
+    public function feeItem(): BelongsTo
+    {
+        return $this->belongsTo(FeeItem::class);
     }
 }

@@ -366,6 +366,7 @@ class HostelController extends Controller
     {
         $data = $request->validate([
             'number' => 'required|string|max:50',
+            'room_type' => 'nullable|in:standard,store,common,suite',
             'capacity' => 'required|integer|min:1|max:20',
             'bedding_type' => 'nullable|in:single,bunk',
             'gender' => 'nullable|in:male,female',
@@ -384,6 +385,7 @@ class HostelController extends Controller
     {
         $data = $request->validate([
             'number' => 'sometimes|string|max:50',
+            'room_type' => 'nullable|in:standard,store,common,suite',
             'capacity' => 'sometimes|integer|min:1|max:20',
             'bedding_type' => 'nullable|in:single,bunk',
             'gender' => 'nullable|in:male,female',

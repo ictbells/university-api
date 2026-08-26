@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ClinicVisit;
 use App\Models\ClinicVisitItem;
+use App\Models\FeeItem;
 use App\Models\Immunization;
 use App\Models\Invoice;
 use App\Models\MedicalBill;
@@ -16,6 +17,7 @@ use App\Services\ClinicBillingService;
 use App\Support\ClinicSettings;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class ClinicController extends Controller
 {
@@ -238,14 +240,23 @@ class ClinicController extends Controller
         abort_if($visit->bill, 422, 'Cannot add items after the bill is finalized.');
 
         $data = $request->validate([
-            'description' => 'required|string|max:255',
+            'fee_item_id' => [
+                'required',
+                'integer',
+                Rule::exists('fee_items', 'id')->where(fn ($query) => $query
+                    ->where('category', 'clinic')
+                    ->where('is_active', true)
+                    ->whereNull('deleted_at')),
+            ],
             'quantity' => 'nullable|numeric|min:0.01',
-            'unit_amount' => 'required|numeric|min:0',
             'nhis_covered' => 'nullable|boolean',
+            'unit_amount' => 'prohibited',
+            'description' => 'prohibited',
         ]);
 
+        $fee = FeeItem::query()->findOrFail($data['fee_item_id']);
         $qty = (float) ($data['quantity'] ?? 1);
-        $unit = (float) $data['unit_amount'];
+        $unit = round((float) $fee->amount, 2);
         $profile = MedicalProfile::query()->firstOrCreate(['student_id' => $visit->student_id]);
         $nhisCovered = array_key_exists('nhis_covered', $data)
             ? (bool) $data['nhis_covered']
@@ -253,7 +264,8 @@ class ClinicController extends Controller
 
         return ClinicVisitItem::query()->create([
             'clinic_visit_id' => $visit->id,
-            'description' => $data['description'],
+            'fee_item_id' => $fee->id,
+            'description' => $fee->name,
             'quantity' => $qty,
             'unit_amount' => $unit,
             'line_total' => round($qty * $unit, 2),
@@ -267,16 +279,19 @@ class ClinicController extends Controller
         abort_if($item->visit?->bill, 422, 'Cannot edit items after the bill is finalized.');
 
         $data = $request->validate([
-            'description' => 'sometimes|string|max:255',
             'quantity' => 'sometimes|numeric|min:0.01',
-            'unit_amount' => 'sometimes|numeric|min:0',
             'nhis_covered' => 'sometimes|boolean',
+            'unit_amount' => 'prohibited',
+            'description' => 'prohibited',
+            'fee_item_id' => 'prohibited',
         ]);
         $qty = (float) ($data['quantity'] ?? $item->quantity);
-        $unit = (float) ($data['unit_amount'] ?? $item->unit_amount);
         $item->update([
-            ...$data,
-            'line_total' => round($qty * $unit, 2),
+            'quantity' => $qty,
+            'nhis_covered' => array_key_exists('nhis_covered', $data)
+                ? (bool) $data['nhis_covered']
+                : $item->nhis_covered,
+            'line_total' => round($qty * (float) $item->unit_amount, 2),
         ]);
 
         return $item->fresh();
@@ -444,9 +459,11 @@ class ClinicController extends Controller
 
         $invoices = Invoice::query()
             ->where('student_id', $student->id)
-            ->where('category', 'medical')
+            ->whereIn('category', ['medical', 'clinic'])
             ->latest()
             ->get();
+
+        $cover = $this->billing->describeCoverage($profile);
 
         return [
             'profile' => $profile,
@@ -454,7 +471,9 @@ class ClinicController extends Controller
                 'nhis_enabled' => ClinicSettings::nhisEnabled(),
                 'nhis_default_coverage_percent' => ClinicSettings::nhisDefaultCoveragePercent(),
             ],
-            'effective_coverage_percent' => $this->billing->resolveCoveragePercent($profile),
+            'effective_coverage_percent' => $cover['percent'],
+            'effective_coverage_amount' => $cover['amount'],
+            'coverage_mode' => $cover['mode'],
             'immunizations' => Immunization::query()->where('student_id', $student->id)->orderByDesc('given_on')->get(),
             'visits' => $visits,
             'sick_notes' => SickNote::query()->where('student_id', $student->id)->latest()->get(),

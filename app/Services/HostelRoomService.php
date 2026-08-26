@@ -37,6 +37,9 @@ class HostelRoomService
             'id' => $room->id,
             'hostel_block_id' => $room->hostel_block_id,
             'number' => $room->number,
+            'room_type' => $room->normalizedRoomType(),
+            'room_type_label' => HostelRoom::roomTypeLabel($room->normalizedRoomType()),
+            'is_residential' => $room->isResidential(),
             'capacity' => $room->capacity,
             'bedding_type' => $beddingType,
             'uses_bunks' => $beddingType === HostelRoom::BEDDING_BUNK,
@@ -321,6 +324,22 @@ class HostelRoomService
             ->count();
     }
 
+    public function storeBlock(Hostel $hostel, array $data): HostelBlock
+    {
+        return $hostel->blocks()->create([
+            'name' => $data['name'],
+        ]);
+    }
+
+    public function updateBlock(HostelBlock $block, array $data): HostelBlock
+    {
+        $block->update([
+            'name' => $data['name'],
+        ]);
+
+        return $block->fresh();
+    }
+
     public function deleteRoom(HostelRoom $room): void
     {
         $this->assertDeletable($this->occupiedBedCountForRoom($room), 'room');
@@ -367,8 +386,14 @@ class HostelRoomService
             $beddingType = HostelRoom::BEDDING_SINGLE;
         }
 
+        $roomType = strtolower((string) ($data['room_type'] ?? HostelRoom::TYPE_STANDARD));
+        if (! in_array($roomType, HostelRoom::ROOM_TYPES, true)) {
+            $roomType = HostelRoom::TYPE_STANDARD;
+        }
+
         $room = $block->rooms()->create([
             'number' => $data['number'],
+            'room_type' => $roomType,
             'capacity' => $data['capacity'] ?? 4,
             'bedding_type' => $beddingType,
             'gender' => $data['gender'] ?? null,
@@ -385,6 +410,7 @@ class HostelRoomService
     {
         $room->update(collect($data)->only([
             'number',
+            'room_type',
             'capacity',
             'bedding_type',
             'gender',

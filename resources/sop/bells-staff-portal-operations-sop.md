@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.16  
+**Version:** 1.17  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -528,7 +528,7 @@ E-exam sync is not included in this release.
 
 ### 8.7 Services
 
-- **Fees & payments** — Fee catalogue (including **application fees per entry mode** and **installment shares**: separate catalog lines for 1st/2nd/3rd/4th 25% plus optional Full 100% pay-at-once), fee categories, rebates, programme fees, invoice generation, invoices, student financial status, **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices and Generate invoice filter by session and level; Programme fees filter by level. When programme schedule lines are tagged with installment shares, student tuition invoices bill those fixed amounts (already-paid fee items are skipped); untagged schedules still pro-rate the full total by 25/50/75/100.
+- **Fees & payments** — Fee catalogue (including **application fees per entry mode**, **Clinic services** visit charges, and **installment shares**: separate catalog lines for 1st/2nd/3rd/4th 25% plus optional Full 100% pay-at-once), fee categories, rebates, programme fees, invoice generation, invoices, student financial status, **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices and Generate invoice filter by session and level; Programme fees filter by level. When programme schedule lines are tagged with installment shares, student tuition invoices bill those fixed amounts (already-paid fee items are skipped); untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices.
 
 #### Import invoices and wallet history
 
@@ -539,7 +539,7 @@ Use these when moving continuing students from another portal. **Do not** invent
 3. **Academic → Admission Setup → Import students.** Select an application session and category. Download the template and copy `programme_id` from the **Programmes** lookup **id** column and `current_level` from **Levels**. Required: email, phone, nin, first_name, last_name, programme_id, matric_number, current_level. Fill `old_application_number` and `jamb_registration` when those ids were used to pay fees. Creates a user (student role), a historical application at stage `matriculated`, and a student record with the **supplied** matric (not an auto-generated `BUT/{year}/M/{####}`). Then posts pending invoices (matched by matric, application number, or JAMB) and wallet rows. Paid `application_fee` / `acceptance_fee` rows are linked on the application so student finance shows the correct payment status.
 
 If an old payment was wallet-funded, record `paid_amount` on the invoice sheet **and** a matching **debit** on the wallet sheet. These imports do not call Paystack and do not settle invoices from the wallet automatically.
-- **Clinic** — Queue, student charts, encounters, prescriptions, sick notes, NHIS-aware billing (`medical.view_any` / `medical.manage` / `medical.billing`)
+- **Clinic** — Queue, student charts, encounters, prescriptions, sick notes, NHIS-aware billing (`medical.view_any` / `medical.manage` / `medical.billing`). Enrol a student on NHIS by **matric number**. Coverage may be a **percent** of eligible lines (campus default if blank) or a **fixed naira amount**. Visit prices live in **Fees & payments → Fee catalog** under **Clinic services**. Clinic staff pick those lines and quantity; finalizing invoices the student for the NHIS-adjusted payable (wallet only; not Paystack).
 - **Hostel** — Hostels, blocks, rooms, level windows, queue, and allocations (`hostel.view`; manage rooms with `hostel.manage`; allocate with `hostel.allocate`). Students see selection **Open** only when their **level window** is on for the current semester (Save after toggling). A hostel record marked Active does not by itself open student selection.
 
 #### Hostel room bulk import
@@ -693,6 +693,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.14 | Aug 2026 | Platform team | Applicant import posts matching imported application fees or generates an unpaid fee from the fee catalog (session amount is fallback) |
 | 1.15 | Aug 2026 | Platform team | Course Core/Elective/Required status; JAMB programme selects from the university catalogue; O’level capped at 9 subjects; application fees set in the fee catalog by entry mode; session/level list filters; students add/drop on a dedicated Course registration page |
 | 1.16 | Aug 2026 | Platform team | Removed the staff PG research page; postgraduate applications and research workflows are unchanged |
+| 1.17 | Aug 2026 | Platform team | Clinic visit charges come from Finance fee-catalog Clinic services lines; clinic staff attach quantity only; Medical levy remains the programme schedule |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

@@ -37,4 +37,15 @@ class MedicalBill extends BaseModel
     {
         return $this->belongsTo(ClinicVisit::class, 'clinic_visit_id');
     }
+
+    public static function syncStatusFromInvoice(Invoice $invoice): void
+    {
+        if (! in_array($invoice->category, ['medical', 'clinic'], true)) {
+            return;
+        }
+
+        static::query()
+            ->where('invoice_id', $invoice->id)
+            ->update(['status' => $invoice->status]);
+    }
 }

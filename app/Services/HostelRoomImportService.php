@@ -125,9 +125,18 @@ class HostelRoomImportService
             throw new RuntimeException('bedding_type must be single or bunk.');
         }
 
+        $roomType = strtolower(trim((string) ($data['room_type'] ?? 'standard')));
+        if ($roomType === '') {
+            $roomType = 'standard';
+        }
+        if (! in_array($roomType, ['standard', 'store', 'common', 'suite'], true)) {
+            throw new RuntimeException('room_type must be standard, store, common, or suite.');
+        }
+
         $this->rooms->storeRoom($block, [
             'number' => $number,
             'capacity' => $capacity,
+            'room_type' => $roomType,
             'bedding_type' => $beddingType,
             'gender' => $gender !== '' ? $gender : null,
             'is_active' => array_key_exists('is_active', $data) && $data['is_active'] !== ''

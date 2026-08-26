@@ -161,10 +161,6 @@ class RebateService
                 : 'unpaid';
         }
 
-        if ($invoice->category === 'medical') {
-            MedicalBill::query()
-                ->where('invoice_id', $invoice->id)
-                ->update(['status' => $invoice->status]);
-        }
+        MedicalBill::syncStatusFromInvoice($invoice);
     }
 }

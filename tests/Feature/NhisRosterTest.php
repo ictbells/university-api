@@ -68,6 +68,50 @@ class NhisRosterTest extends TestCase
             ->assertJsonPath('summary.enrolled', 1);
     }
 
+    public function test_staff_enrol_by_matric_and_can_set_fixed_cover_amount(): void
+    {
+        $staff = $this->staffUser(['medical.view_any', 'medical.manage'], ['medical']);
+        $user = User::factory()->create(['status' => 'active']);
+        $student = Student::query()->create([
+            'user_id' => $user->id,
+            'first_name' => 'Chidi',
+            'last_name' => 'Eze',
+            'matric_number' => 'BUT/2026/R/0100',
+            'status' => 'active',
+        ]);
+
+        Sanctum::actingAs($staff);
+
+        $this->putJson('/api/medical/nhis', [
+            'matric_number' => 'but/2026/r/0100',
+            'nhis_enrolled' => true,
+            'nhis_number' => 'NHIS-0100',
+            'nhis_coverage_amount' => 1500,
+        ])->assertOk()
+            ->assertJsonPath('nhis_enrolled', true)
+            ->assertJsonPath('nhis_coverage_amount', '1500.00')
+            ->assertJsonPath('nhis_coverage_percent', null);
+
+        $this->assertTrue(
+            MedicalProfile::query()
+                ->where('student_id', $student->id)
+                ->where('nhis_enrolled', true)
+                ->where('nhis_coverage_amount', 1500)
+                ->exists()
+        );
+
+        $this->putJson('/api/medical/nhis', [
+            'matric_number' => 'MISSING-MATRIC',
+            'nhis_enrolled' => true,
+        ])->assertStatus(422);
+
+        $this->putJson('/api/medical/'.$student->id, [
+            'nhis_enrolled' => true,
+            'nhis_coverage_percent' => 80,
+            'nhis_coverage_amount' => 2000,
+        ])->assertStatus(422)->assertJsonValidationErrors(['nhis_coverage_amount']);
+    }
+
     public function test_nhis_roster_requires_medical_permission(): void
     {
         $user = User::factory()->create(['status' => 'active']);
