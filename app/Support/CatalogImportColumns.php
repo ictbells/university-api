@@ -136,7 +136,7 @@ class CatalogImportColumns
                 $order,
                 $skip,
                 'Required: name, department_id, award_type, study_level, duration_years, entry_modes.',
-                'study_level: undergraduate or postgraduate. entry_modes: comma-separated utme, de, jupeb, transfer, pg.',
+                'study_level: undergraduate, jupeb, or postgraduate. entry_modes: comma-separated utme, de, jupeb, transfer, pg. JUPEB programmes cannot mix undergraduate or PG entry modes.',
                 'Optional: code, is_research_degree (yes/no). Workflow is assigned from the programme defaults.',
                 $ids,
             ],

@@ -14,6 +14,7 @@ use App\Models\HostelRoom;
 use App\Models\Invoice;
 use App\Models\Setting;
 use App\Models\Student;
+use App\Support\TuitionProgress;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -143,12 +144,9 @@ class HostelService
             ->where('study_level', $this->studyLevelForCategory($category))
             ->get()
             ->filter(fn (AcademicLevel $level) => $this->windowIsOpen($this->resolvedLevelWindow($category, $level->id, $termId)))
-            ->map(function (AcademicLevel $level) {
-                $code = trim((string) $level->code);
-
-                return is_numeric($code) ? (int) $code : $code;
-            })
-            ->filter(fn ($code) => $code !== '' && $code !== 0)
+            ->map(fn (AcademicLevel $level) => $this->academicLevelBand($level))
+            ->filter()
+            ->unique()
             ->values()
             ->all();
 
@@ -157,7 +155,10 @@ class HostelService
             ->where('status', 'active')
             ->whereDoesntHave('hostelAllocations', fn (Builder $inner) => $inner->whereIn('status', ['allocated', 'pending']))
             ->when($category === Hostel::CATEGORY_JUPEB, function (Builder $inner) {
-                $inner->whereHas('application', fn (Builder $app) => $app->where('entry_mode', 'jupeb'));
+                $inner->where(function (Builder $scope) {
+                    $scope->where('study_level', 'jupeb')
+                        ->orWhereHas('application', fn (Builder $app) => $app->where('entry_mode', 'jupeb'));
+                });
             })
             ->when($category === Hostel::CATEGORY_POSTGRADUATE, function (Builder $inner) {
                 $inner->where(function (Builder $scope) {
@@ -168,7 +169,7 @@ class HostelService
             ->when($category === Hostel::CATEGORY_UNDERGRADUATE, function (Builder $inner) {
                 $inner->where(function (Builder $scope) {
                     $scope->where(function (Builder $level) {
-                        $level->whereNull('study_level')->orWhere('study_level', '!=', 'postgraduate');
+                        $level->whereNull('study_level')->orWhereNotIn('study_level', ['postgraduate', 'jupeb']);
                     })->where(function (Builder $entry) {
                         $entry->whereHas('application', fn (Builder $app) => $app->whereNotIn('entry_mode', ['jupeb', 'pg']))
                             ->orWhereDoesntHave('application');
@@ -243,6 +244,17 @@ class HostelService
         }
 
         $this->rooms->assertRoomGenderMatch($student, $room, $hostel);
+    }
+
+    public function assertTuitionPaid(Student $student): void
+    {
+        if (TuitionProgress::meetsMinimum($student)) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'hostel_bed_id' => 'Pay at least 25% of current-session tuition before requesting a hostel bed.',
+        ]);
     }
 
     public function hostelBedCounts(): Collection
@@ -342,6 +354,7 @@ class HostelService
             $bed = HostelBed::query()->lockForUpdate()->with('room.block.hostel')->findOrFail($bed->id);
             $termId ??= $this->currentTermId();
             $this->validateAllocation($student, $bed, $termId);
+            $this->assertTuitionPaid($student);
 
             $allocation = HostelAllocation::query()->create([
                 'student_id' => $student->id,
@@ -548,7 +561,8 @@ class HostelService
             ->first();
         $allocation = $active ?: $pending;
         $open = $this->isLevelOpen($category, $student);
-        $canSelect = $open && ! $active && ! $pending;
+        $tuitionOk = TuitionProgress::meetsMinimum($student);
+        $canSelect = $open && $tuitionOk && ! $active && ! $pending;
         $allocatedHostel = $active?->bed?->room?->block?->hostel;
         $dueRequired = $active && ($allocatedHostel?->chargesDue() ?? false);
 
@@ -558,6 +572,8 @@ class HostelService
             'gender' => $student->gender,
             'window' => $window,
             'window_open' => $open,
+            'tuition_ok' => $tuitionOk,
+            'tuition_percent' => TuitionProgress::percentPaid($student),
             'can_select' => $canSelect,
             'allocation' => $allocation ? $this->formatAllocation($allocation) : null,
             'history' => HostelAllocation::query()
@@ -725,7 +741,11 @@ class HostelService
 
     private function studyLevelForCategory(string $category): string
     {
-        return $category === Hostel::CATEGORY_POSTGRADUATE ? 'postgraduate' : 'undergraduate';
+        return match ($category) {
+            Hostel::CATEGORY_POSTGRADUATE => 'postgraduate',
+            Hostel::CATEGORY_JUPEB => 'jupeb',
+            default => 'undergraduate',
+        };
     }
 
     private function resolvedLevelWindow(string $category, int $academicLevelId, ?int $termId = null): ?HostelLevelWindow
@@ -777,18 +797,57 @@ class HostelService
         return true;
     }
 
+    private function academicLevelBand(AcademicLevel|Student|string|int $source): ?int
+    {
+        if ($source instanceof Student) {
+            $raw = (string) $source->current_level;
+        } elseif ($source instanceof AcademicLevel) {
+            $raw = (string) ($source->code ?: $source->name);
+        } else {
+            $raw = (string) $source;
+        }
+
+        $digits = (int) preg_replace('/\D+/', '', $raw);
+        if ($digits <= 0) {
+            return null;
+        }
+
+        return $digits < 10 ? $digits * 100 : $digits;
+    }
+
     private function academicLevelForStudent(string $category, Student $student): ?AcademicLevel
     {
-        $code = (string) $student->current_level;
+        $band = $this->academicLevelBand($student);
+        $raw = trim((string) $student->current_level);
+        $year = $band ? intdiv($band, 100) : 0;
+        $codes = array_values(array_unique(array_filter([
+            $raw,
+            $band ? (string) $band : null,
+            $band ? $band.'L' : null,
+            $year > 0 ? 'Y'.$year : null,
+            $year > 0 ? (string) $year : null,
+        ])));
+
+        if ($codes === [] && ! $band) {
+            return null;
+        }
 
         return AcademicLevel::query()
             ->where('study_level', $this->studyLevelForCategory($category))
-            ->where(function (Builder $query) use ($code, $student) {
-                $query->where('code', $code)
-                    ->orWhere('code', 'Y'.$code)
-                    ->orWhere('sort_order', (int) $student->current_level);
+            ->where(function (Builder $query) use ($codes, $raw, $band, $year) {
+                if ($codes !== []) {
+                    $query->whereIn('code', $codes);
+                }
+                if ($raw !== '') {
+                    $query->orWhere('name', 'like', $raw.'%');
+                }
+                if ($band) {
+                    $query->orWhere('name', 'like', $band.'%')
+                        ->orWhere('sort_order', $band)
+                        ->orWhere('sort_order', $year);
+                }
             })
-            ->orderByRaw('CASE WHEN code = ? THEN 0 WHEN code = ? THEN 1 ELSE 2 END', [$code, 'Y'.$code])
+            ->orderBy('sort_order')
             ->first();
     }
 

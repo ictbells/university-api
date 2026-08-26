@@ -14,9 +14,11 @@ use App\Support\CatalogImportColumns;
 use App\Support\CatalogImportSkipped;
 use App\Support\ImportLookupSheets;
 use App\Support\SpreadsheetImport;
+use App\Support\StudyLevel;
 use App\Support\WorkflowCatalog;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
@@ -185,20 +187,25 @@ class AcademicCatalogImportService
         }
 
         $studyLevel = strtolower(trim($data['study_level']));
-        if (! in_array($studyLevel, ['undergraduate', 'postgraduate'], true)) {
-            throw new RuntimeException('study_level must be undergraduate or postgraduate.');
+        if (! in_array($studyLevel, StudyLevel::ALL, true)) {
+            throw new RuntimeException('study_level must be undergraduate, jupeb, or postgraduate.');
         }
         $years = (int) $data['duration_years'];
         if ($years < 1 || $years > 10) {
             throw new RuntimeException('duration_years must be between 1 and 10.');
         }
         $modes = $this->parseEntryModes($data['entry_modes']);
+        try {
+            StudyLevel::assertCompatible($studyLevel, $modes);
+        } catch (ValidationException $e) {
+            throw new RuntimeException(collect($e->errors())->flatten()->first() ?: 'Degree type does not match admission categories.');
+        }
         $payload = [
             'department_id' => $department->id,
             'name' => $name,
             'code' => $code !== '' ? $code : null,
             'award_type' => trim($data['award_type']),
-            'study_level' => $studyLevel,
+            'study_level' => StudyLevel::fromEntryModes($modes) ?? $studyLevel,
             'duration_years' => $years,
             'entry_modes' => $modes,
             'is_research_degree' => $this->boolish($data['is_research_degree'] ?? null),
@@ -262,13 +269,19 @@ class AcademicCatalogImportService
 
         $programmeId = SpreadsheetImport::parseOptionalId($data['programme_id'] ?? '', 'programme_id');
         $levelId = SpreadsheetImport::parseOptionalId($data['level_id'] ?? '', 'level_id');
-        if ($levelId !== null) {
-            $this->findById(AcademicLevel::query(), (string) $levelId, 'level_id');
-        }
+        $level = $levelId !== null
+            ? $this->findById(AcademicLevel::query(), (string) $levelId, 'level_id')
+            : null;
 
         $programs = $programmeId !== null
             ? collect([$this->findById(Program::query(), (string) $programmeId, 'programme_id')])
             : collect();
+        if ($level && $programs->isNotEmpty()) {
+            $program = $programs->first();
+            if ($program && $level->study_level !== StudyLevel::ofProgram($program)) {
+                throw new RuntimeException('level_id must match the programme track. JUPEB programmes cannot use undergraduate levels.');
+            }
+        }
 
         $course = Course::query()->create([
             'department_id' => $department->id,

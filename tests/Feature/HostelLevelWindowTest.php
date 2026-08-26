@@ -5,12 +5,17 @@ namespace Tests\Feature;
 use App\Models\AcademicLevel;
 use App\Models\AcademicSession;
 use App\Models\AcademicTerm;
+use App\Models\Hostel;
+use App\Models\HostelBlock;
 use App\Models\HostelLevelWindow;
+use App\Models\Invoice;
 use App\Models\Setting;
 use App\Models\Student;
 use App\Models\User;
+use App\Services\HostelRoomService;
 use App\Services\HostelService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class HostelLevelWindowTest extends TestCase
@@ -72,10 +77,90 @@ class HostelLevelWindowTest extends TestCase
         $this->assertTrue($hostels->studentSnapshot($student->fresh())['window_open']);
     }
 
+    public function test_student_sees_open_when_academic_level_code_is_100L(): void
+    {
+        [$student, $level, $term] = $this->studentWithLevel('100L');
+
+        app(HostelService::class)->syncLevelWindows('undergraduate', [[
+            'academic_level_id' => $level->id,
+            'is_active' => true,
+        ]], $term->id);
+
+        $snapshot = app(HostelService::class)->studentSnapshot($student);
+        $this->assertTrue($snapshot['window_open']);
+        $this->assertFalse($snapshot['tuition_ok']);
+        $this->assertFalse($snapshot['can_select']);
+    }
+
+    public function test_open_window_still_blocks_select_until_25_percent_tuition(): void
+    {
+        [$student, $level, $term] = $this->studentWithLevel();
+
+        app(HostelService::class)->syncLevelWindows('undergraduate', [[
+            'academic_level_id' => $level->id,
+            'is_active' => true,
+        ]], $term->id);
+
+        $hostels = app(HostelService::class);
+        $closed = $hostels->studentSnapshot($student);
+        $this->assertTrue($closed['window_open']);
+        $this->assertFalse($closed['tuition_ok']);
+        $this->assertFalse($closed['can_select']);
+
+        $this->payTuitionPercent($student, 25);
+
+        $open = $hostels->studentSnapshot($student->fresh());
+        $this->assertTrue($open['window_open']);
+        $this->assertTrue($open['tuition_ok']);
+        $this->assertTrue($open['can_select']);
+        $this->assertEquals(25.0, $open['tuition_percent']);
+    }
+
+    public function test_request_bed_requires_25_percent_tuition(): void
+    {
+        [$student, $level, $term] = $this->studentWithLevel();
+        $student->update(['gender' => 'female']);
+
+        app(HostelService::class)->syncLevelWindows('undergraduate', [[
+            'academic_level_id' => $level->id,
+            'is_active' => true,
+        ]], $term->id);
+
+        $hostel = Hostel::query()->create([
+            'name' => 'Hall A',
+            'category' => 'undergraduate',
+            'gender' => 'female',
+            'is_active' => true,
+            'due_required' => false,
+        ]);
+        $block = HostelBlock::query()->create([
+            'hostel_id' => $hostel->id,
+            'name' => 'Block A',
+        ]);
+        $room = app(HostelRoomService::class)->storeRoom($block, [
+            'number' => '101',
+            'capacity' => 1,
+            'bedding_type' => 'single',
+        ]);
+        $bed = $room->beds()->first();
+
+        $hostels = app(HostelService::class);
+        try {
+            $hostels->requestBed($student->fresh(), $bed);
+            $this->fail('Expected tuition validation to fail.');
+        } catch (ValidationException $e) {
+            $this->assertStringContainsString('25%', $e->errors()['hostel_bed_id'][0] ?? '');
+        }
+
+        $this->payTuitionPercent($student, 25);
+        $allocation = $hostels->requestBed($student->fresh(), $bed);
+        $this->assertSame('pending', $allocation->status);
+    }
+
     /**
      * @return array{0: Student, 1: AcademicLevel, 2: AcademicTerm}
      */
-    private function studentWithLevel(): array
+    private function studentWithLevel(string $levelCode = '100'): array
     {
         $session = AcademicSession::query()->create(['label' => '2025/2026']);
         $term = AcademicTerm::query()->create([
@@ -87,7 +172,7 @@ class HostelLevelWindowTest extends TestCase
         Setting::setValue('current_term_id', (string) $term->id);
         $level = AcademicLevel::query()->create([
             'name' => '100 Level',
-            'code' => '100',
+            'code' => $levelCode,
             'study_level' => 'undergraduate',
             'sort_order' => 1,
             'is_active' => true,
@@ -103,5 +188,21 @@ class HostelLevelWindowTest extends TestCase
         ]);
 
         return [$student, $level, $term];
+    }
+
+    private function payTuitionPercent(Student $student, float $percent): void
+    {
+        Invoice::query()->create([
+            'number' => 'INV-HOSTEL-'.$student->id.'-'.(int) $percent,
+            'user_id' => $student->user_id,
+            'student_id' => $student->id,
+            'category' => 'tuition',
+            'installment_percent' => $percent,
+            'amount' => 10000,
+            'full_amount' => 40000,
+            'balance' => 0,
+            'status' => 'paid',
+            'wallet_allowed' => true,
+        ]);
     }
 }

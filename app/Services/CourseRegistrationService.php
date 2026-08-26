@@ -12,6 +12,7 @@ use App\Models\Student;
 use App\Models\UnitGrace;
 use App\Models\UnitLimit;
 use App\Models\User;
+use App\Support\StudyLevel;
 use App\Support\TuitionProgress;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -595,7 +596,10 @@ class CourseRegistrationService
     {
         $code = (string) $student->current_level;
 
+        $studyLevel = StudyLevel::ofStudent($student->loadMissing(['application', 'program']));
+
         return AcademicLevel::query()
+            ->where('study_level', $studyLevel)
             ->where(function ($query) use ($code) {
                 $query->where('code', $code)
                     ->orWhere('code', $code.'L')

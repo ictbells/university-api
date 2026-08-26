@@ -147,6 +147,61 @@ class OfficeApprovalTest extends TestCase
         $this->assertSame(0, OfficeApprovalRequest::query()->count());
     }
 
+    public function test_super_admin_can_approve_any_pending_request(): void
+    {
+        Sanctum::actingAs($this->subunitStaff);
+        $this->approvals()->submitOrExecute('test.echo', null, ['ping' => 1], 'Test echo');
+        $request = OfficeApprovalRequest::query()->firstOrFail();
+        $this->assertSame(OfficeApprovalRequest::PENDING_UNIT_HEAD, $request->status);
+
+        $admin = User::factory()->create(['email' => 'admin.review@example.com']);
+        $role = Role::query()->create([
+            'name' => 'Super Admin',
+            'slug' => 'super-admin',
+            'is_system' => true,
+            'is_active' => true,
+        ]);
+        $admin->roles()->attach($role->id);
+
+        Sanctum::actingAs($admin->fresh(['roles', 'staff']));
+        $this->getJson('/api/office-approvals?scope=review')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $request->id)
+            ->assertJsonPath('data.0.can_review', true);
+
+        $this->postJson("/api/office-approvals/{$request->id}/approve", ['comment' => 'Super Admin ok'])
+            ->assertOk();
+
+        $request->refresh();
+        $this->assertSame(OfficeApprovalRequest::APPROVED, $request->status);
+        $this->assertNotNull($request->executed_at);
+        $this->assertSame($admin->id, $request->hod_reviewed_by);
+    }
+
+    public function test_super_admin_who_is_unit_head_still_approves_pending_requests_in_full(): void
+    {
+        Sanctum::actingAs($this->subunitStaff);
+        $this->approvals()->submitOrExecute('test.echo', null, ['ping' => 1], 'Test echo');
+        $request = OfficeApprovalRequest::query()->firstOrFail();
+
+        $role = Role::query()->create([
+            'name' => 'Super Admin',
+            'slug' => 'super-admin',
+            'is_system' => true,
+            'is_active' => true,
+        ]);
+        $this->unitHead->roles()->attach($role->id);
+
+        Sanctum::actingAs($this->unitHead->fresh(['roles', 'staff']));
+        $this->postJson("/api/office-approvals/{$request->id}/approve", ['comment' => 'Super Admin unit head'])
+            ->assertOk();
+
+        $request->refresh();
+        $this->assertSame(OfficeApprovalRequest::APPROVED, $request->status);
+        $this->assertNotNull($request->executed_at);
+        $this->assertNotSame(OfficeApprovalRequest::PENDING_HOD, $request->status);
+    }
+
     public function test_hod_executes_immediately(): void
     {
         Sanctum::actingAs($this->hod);

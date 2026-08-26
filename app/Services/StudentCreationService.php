@@ -9,6 +9,7 @@ use App\Models\Role;
 use App\Models\Student;
 use App\Models\Wallet;
 use App\Support\ProgrammeEligibility;
+use App\Support\StudyLevel;
 use Illuminate\Support\Facades\DB;
 
 class StudentCreationService
@@ -57,7 +58,7 @@ class StudentCreationService
                 'sponsor_phone' => $biodata['sponsor_phone'] ?? null,
                 'sponsor_email' => $biodata['sponsor_email'] ?? null,
                 'sponsor_address' => $biodata['sponsor_address'] ?? null,
-                'study_level' => $application->entry_mode === 'pg' ? 'postgraduate' : 'undergraduate',
+                'study_level' => StudyLevel::fromEntryMode($application->entry_mode),
                 'current_level' => $this->entryLevelFor($application),
                 'status' => 'active',
                 'nin_locked' => true,
@@ -174,7 +175,7 @@ class StudentCreationService
                 'sponsor_phone' => $biodata['sponsor_phone'] ?? null,
                 'sponsor_email' => $biodata['sponsor_email'] ?? null,
                 'sponsor_address' => $biodata['sponsor_address'] ?? null,
-                'study_level' => $application->entry_mode === 'pg' ? 'postgraduate' : 'undergraduate',
+                'study_level' => StudyLevel::fromEntryMode($application->entry_mode),
                 'current_level' => $currentLevel,
                 'status' => 'active',
                 'nin_locked' => true,

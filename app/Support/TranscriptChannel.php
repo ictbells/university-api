@@ -72,7 +72,7 @@ class TranscriptChannel
 
         return match ($channel) {
             self::POSTGRADUATE => $studyLevel === 'postgraduate' || in_array('pg', $modes, true),
-            self::JUPEB => in_array('jupeb', $modes, true),
+            self::JUPEB => $studyLevel === 'jupeb' || in_array('jupeb', $modes, true),
             self::UNDERGRADUATE => $studyLevel === 'undergraduate'
                 && ! in_array('jupeb', $modes, true)
                 && ! in_array('pg', $modes, true),
@@ -98,7 +98,10 @@ class TranscriptChannel
                 $q->where('study_level', 'postgraduate')
                     ->orWhereJsonContains('entry_modes', 'pg');
             }),
-            self::JUPEB => $query->whereJsonContains('entry_modes', 'jupeb'),
+            self::JUPEB => $query->where(function (Builder $q) {
+                $q->where('study_level', 'jupeb')
+                    ->orWhereJsonContains('entry_modes', 'jupeb');
+            }),
             self::UNDERGRADUATE => $query->where('study_level', 'undergraduate')
                 ->where(function (Builder $q) {
                     $q->whereNull('entry_modes')

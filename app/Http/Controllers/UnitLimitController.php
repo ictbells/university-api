@@ -20,7 +20,7 @@ class UnitLimitController extends Controller
     {
         return [
             'programs' => Program::query()->orderBy('name')->get(['id', 'name', 'code']),
-            'levels' => AcademicLevel::query()->orderBy('sort_order')->get(['id', 'name', 'code']),
+            'levels' => AcademicLevel::query()->orderBy('study_level')->orderBy('sort_order')->get(['id', 'name', 'code', 'study_level']),
             'terms' => AcademicTerm::query()->orderByDesc('is_current')->orderByDesc('id')->get(['id', 'name', 'session_label', 'is_current']),
         ];
     }

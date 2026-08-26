@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AcademicLevel;
 use App\Models\Course;
 use App\Models\Program;
 use App\Models\Staff;
@@ -11,9 +12,11 @@ use App\Services\AcademicCatalogImportService;
 use App\Services\AuditWriter;
 use App\Support\ListSessionLevelFilter;
 use App\Support\ProgrammeEligibility;
+use App\Support\StudyLevel;
 use App\Support\WorkflowCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AcademicController extends Controller
@@ -67,7 +70,7 @@ class AcademicController extends Controller
             'name' => 'required|string',
             'code' => 'nullable|string',
             'award_type' => 'required|string',
-            'study_level' => 'required|in:undergraduate,postgraduate',
+            'study_level' => 'required|'.StudyLevel::rule(),
             'entry_modes' => 'required|array|min:1',
             'entry_modes.*' => 'in:utme,de,jupeb,transfer,pg',
             'duration_years' => 'required|integer|min:1|max:10',
@@ -81,6 +84,7 @@ class AcademicController extends Controller
         ]);
         $courseIds = $data['course_ids'] ?? null;
         unset($data['course_ids']);
+        $data = StudyLevel::applyToProgramPayload($data);
         $data['is_research_degree'] = (bool) ($data['is_research_degree'] ?? false);
         $data['is_active'] = array_key_exists('is_active', $data) ? (bool) $data['is_active'] : true;
         if (empty($data['workflow_template_id'])) {
@@ -105,7 +109,7 @@ class AcademicController extends Controller
             'name' => 'sometimes|string',
             'code' => 'nullable|string',
             'award_type' => 'sometimes|string',
-            'study_level' => 'sometimes|in:undergraduate,postgraduate',
+            'study_level' => 'sometimes|'.StudyLevel::rule(),
             'entry_modes' => 'sometimes|array|min:1',
             'entry_modes.*' => 'in:utme,de,jupeb,transfer,pg',
             'duration_years' => 'sometimes|integer|min:1|max:10',
@@ -117,6 +121,9 @@ class AcademicController extends Controller
             'eligibility' => 'nullable|array',
             'workflow_template_id' => 'nullable|exists:workflow_templates,id',
         ]);
+        if (array_key_exists('entry_modes', $data) || array_key_exists('study_level', $data)) {
+            $data = StudyLevel::applyToProgramPayload($data, $program);
+        }
         $nextWorkflowId = array_key_exists('workflow_template_id', $data)
             ? $data['workflow_template_id']
             : $program->workflow_template_id;
@@ -145,6 +152,7 @@ class AcademicController extends Controller
             'courses.*.course_id' => 'required|integer|exists:courses,id|distinct',
             'courses.*.academic_level_id' => 'nullable|exists:academic_levels,id',
         ]);
+        $this->assertCurriculumLevels($program, $data['courses']);
 
         $courseIds = collect($data['courses'])->pluck('course_id')->map(fn ($id) => (int) $id)->all();
         $types = Course::query()->whereIn('id', $courseIds)->pluck('course_type', 'id');
@@ -325,6 +333,34 @@ class AcademicController extends Controller
             ];
         }
         $course->programs()->sync($sync);
+    }
+
+    /**
+     * @param  list<array{course_id: int, academic_level_id?: int|null}>  $rows
+     */
+    private function assertCurriculumLevels(Program $program, array $rows): void
+    {
+        $levelIds = collect($rows)
+            ->pluck('academic_level_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+        if ($levelIds->isEmpty()) {
+            return;
+        }
+
+        $expected = StudyLevel::ofProgram($program);
+        $mismatch = AcademicLevel::query()
+            ->whereIn('id', $levelIds)
+            ->where('study_level', '!=', $expected)
+            ->exists();
+        if ($mismatch) {
+            $label = $expected === StudyLevel::JUPEB ? 'JUPEB' : $expected;
+            throw ValidationException::withMessages([
+                'courses' => "Assign only {$label} levels to this programme. JUPEB and undergraduate curricula are separate.",
+            ]);
+        }
     }
 
     /**

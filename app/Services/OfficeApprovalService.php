@@ -113,15 +113,20 @@ class OfficeApprovalService
             $isUnitHead = $this->isUnitHeadFor($actor, $request);
             $isHod = $this->isHodFor($actor, $request);
             $isSuper = $this->isSuperAdmin($actor);
-            abort_unless($isUnitHead || $isHod || $isSuper, 403, 'Only the unit head or head of department can review this request.');
+            abort_unless($isUnitHead || $isHod || $isSuper, 403, 'Only the unit head, head of department, or Super Admin can review this request.');
 
-            // HOD seniority: approve/reject while still pending unit head → final.
-            if (($isHod || $isSuper) && ! $isUnitHead) {
+            // Super Admin always has a final decision. HOD seniority: approve/reject
+            // while still pending unit head → final, unless they are also the unit head.
+            if ($isSuper || ($isHod && ! $isUnitHead)) {
                 $request->update([
                     'hod_reviewed_by' => $actor->id,
                     'hod_reviewed_at' => now(),
-                    'hod_comment' => $comment ?: 'Approved by department head (seniority override).',
-                    'unit_comment' => $request->unit_comment ?: 'Skipped — department head acted first.',
+                    'hod_comment' => $comment ?: ($isSuper
+                        ? 'Approved by Super Admin.'
+                        : 'Approved by department head (seniority override).'),
+                    'unit_comment' => $request->unit_comment ?: ($isSuper
+                        ? 'Skipped — Super Admin acted first.'
+                        : 'Skipped — department head acted first.'),
                     'status' => $decision === 'reject' ? OfficeApprovalRequest::REJECTED : OfficeApprovalRequest::APPROVED,
                 ]);
                 $request = $request->fresh(['requester', 'department', 'unit']);
@@ -163,7 +168,7 @@ class OfficeApprovalService
             return $this->serialize($request);
         }
 
-        abort_unless($this->isHodFor($actor, $request) || $this->isSuperAdmin($actor), 403, 'Only the head of department can review this request.');
+        abort_unless($this->isHodFor($actor, $request) || $this->isSuperAdmin($actor), 403, 'Only the head of department or Super Admin can review this request.');
         $request->update([
             'hod_reviewed_by' => $actor->id,
             'hod_reviewed_at' => now(),

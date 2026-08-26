@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.24  
+**Version:** 1.25  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -585,7 +585,7 @@ Use these when moving continuing students from another portal. **Do not** invent
 
 If an old payment was wallet-funded, record `paid_amount` on the invoice sheet **and** a matching **debit** on the wallet sheet. These imports do not call Paystack and do not settle invoices from the wallet automatically.
 - **Clinic** — Queue, student charts, encounters, prescriptions, sick notes, NHIS-aware billing (`medical.view_any` / `medical.manage` / `medical.billing`). Enrol a student on NHIS by **matric number**. Coverage may be a **percent** of eligible lines (campus default if blank) or a **fixed naira amount**. Visit prices live in **Fees & payments → Fee items** under **Clinic services**. Clinic staff pick those lines and quantity; finalizing invoices the student for the NHIS-adjusted payable (wallet only; not Paystack).
-- **Hostel** — Hostels, blocks, rooms, level windows, queue, and allocations (`hostel.view`; manage rooms with `hostel.manage`; allocate with `hostel.allocate`). Students see selection **Open** only when their **level window** is on for the current semester (Save after toggling). A hostel record marked Active does not by itself open student selection.
+- **Hostel** — Hostels, blocks, rooms, level windows, queue, and allocations (`hostel.view`; manage rooms with `hostel.manage`; allocate with `hostel.allocate`). Open allocation **by category and level**; the switch saves immediately. Undergraduate, JUPEB, and postgraduate are separate — opening Undergraduate 100 Level does not open JUPEB 100 Level. Students see selection **Open** when their category/level window is on for the current semester, and they must have paid at least **25% of current-session tuition** before they can request a bed. A hostel record marked Active does not by itself open student selection.
 
 #### Hostel room bulk import
 
@@ -742,6 +742,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.18 | Aug 2026 | Platform team | Programme-schedule fee items (not only tuition) use 1st–4th 25% installment shares; Programme fees assign per-line amounts and copy a schedule within a college |
 | 1.19 | Aug 2026 | Platform team | Every assigned office portal link shows Create/Update/Delete approval settings (not only modules that already have gated actions) |
 | 1.24 | Aug 2026 | Platform team | Acceptance fees are set in the fee catalog by entry mode, matching application fees |
+| 1.25 | Aug 2026 | Platform team | Hostel level toggles save immediately; student bed requests require ≥25% current-session tuition; Undergraduate and JUPEB windows stay separate |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

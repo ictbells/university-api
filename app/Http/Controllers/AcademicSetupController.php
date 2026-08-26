@@ -18,6 +18,7 @@ use App\Services\InvoiceService;
 use App\Support\AdmissionCurrentGate;
 use App\Support\AdmissionEntryRules;
 use App\Support\CandidateEligibility;
+use App\Support\StudyLevel;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -171,7 +172,7 @@ class AcademicSetupController extends Controller
         $data = $request->validate([
             'name' => 'required|string',
             'code' => 'nullable|string',
-            'study_level' => 'required|in:undergraduate,postgraduate',
+            'study_level' => 'required|'.StudyLevel::rule(),
             'sort_order' => 'nullable|integer|min:0',
             'is_active' => 'boolean',
         ]);
@@ -190,7 +191,7 @@ class AcademicSetupController extends Controller
         $data = $request->validate([
             'name' => 'sometimes|string',
             'code' => 'nullable|string',
-            'study_level' => 'sometimes|in:undergraduate,postgraduate',
+            'study_level' => 'sometimes|'.StudyLevel::rule(),
             'sort_order' => 'nullable|integer|min:0',
             'is_active' => 'boolean',
         ]);
