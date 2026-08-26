@@ -10,6 +10,8 @@ use Illuminate\Support\Str;
 
 class RoleController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
+
     public function __construct(private AuditWriter $audit) {}
 
     public function index(Request $request)
@@ -69,17 +71,20 @@ class RoleController extends Controller
             'permission_ids' => 'array',
             'permission_ids.*' => 'exists:permissions,id',
         ]);
-        $role = Role::query()->create([
-            'name' => $data['name'],
-            'slug' => Str::slug($data['name']).'-'.Str::lower(Str::random(4)),
-            'description' => $data['description'] ?? null,
-            'is_system' => false,
-            'is_active' => true,
-        ]);
-        $role->permissions()->sync($data['permission_ids'] ?? []);
-        $this->audit->record('role.created', 'Created role '.$role->name, 'users', 'role', $role->id, null, $role->load('permissions'));
 
-        return response()->json($role->load('permissions'), 201);
+        return $this->officeGate('roles.store', null, $data, 'Create role '.$data['name'], function () use ($data) {
+            $role = Role::query()->create([
+                'name' => $data['name'],
+                'slug' => Str::slug($data['name']).'-'.Str::lower(Str::random(4)),
+                'description' => $data['description'] ?? null,
+                'is_system' => false,
+                'is_active' => true,
+            ]);
+            $role->permissions()->sync($data['permission_ids'] ?? []);
+            $this->audit->record('role.created', 'Created role '.$role->name, 'users', 'role', $role->id, null, $role->load('permissions'));
+
+            return response()->json($role->load('permissions'), 201);
+        });
     }
 
     public function update(Request $request, Role $role)
@@ -89,11 +94,14 @@ class RoleController extends Controller
             'description' => 'nullable|string',
             'is_active' => 'boolean',
         ]);
-        $before = $this->roleAuditSnapshot($role);
-        $role->update($data);
-        $this->audit->record('role.updated', 'Updated role '.$role->name, 'users', 'role', $role->id, $before, $this->roleAuditSnapshot($role->fresh('permissions')));
 
-        return $role->fresh('permissions');
+        return $this->officeGate('roles.update', $role, ['role_id' => $role->id, ...$data], 'Update role '.$role->name, function () use ($role, $data) {
+            $before = $this->roleAuditSnapshot($role);
+            $role->update($data);
+            $this->audit->record('role.updated', 'Updated role '.$role->name, 'users', 'role', $role->id, $before, $this->roleAuditSnapshot($role->fresh('permissions')));
+
+            return $role->fresh('permissions');
+        });
     }
 
     public function destroy(Request $request, Role $role)
@@ -119,12 +127,20 @@ class RoleController extends Controller
             ], 422);
         }
 
-        $before = $role->toArray();
-        $role->permissions()->detach();
-        $role->delete();
-        $this->audit->record('role.deleted', 'Deleted role', 'users', 'role', $role->id, $before, null, $request->input('reason', 'Role removed'));
+        return $this->officeGate(
+            'roles.destroy',
+            $role,
+            ['role_id' => $role->id, 'reason' => $request->input('reason', 'Role removed')],
+            'Delete role '.$role->name,
+            function () use ($request, $role) {
+                $before = $role->toArray();
+                $role->permissions()->detach();
+                $role->delete();
+                $this->audit->record('role.deleted', 'Deleted role', 'users', 'role', $role->id, $before, null, $request->input('reason', 'Role removed'));
 
-        return response()->json(['message' => 'Deleted']);
+                return response()->json(['message' => 'Deleted']);
+            },
+        );
     }
 
     public function syncPermissions(Request $request, Role $role)
@@ -134,12 +150,21 @@ class RoleController extends Controller
             'permission_ids.*' => 'exists:permissions,id',
             'reason' => 'nullable|string',
         ]);
-        $before = $role->permissions->pluck('key')->sort()->values()->all();
-        $role->permissions()->sync($data['permission_ids']);
-        $after = $role->fresh('permissions')->permissions->pluck('key')->sort()->values()->all();
-        $this->audit->record('role.permissions', 'Updated role permissions', 'users', 'role', $role->id, ['permissions' => $before], ['permissions' => $after], $data['reason'] ?? 'Permission ticks updated');
 
-        return $role->fresh('permissions');
+        return $this->officeGate(
+            'roles.sync_permissions',
+            $role,
+            ['role_id' => $role->id, ...$data],
+            'Update permissions for '.$role->name,
+            function () use ($role, $data) {
+                $before = $role->permissions->pluck('key')->sort()->values()->all();
+                $role->permissions()->sync($data['permission_ids']);
+                $after = $role->fresh('permissions')->permissions->pluck('key')->sort()->values()->all();
+                $this->audit->record('role.permissions', 'Updated role permissions', 'users', 'role', $role->id, ['permissions' => $before], ['permissions' => $after], $data['reason'] ?? 'Permission ticks updated');
+
+                return $role->fresh('permissions');
+            },
+        );
     }
 
     private function roleAuditSnapshot(Role $role): array

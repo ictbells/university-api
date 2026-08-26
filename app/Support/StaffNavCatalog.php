@@ -56,7 +56,6 @@ class StaffNavCatalog
             ['key' => 'roles', 'section' => 'Administration', 'label' => 'Roles', 'perm' => 'roles.manage'],
             ['key' => 'permissions', 'section' => 'Administration', 'label' => 'Permissions', 'perm' => 'roles.manage'],
             ['key' => 'office-setup', 'section' => 'Administration', 'label' => 'Office setup', 'perm' => 'institution.manage'],
-            ['key' => 'institution', 'section' => 'Administration', 'label' => 'Institution', 'perm' => 'institution.manage'],
             ['key' => 'application-settings', 'section' => 'System', 'label' => 'Application settings', 'perm' => 'settings.manage'],
             ['key' => 'resources', 'section' => 'System', 'label' => 'Resources', 'perm' => 'resources.view'],
             ['key' => 'audit', 'section' => 'System', 'label' => 'Audit', 'perm' => 'audit.view'],

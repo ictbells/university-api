@@ -15,6 +15,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class StudentImportController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
+
     public function __construct(private StudentImportService $importer) {}
 
     public function options(Request $request): JsonResponse
@@ -60,60 +62,72 @@ class StudentImportController extends Controller
             ], 422);
         }
 
-        $verifyNin = $request->boolean('verify_nin');
-        $sendCredentials = $request->has('send_credentials')
-            ? $request->boolean('send_credentials')
-            : true;
-        $file = $request->file('file');
-        $rowCount = $this->importer->countDataRows($file);
-        $importId = (string) Str::uuid();
-        $options = [
-            'verify_nin' => $verifyNin,
-            'send_credentials' => $sendCredentials,
+        $payload = [
+            'intake_id' => (int) $request->input('intake_id'),
+            'entry_mode' => $entryMode,
+            'verify_nin' => $request->boolean('verify_nin'),
+            'send_credentials' => $request->has('send_credentials')
+                ? $request->boolean('send_credentials')
+                : true,
+            ...$this->persistApprovalUpload($request),
         ];
 
-        if ($this->importer->shouldQueue($verifyNin, $rowCount)) {
-            $path = $this->importer->storeUpload($file);
-            $this->importer->cacheResult($importId, [
-                'status' => 'queued',
-                'queued' => true,
+        return $this->officeGate('students.import', null, $payload, 'Import students', function () use ($request, $intake, $entryMode) {
+            $verifyNin = $request->boolean('verify_nin');
+            $sendCredentials = $request->has('send_credentials')
+                ? $request->boolean('send_credentials')
+                : true;
+            $file = $request->file('file');
+            $rowCount = $this->importer->countDataRows($file);
+            $importId = (string) Str::uuid();
+            $options = [
+                'verify_nin' => $verifyNin,
+                'send_credentials' => $sendCredentials,
+            ];
+
+            if ($this->importer->shouldQueue($verifyNin, $rowCount)) {
+                $path = $this->importer->storeUpload($file);
+                $this->importer->cacheResult($importId, [
+                    'status' => 'queued',
+                    'queued' => true,
+                    'import_id' => $importId,
+                ]);
+                ImportStudentsJob::dispatch(
+                    $importId,
+                    $path,
+                    $intake->id,
+                    $entryMode,
+                    $verifyNin,
+                    $sendCredentials,
+                    (int) $request->user()->id,
+                );
+
+                return response()->json([
+                    'message' => 'Import queued. NIN checks and mail can take a few minutes.',
+                    'queued' => true,
+                    'status' => 'queued',
+                    'import_id' => $importId,
+                ], 202);
+            }
+
+            try {
+                $result = $this->importer->import($file, $intake, $entryMode, $options);
+            } catch (\InvalidArgumentException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+
+            $result = array_merge($result, [
+                'status' => 'done',
+                'queued' => false,
                 'import_id' => $importId,
             ]);
-            ImportStudentsJob::dispatch(
-                $importId,
-                $path,
-                $intake->id,
-                $entryMode,
-                $verifyNin,
-                $sendCredentials,
-                (int) $request->user()->id,
-            );
+            $this->importer->cacheResult($importId, $result);
 
             return response()->json([
-                'message' => 'Import queued. NIN checks and mail can take a few minutes.',
-                'queued' => true,
-                'status' => 'queued',
-                'import_id' => $importId,
-            ], 202);
-        }
-
-        try {
-            $result = $this->importer->import($file, $intake, $entryMode, $options);
-        } catch (\InvalidArgumentException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        }
-
-        $result = array_merge($result, [
-            'status' => 'done',
-            'queued' => false,
-            'import_id' => $importId,
-        ]);
-        $this->importer->cacheResult($importId, $result);
-
-        return response()->json([
-            'message' => $this->summaryMessage($result),
-            'data' => $result,
-        ]);
+                'message' => $this->summaryMessage($result),
+                'data' => $result,
+            ]);
+        });
     }
 
     public function status(Request $request, string $importId): JsonResponse

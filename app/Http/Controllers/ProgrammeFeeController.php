@@ -16,6 +16,8 @@ use Illuminate\Validation\Rule;
 
 class ProgrammeFeeController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
+
     public function __construct(private AuditWriter $audit) {}
 
     public function index(Request $request)
@@ -159,37 +161,57 @@ class ProgrammeFeeController extends Controller
         abort_unless($request->user()->hasPermission('finance.invoices.manage'), 403);
 
         $data = $this->validated($request);
-        $fee = ProgrammeFee::query()->create($data);
-        $this->syncProgramTuitionCache((int) $fee->program_id);
-        $this->audit->record('programme_fee.created', 'Programme fee assigned', 'fees', 'programme_fee', $fee->id, null, $fee);
 
-        return $this->serialize($fee->load(['program', 'feeItem']));
+        return $this->officeGate('finance.store_programme_fee', null, $data, 'Create programme fee', function () use ($data) {
+            $fee = ProgrammeFee::query()->create($data);
+            $this->syncProgramTuitionCache((int) $fee->program_id);
+            $this->audit->record('programme_fee.created', 'Programme fee assigned', 'fees', 'programme_fee', $fee->id, null, $fee);
+
+            return $this->serialize($fee->load(['program', 'feeItem']));
+        });
     }
 
     public function update(Request $request, ProgrammeFee $programmeFee)
     {
         abort_unless($request->user()->hasPermission('finance.invoices.manage'), 403);
 
-        $before = $programmeFee->toArray();
         $data = $this->validated($request, partial: true);
-        $programmeFee->update($data);
-        $this->syncProgramTuitionCache((int) $programmeFee->program_id);
-        $this->audit->record('programme_fee.updated', 'Programme fee updated', 'fees', 'programme_fee', $programmeFee->id, $before, $programmeFee);
 
-        return $this->serialize($programmeFee->fresh(['program', 'feeItem']));
+        return $this->officeGate(
+            'finance.update_programme_fee',
+            $programmeFee,
+            ['programme_fee_id' => $programmeFee->id, ...$data],
+            'Update programme fee',
+            function () use ($programmeFee, $data) {
+                $before = $programmeFee->toArray();
+                $programmeFee->update($data);
+                $this->syncProgramTuitionCache((int) $programmeFee->program_id);
+                $this->audit->record('programme_fee.updated', 'Programme fee updated', 'fees', 'programme_fee', $programmeFee->id, $before, $programmeFee);
+
+                return $this->serialize($programmeFee->fresh(['program', 'feeItem']));
+            },
+        );
     }
 
     public function destroy(Request $request, ProgrammeFee $programmeFee)
     {
         abort_unless($request->user()->hasPermission('finance.invoices.manage'), 403);
 
-        $before = $programmeFee->toArray();
-        $programId = (int) $programmeFee->program_id;
-        $programmeFee->delete();
-        $this->syncProgramTuitionCache($programId);
-        $this->audit->record('programme_fee.deleted', 'Programme fee removed', 'fees', 'programme_fee', $programmeFee->id, $before, null);
+        return $this->officeGate(
+            'finance.destroy_programme_fee',
+            $programmeFee,
+            ['programme_fee_id' => $programmeFee->id],
+            'Delete programme fee',
+            function () use ($programmeFee) {
+                $before = $programmeFee->toArray();
+                $programId = (int) $programmeFee->program_id;
+                $programmeFee->delete();
+                $this->syncProgramTuitionCache($programId);
+                $this->audit->record('programme_fee.deleted', 'Programme fee removed', 'fees', 'programme_fee', $programmeFee->id, $before, null);
 
-        return response()->noContent();
+                return response()->noContent();
+            },
+        );
     }
 
     public function bulkStore(Request $request)
@@ -203,43 +225,47 @@ class ProgrammeFeeController extends Controller
             'items' => 'required|array|min:1',
             'items.*.fee_item_id' => 'required|integer|exists:fee_items,id',
             'items.*.amount' => 'nullable|numeric|min:0',
+            'items.*.installment_tranche' => ['nullable', 'integer', Rule::in(FeeSchedule::INSTALLMENT_TRANCHES)],
             'items.*.display_order' => 'nullable|integer|min:0',
             'items.*.is_active' => 'nullable|boolean',
         ]);
 
-        $programId = (int) $data['program_id'];
-        $levelCode = $data['level_code'] ?: 'all';
-        $semester = $data['semester'] ?? 'both';
-        $created = [];
+        return $this->officeGate('finance.bulk_programme_fees', null, $data, 'Bulk save programme fees', function () use ($request, $data) {
+            $programId = (int) $data['program_id'];
+            $levelCode = $data['level_code'] ?: 'all';
+            $semester = $data['semester'] ?? 'both';
+            $created = [];
 
-        DB::transaction(function () use ($data, $programId, $levelCode, $semester, &$created) {
-            foreach ($data['items'] as $index => $item) {
-                $feeItem = FeeItem::query()->findOrFail($item['fee_item_id']);
-                if (! FeeSchedule::isScheduleCategory((string) $feeItem->category)) {
-                    abort(422, "Fee “{$feeItem->name}” cannot be assigned to a programme schedule.");
+            DB::transaction(function () use ($data, $programId, $levelCode, $semester, &$created) {
+                foreach ($data['items'] as $index => $item) {
+                    $feeItem = FeeItem::query()->findOrFail($item['fee_item_id']);
+                    if (! FeeSchedule::isScheduleCategory((string) $feeItem->category)) {
+                        abort(422, "Fee “{$feeItem->name}” cannot be assigned to a programme schedule.");
+                    }
+
+                    $row = ProgrammeFee::query()->updateOrCreate(
+                        [
+                            'program_id' => $programId,
+                            'fee_item_id' => $feeItem->id,
+                            'level_code' => $levelCode,
+                            'semester' => $semester,
+                            'installment_tranche' => $item['installment_tranche'] ?? null,
+                        ],
+                        [
+                            'amount' => array_key_exists('amount', $item) ? $item['amount'] : null,
+                            'display_order' => $item['display_order'] ?? ($index + 1),
+                            'is_active' => array_key_exists('is_active', $item) ? (bool) $item['is_active'] : true,
+                        ]
+                    );
+                    $created[] = $row->id;
                 }
+            });
 
-                $row = ProgrammeFee::query()->updateOrCreate(
-                    [
-                        'program_id' => $programId,
-                        'fee_item_id' => $feeItem->id,
-                        'level_code' => $levelCode,
-                        'semester' => $semester,
-                    ],
-                    [
-                        'amount' => array_key_exists('amount', $item) ? $item['amount'] : null,
-                        'display_order' => $item['display_order'] ?? ($index + 1),
-                        'is_active' => array_key_exists('is_active', $item) ? (bool) $item['is_active'] : true,
-                    ]
-                );
-                $created[] = $row->id;
-            }
+            $this->syncProgramTuitionCache($programId);
+            $this->audit->record('programme_fee.bulk', 'Programme fees bulk assigned', 'fees', 'program', $programId, null, ['ids' => $created]);
+
+            return $this->byProgram($request, Program::query()->findOrFail($programId));
         });
-
-        $this->syncProgramTuitionCache($programId);
-        $this->audit->record('programme_fee.bulk', 'Programme fees bulk assigned', 'fees', 'program', $programId, null, ['ids' => $created]);
-
-        return $this->byProgram($request, Program::query()->findOrFail($programId));
     }
 
     public function copySchedule(Request $request)
@@ -285,50 +311,60 @@ class ProgrammeFeeController extends Controller
         }
 
         $replace = $request->boolean('replace');
-        $copied = [];
 
-        DB::transaction(function () use ($sourceLines, $toIds, $replace, &$copied) {
-            foreach ($toIds as $toId) {
-                if ($replace) {
-                    ProgrammeFee::query()->where('program_id', $toId)->delete();
-                }
-                foreach ($sourceLines as $index => $line) {
-                    $feeItem = FeeItem::query()->find($line->fee_item_id);
-                    if (! $feeItem || ! FeeSchedule::isScheduleCategory((string) $feeItem->category)) {
-                        continue;
+        return $this->officeGate(
+            'finance.copy_programme_fees',
+            null,
+            [...$data, 'to_program_ids' => $toIds, 'replace' => $replace],
+            'Copy programme fee schedule',
+            function () use ($sourceLines, $fromId, $toIds, $replace) {
+                $copied = [];
+
+                DB::transaction(function () use ($sourceLines, $toIds, $replace, &$copied) {
+                    foreach ($toIds as $toId) {
+                        if ($replace) {
+                            ProgrammeFee::query()->where('program_id', $toId)->delete();
+                        }
+                        foreach ($sourceLines as $index => $line) {
+                            $feeItem = FeeItem::query()->find($line->fee_item_id);
+                            if (! $feeItem || ! FeeSchedule::isScheduleCategory((string) $feeItem->category)) {
+                                continue;
+                            }
+                            $row = ProgrammeFee::query()->updateOrCreate(
+                                [
+                                    'program_id' => $toId,
+                                    'fee_item_id' => $line->fee_item_id,
+                                    'level_code' => $line->level_code ?: 'all',
+                                    'semester' => $line->semester ?: 'both',
+                                    'installment_tranche' => $line->installment_tranche,
+                                ],
+                                [
+                                    'amount' => $line->amount,
+                                    'display_order' => $line->display_order ?? ($index + 1),
+                                    'is_active' => (bool) $line->is_active,
+                                ]
+                            );
+                            $copied[] = $row->id;
+                        }
+                        $this->syncProgramTuitionCache($toId);
                     }
-                    $row = ProgrammeFee::query()->updateOrCreate(
-                        [
-                            'program_id' => $toId,
-                            'fee_item_id' => $line->fee_item_id,
-                            'level_code' => $line->level_code ?: 'all',
-                            'semester' => $line->semester ?: 'both',
-                        ],
-                        [
-                            'amount' => $line->amount,
-                            'display_order' => $line->display_order ?? ($index + 1),
-                            'is_active' => (bool) $line->is_active,
-                        ]
-                    );
-                    $copied[] = $row->id;
-                }
-                $this->syncProgramTuitionCache($toId);
-            }
-        });
+                });
 
-        $this->audit->record('programme_fee.copied', 'Programme fee schedule copied', 'fees', 'program', $fromId, null, [
-            'from_program_id' => $fromId,
-            'to_program_ids' => $toIds,
-            'replace' => $replace,
-            'ids' => $copied,
-        ]);
+                $this->audit->record('programme_fee.copied', 'Programme fee schedule copied', 'fees', 'program', $fromId, null, [
+                    'from_program_id' => $fromId,
+                    'to_program_ids' => $toIds,
+                    'replace' => $replace,
+                    'ids' => $copied,
+                ]);
 
-        return [
-            'from_program_id' => $fromId,
-            'to_program_ids' => $toIds,
-            'copied_lines' => $sourceLines->count(),
-            'programmes' => count($toIds),
-        ];
+                return [
+                    'from_program_id' => $fromId,
+                    'to_program_ids' => $toIds,
+                    'copied_lines' => $sourceLines->count(),
+                    'programmes' => count($toIds),
+                ];
+            },
+        );
     }
 
     /**
@@ -341,6 +377,7 @@ class ProgrammeFeeController extends Controller
             'program_id' => [$required, 'integer', 'exists:programs,id'],
             'fee_item_id' => [$required, 'integer', 'exists:fee_items,id'],
             'amount' => 'nullable|numeric|min:0',
+            'installment_tranche' => ['nullable', 'integer', Rule::in(FeeSchedule::INSTALLMENT_TRANCHES)],
             'level_code' => 'nullable|string|max:20',
             'semester' => ['nullable', Rule::in(FeeSchedule::SEMESTERS)],
             'is_active' => 'boolean',
@@ -394,6 +431,9 @@ class ProgrammeFeeController extends Controller
             'fee_item_id' => $fee->fee_item_id,
             'amount' => $fee->amount,
             'effective_amount' => $fee->effective_amount,
+            'installment_tranche' => $fee->installment_tranche,
+            'effective_installment_tranche' => $fee->effective_installment_tranche,
+            'effective_installment_tranche_label' => FeeSchedule::installmentTrancheLabel($fee->effective_installment_tranche),
             'level_code' => $fee->level_code,
             'semester' => $fee->semester,
             'is_active' => $fee->is_active,

@@ -14,6 +14,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CandidateDataController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
+
     public function __construct(
         private CandidateDataImportService $importer,
         private AuditWriter $audit,
@@ -100,35 +102,43 @@ class CandidateDataController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        try {
-            $result = $this->importer->import(
-                $request->file('file'),
-                $academicYear,
+        $payload = [
+            'academic_year' => $academicYear,
+            'intake_id' => $request->input('intake_id'),
+            ...$this->persistApprovalUpload($request),
+        ];
+
+        return $this->officeGate('admissions.import_candidate_data', null, $payload, 'Import candidate data', function () use ($request, $academicYear) {
+            try {
+                $result = $this->importer->import(
+                    $request->file('file'),
+                    $academicYear,
+                );
+            } catch (\InvalidArgumentException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            } catch (\Throwable $e) {
+                return response()->json(['message' => 'Failed to import candidate data: '.$e->getMessage()], 500);
+            }
+
+            $this->audit->record(
+                'candidate_data.imported',
+                'Candidate data imported from spreadsheet',
+                'admissions',
+                'candidate_data',
+                null,
+                null,
+                array_merge($result, [
+                    'academic_year' => $academicYear,
+                    'intake_id' => $request->input('intake_id'),
+                    'file_name' => $request->file('file')?->getClientOriginalName(),
+                ]),
             );
-        } catch (\InvalidArgumentException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        } catch (\Throwable $e) {
-            return response()->json(['message' => 'Failed to import candidate data: '.$e->getMessage()], 500);
-        }
 
-        $this->audit->record(
-            'candidate_data.imported',
-            'Candidate data imported from spreadsheet',
-            'admissions',
-            'candidate_data',
-            null,
-            null,
-            array_merge($result, [
-                'academic_year' => $academicYear,
-                'intake_id' => $request->input('intake_id'),
-                'file_name' => $request->file('file')->getClientOriginalName(),
-            ]),
-        );
-
-        return response()->json([
-            'message' => "Successfully imported {$result['imported']} candidate record(s). {$result['skipped']} row(s) skipped.",
-            'data' => $result,
-        ]);
+            return response()->json([
+                'message' => "Successfully imported {$result['imported']} candidate record(s). {$result['skipped']} row(s) skipped.",
+                'data' => $result,
+            ]);
+        });
     }
 
     public function lookup(Request $request, string $jambRegistration): JsonResponse

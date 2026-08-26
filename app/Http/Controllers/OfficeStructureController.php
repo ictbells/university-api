@@ -16,6 +16,8 @@ use Illuminate\Validation\ValidationException;
 
 class OfficeStructureController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
+
     public function __construct(
         private AuditWriter $audit,
         private OfficeNavOwnerResolver $navOwners,
@@ -97,15 +99,30 @@ class OfficeStructureController extends Controller
 
         $this->navOwners->assertKeysUniqueToDepartment($model, $keys);
 
-        $before = $model->navLinkConfigs();
-        $model->syncNavLinks($links);
-        $after = $model->navLinkConfigs();
-        $this->audit->record($action, 'Office navigation links updated', 'institution', $entityType, $entityId, $before, $after);
+        $actionKey = match (true) {
+            $model instanceof OfficeDepartment => 'office.sync_department_nav',
+            $model instanceof OfficeUnit => 'office.sync_unit_nav',
+            default => 'office.sync_subunit_nav',
+        };
+        $subjectKey = \Illuminate\Support\Str::snake(class_basename($model)).'_id';
 
-        return [
-            'nav_keys' => $keys,
-            'nav_links' => $after,
-        ];
+        return $this->officeGate(
+            $actionKey,
+            $model,
+            [$subjectKey => $model->id, ...$data],
+            'Update office navigation links',
+            function () use ($model, $action, $entityType, $entityId, $links, $keys) {
+                $before = $model->navLinkConfigs();
+                $model->syncNavLinks($links);
+                $after = $model->navLinkConfigs();
+                $this->audit->record($action, 'Office navigation links updated', 'institution', $entityType, $entityId, $before, $after);
+
+                return [
+                    'nav_keys' => $keys,
+                    'nav_links' => $after,
+                ];
+            },
+        );
     }
 
     private function formatDepartment(OfficeDepartment $dept): array
@@ -156,10 +173,12 @@ class OfficeStructureController extends Controller
             $this->assertDepartmentHead((int) $data['head_staff_id']);
         }
 
-        $department = OfficeDepartment::query()->create($data);
-        $this->audit->record('office.department.created', 'Office department created', 'institution', 'office_department', $department->id, null, $department);
+        return $this->officeGate('office.store_department', null, $data, 'Create office department '.$data['name'], function () use ($data) {
+            $department = OfficeDepartment::query()->create($data);
+            $this->audit->record('office.department.created', 'Office department created', 'institution', 'office_department', $department->id, null, $department);
 
-        return $this->formatDepartment($department->load(['units.subunits', 'headStaff.user']));
+            return $this->formatDepartment($department->load(['units.subunits', 'headStaff.user']));
+        });
     }
 
     public function storeUnit(Request $request)
@@ -176,10 +195,12 @@ class OfficeStructureController extends Controller
             $this->assertUnitHead((int) $data['head_staff_id'], (int) $data['office_department_id']);
         }
 
-        $unit = OfficeUnit::query()->create($data);
-        $this->audit->record('office.unit.created', 'Office unit created', 'institution', 'office_unit', $unit->id, null, $unit);
+        return $this->officeGate('office.store_unit', null, $data, 'Create office unit '.$data['name'], function () use ($data) {
+            $unit = OfficeUnit::query()->create($data);
+            $this->audit->record('office.unit.created', 'Office unit created', 'institution', 'office_unit', $unit->id, null, $unit);
 
-        return $unit->load(['subunits', 'headStaff.user']);
+            return $unit->load(['subunits', 'headStaff.user']);
+        });
     }
 
     public function storeSubunit(Request $request)
@@ -192,10 +213,12 @@ class OfficeStructureController extends Controller
             'is_active' => 'boolean',
         ]);
 
-        $subunit = OfficeSubunit::query()->create($data);
-        $this->audit->record('office.subunit.created', 'Office subunit created', 'institution', 'office_subunit', $subunit->id, null, $subunit);
+        return $this->officeGate('office.store_subunit', null, $data, 'Create office subunit '.$data['name'], function () use ($data) {
+            $subunit = OfficeSubunit::query()->create($data);
+            $this->audit->record('office.subunit.created', 'Office subunit created', 'institution', 'office_subunit', $subunit->id, null, $subunit);
 
-        return $subunit;
+            return $subunit;
+        });
     }
 
     public function updateDepartment(Request $request, OfficeDepartment $officeDepartment)
@@ -211,11 +234,19 @@ class OfficeStructureController extends Controller
             $this->assertDepartmentHead((int) $data['head_staff_id'], $officeDepartment->id);
         }
 
-        $before = $officeDepartment->toArray();
-        $officeDepartment->update($data);
-        $this->audit->record('office.department.updated', 'Office department updated', 'institution', 'office_department', $officeDepartment->id, $before, $officeDepartment);
+        return $this->officeGate(
+            'office.update_department',
+            $officeDepartment,
+            ['office_department_id' => $officeDepartment->id, ...$data],
+            'Update office department '.$officeDepartment->name,
+            function () use ($officeDepartment, $data) {
+                $before = $officeDepartment->toArray();
+                $officeDepartment->update($data);
+                $this->audit->record('office.department.updated', 'Office department updated', 'institution', 'office_department', $officeDepartment->id, $before, $officeDepartment);
 
-        return $officeDepartment->fresh()->load('units.subunits');
+                return $officeDepartment->fresh()->load('units.subunits');
+            },
+        );
     }
 
     public function updateUnit(Request $request, OfficeUnit $officeUnit)
@@ -243,11 +274,19 @@ class OfficeStructureController extends Controller
             );
         }
 
-        $before = $officeUnit->toArray();
-        $officeUnit->update($data);
-        $this->audit->record('office.unit.updated', 'Office unit updated', 'institution', 'office_unit', $officeUnit->id, $before, $officeUnit);
+        return $this->officeGate(
+            'office.update_unit',
+            $officeUnit,
+            ['office_unit_id' => $officeUnit->id, ...$data],
+            'Update office unit '.$officeUnit->name,
+            function () use ($officeUnit, $data) {
+                $before = $officeUnit->toArray();
+                $officeUnit->update($data);
+                $this->audit->record('office.unit.updated', 'Office unit updated', 'institution', 'office_unit', $officeUnit->id, $before, $officeUnit);
 
-        return $officeUnit->fresh()->load('subunits');
+                return $officeUnit->fresh()->load('subunits');
+            },
+        );
     }
 
     public function updateSubunit(Request $request, OfficeSubunit $officeSubunit)
@@ -267,38 +306,70 @@ class OfficeStructureController extends Controller
             'is_active' => 'boolean',
         ]);
 
-        $before = $officeSubunit->toArray();
-        $officeSubunit->update($data);
-        $this->audit->record('office.subunit.updated', 'Office subunit updated', 'institution', 'office_subunit', $officeSubunit->id, $before, $officeSubunit);
+        return $this->officeGate(
+            'office.update_subunit',
+            $officeSubunit,
+            ['office_subunit_id' => $officeSubunit->id, ...$data],
+            'Update office subunit '.$officeSubunit->name,
+            function () use ($officeSubunit, $data) {
+                $before = $officeSubunit->toArray();
+                $officeSubunit->update($data);
+                $this->audit->record('office.subunit.updated', 'Office subunit updated', 'institution', 'office_subunit', $officeSubunit->id, $before, $officeSubunit);
 
-        return $officeSubunit->fresh();
+                return $officeSubunit->fresh();
+            },
+        );
     }
 
     public function destroyDepartment(OfficeDepartment $officeDepartment)
     {
-        $before = $officeDepartment->load('units.subunits');
-        $officeDepartment->delete();
-        $this->audit->record('office.department.deleted', 'Office department deleted', 'institution', 'office_department', $before->id, $before, null);
+        return $this->officeGate(
+            'office.destroy_department',
+            $officeDepartment,
+            ['office_department_id' => $officeDepartment->id],
+            'Delete office department '.$officeDepartment->name,
+            function () use ($officeDepartment) {
+                $before = $officeDepartment->load('units.subunits');
+                $officeDepartment->delete();
+                $this->audit->record('office.department.deleted', 'Office department deleted', 'institution', 'office_department', $before->id, $before, null);
 
-        return response()->json(['message' => 'Department deleted.']);
+                return response()->json(['message' => 'Department deleted.']);
+            },
+        );
     }
 
     public function destroyUnit(OfficeUnit $officeUnit)
     {
-        $before = $officeUnit->load('subunits');
-        $officeUnit->delete();
-        $this->audit->record('office.unit.deleted', 'Office unit deleted', 'institution', 'office_unit', $before->id, $before, null);
+        return $this->officeGate(
+            'office.destroy_unit',
+            $officeUnit,
+            ['office_unit_id' => $officeUnit->id],
+            'Delete office unit '.$officeUnit->name,
+            function () use ($officeUnit) {
+                $before = $officeUnit->load('subunits');
+                $officeUnit->delete();
+                $this->audit->record('office.unit.deleted', 'Office unit deleted', 'institution', 'office_unit', $before->id, $before, null);
 
-        return response()->json(['message' => 'Unit deleted.']);
+                return response()->json(['message' => 'Unit deleted.']);
+            },
+        );
     }
 
     public function destroySubunit(OfficeSubunit $officeSubunit)
     {
-        $before = $officeSubunit->toArray();
-        $officeSubunit->delete();
-        $this->audit->record('office.subunit.deleted', 'Office subunit deleted', 'institution', 'office_subunit', $before['id'], $before, null);
+        return $this->officeGate(
+            'office.destroy_subunit',
+            $officeSubunit,
+            ['office_subunit_id' => $officeSubunit->id],
+            'Delete office subunit '.$officeSubunit->name,
+            function () use ($officeSubunit) {
+                $before = $officeSubunit->toArray();
+                $officeSubunit->delete();
+                $this->audit->record('office.subunit.deleted', 'Office subunit deleted', 'institution', 'office_subunit', $before['id'], $before, null);
 
-        return response()->json(['message' => 'Subunit deleted.']);
+                return response()->json(['message' => 'Subunit deleted.']);
+            },
+        );
     }
 
     public function staffOptions(Request $request)

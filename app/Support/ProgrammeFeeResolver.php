@@ -83,7 +83,7 @@ class ProgrammeFeeResolver
         }
 
         $slices = $tagged->filter(
-            fn (ProgrammeFee $fee) => in_array((int) $fee->feeItem->installment_tranche, [1, 2, 3, 4], true)
+            fn (ProgrammeFee $fee) => in_array((int) $fee->effective_installment_tranche, [1, 2, 3, 4], true)
         );
         if ($slices->isNotEmpty()) {
             $untagged = $lines->reject(fn (ProgrammeFee $fee) => self::isTaggedSlice($fee));
@@ -93,13 +93,13 @@ class ProgrammeFeeResolver
         }
 
         return round((float) $tagged
-            ->filter(fn (ProgrammeFee $fee) => (int) $fee->feeItem->installment_tranche === 100)
+            ->filter(fn (ProgrammeFee $fee) => (int) $fee->effective_installment_tranche === 100)
             ->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
     }
 
     private static function isTaggedSlice(ProgrammeFee $fee): bool
     {
         return FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
-            && $fee->feeItem?->installment_tranche !== null;
+            && $fee->effective_installment_tranche !== null;
     }
 }

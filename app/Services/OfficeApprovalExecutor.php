@@ -7,6 +7,7 @@ use App\Models\Announcement;
 use App\Models\Application;
 use App\Models\Campus;
 use App\Models\ClinicVisit;
+use App\Models\ClinicVisitItem;
 use App\Models\Course;
 use App\Models\CourseOffering;
 use App\Models\Department;
@@ -15,26 +16,39 @@ use App\Models\Enrollment;
 use App\Models\Faculty;
 use App\Models\FeeCategory;
 use App\Models\FeeItem;
+use App\Models\Grade;
+use App\Models\GradingScale;
 use App\Models\Hostel;
 use App\Models\HostelAllocation;
 use App\Models\HostelBed;
 use App\Models\HostelBlock;
 use App\Models\HostelRoom;
+use App\Models\Immunization;
 use App\Models\Intake;
 use App\Models\Invoice;
 use App\Models\InvoiceRebate;
+use App\Models\OfficeDepartment;
+use App\Models\OfficeSubunit;
+use App\Models\OfficeUnit;
 use App\Models\OlevelSubject;
+use App\Models\Prescription;
 use App\Models\Program;
 use App\Models\ProgrammeFee;
 use App\Models\RebateType;
 use App\Models\RegistrationExtension;
+use App\Models\Role;
+use App\Models\SavedReport;
 use App\Models\Student;
+use App\Models\TranscriptRequest;
 use App\Models\User;
 use App\Models\AcademicLevel;
 use App\Models\AcademicSession;
 use App\Models\UnitLimit;
 use App\Support\OfficeApprovalCatalog;
+use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class OfficeApprovalExecutor
@@ -104,6 +118,7 @@ class OfficeApprovalExecutor
         [$class, $method, $param] = array_pad($entry, 3, null);
         $controller = app($class);
         $request = Request::create('/', $payload['_http_method'] ?? 'POST', $payload['data'] ?? $payload);
+        $this->attachStoredUpload($request, $payload);
         $this->actingAs($payload, $request);
 
         $args = [];
@@ -112,7 +127,7 @@ class OfficeApprovalExecutor
             $type = $parameter->getType();
             $typeName = $type instanceof \ReflectionNamedType ? $type->getName() : null;
             if ($typeName === Request::class || ($typeName && is_subclass_of($typeName, Request::class))) {
-                $args[] = $request;
+                $args[] = $this->requestForParameter($typeName, $request);
                 continue;
             }
             if ($typeName && class_exists($typeName) && is_subclass_of($typeName, \Illuminate\Database\Eloquent\Model::class)) {
@@ -197,6 +212,7 @@ class OfficeApprovalExecutor
             'academic.store_course' => [\App\Http\Controllers\AcademicController::class, 'storeCourse', null],
             'academic.update_course' => [\App\Http\Controllers\AcademicController::class, 'updateCourse', ['key' => 'course_id', 'class' => Course::class]],
             'academic.destroy_course' => [\App\Http\Controllers\AcademicController::class, 'destroyCourse', ['key' => 'course_id', 'class' => Course::class]],
+            'academic.sync_program_courses' => [\App\Http\Controllers\AcademicController::class, 'syncProgramCourses', ['key' => 'program_id', 'class' => Program::class]],
             'academic.store_campus' => [\App\Http\Controllers\InstitutionController::class, 'storeCampus', null],
             'academic.update_campus' => [\App\Http\Controllers\InstitutionController::class, 'updateCampus', ['key' => 'campus_id', 'class' => Campus::class]],
             'academic.destroy_campus' => [\App\Http\Controllers\InstitutionController::class, 'destroyCampus', ['key' => 'campus_id', 'class' => Campus::class]],
@@ -231,7 +247,104 @@ class OfficeApprovalExecutor
             'announcements.publish' => [\App\Http\Controllers\AnnouncementController::class, 'publish', ['key' => 'announcement_id', 'class' => Announcement::class]],
             'announcements.unpublish' => [\App\Http\Controllers\AnnouncementController::class, 'unpublish', ['key' => 'announcement_id', 'class' => Announcement::class]],
             'announcements.destroy' => [\App\Http\Controllers\AnnouncementController::class, 'destroy', ['key' => 'announcement_id', 'class' => Announcement::class]],
+            'roles.store' => [\App\Http\Controllers\RoleController::class, 'store', null],
+            'roles.update' => [\App\Http\Controllers\RoleController::class, 'update', ['key' => 'role_id', 'class' => Role::class]],
+            'roles.destroy' => [\App\Http\Controllers\RoleController::class, 'destroy', ['key' => 'role_id', 'class' => Role::class]],
+            'roles.sync_permissions' => [\App\Http\Controllers\RoleController::class, 'syncPermissions', ['key' => 'role_id', 'class' => Role::class]],
+            'users.store' => [\App\Http\Controllers\UserController::class, 'store', null],
+            'users.update' => [\App\Http\Controllers\UserController::class, 'update', ['key' => 'user_id', 'class' => User::class]],
+            'users.destroy' => [\App\Http\Controllers\UserController::class, 'destroy', ['key' => 'user_id', 'class' => User::class]],
+            'users.assign_roles' => [\App\Http\Controllers\UserController::class, 'assignRoles', ['key' => 'user_id', 'class' => User::class]],
+            'office.store_department' => [\App\Http\Controllers\OfficeStructureController::class, 'storeDepartment', null],
+            'office.update_department' => [\App\Http\Controllers\OfficeStructureController::class, 'updateDepartment', ['key' => 'office_department_id', 'class' => OfficeDepartment::class]],
+            'office.destroy_department' => [\App\Http\Controllers\OfficeStructureController::class, 'destroyDepartment', ['key' => 'office_department_id', 'class' => OfficeDepartment::class]],
+            'office.store_unit' => [\App\Http\Controllers\OfficeStructureController::class, 'storeUnit', null],
+            'office.update_unit' => [\App\Http\Controllers\OfficeStructureController::class, 'updateUnit', ['key' => 'office_unit_id', 'class' => OfficeUnit::class]],
+            'office.destroy_unit' => [\App\Http\Controllers\OfficeStructureController::class, 'destroyUnit', ['key' => 'office_unit_id', 'class' => OfficeUnit::class]],
+            'office.store_subunit' => [\App\Http\Controllers\OfficeStructureController::class, 'storeSubunit', null],
+            'office.update_subunit' => [\App\Http\Controllers\OfficeStructureController::class, 'updateSubunit', ['key' => 'office_subunit_id', 'class' => OfficeSubunit::class]],
+            'office.destroy_subunit' => [\App\Http\Controllers\OfficeStructureController::class, 'destroySubunit', ['key' => 'office_subunit_id', 'class' => OfficeSubunit::class]],
+            'office.sync_department_nav' => [\App\Http\Controllers\OfficeStructureController::class, 'syncDepartmentNavLinks', ['key' => 'office_department_id', 'class' => OfficeDepartment::class]],
+            'office.sync_unit_nav' => [\App\Http\Controllers\OfficeStructureController::class, 'syncUnitNavLinks', ['key' => 'office_unit_id', 'class' => OfficeUnit::class]],
+            'office.sync_subunit_nav' => [\App\Http\Controllers\OfficeStructureController::class, 'syncSubunitNavLinks', ['key' => 'office_subunit_id', 'class' => OfficeSubunit::class]],
+            'transcripts.start' => [\App\Http\Controllers\TranscriptRequestController::class, 'start', ['key' => 'transcript_request_id', 'class' => TranscriptRequest::class]],
+            'transcripts.ready' => [\App\Http\Controllers\TranscriptRequestController::class, 'ready', ['key' => 'transcript_request_id', 'class' => TranscriptRequest::class]],
+            'transcripts.reject' => [\App\Http\Controllers\TranscriptRequestController::class, 'reject', ['key' => 'transcript_request_id', 'class' => TranscriptRequest::class]],
+            'students.import' => [\App\Http\Controllers\StudentImportController::class, 'import', null],
+            'admissions.import_applicants' => [\App\Http\Controllers\ApplicantImportController::class, 'import', null],
+            'admissions.import_candidate_data' => [\App\Http\Controllers\CandidateDataController::class, 'upload', null],
+            'finance.import_invoices' => [\App\Http\Controllers\InvoiceImportController::class, 'import', null],
+            'finance.import_wallet' => [\App\Http\Controllers\WalletImportController::class, 'import', null],
+            'academic.import_courses' => [\App\Http\Controllers\AcademicController::class, 'importCourses', null],
+            'academic.import_programs' => [\App\Http\Controllers\AcademicController::class, 'importPrograms', null],
+            'academic.import_faculties' => [\App\Http\Controllers\AcademicSetupController::class, 'importFaculties', null],
+            'academic.import_departments' => [\App\Http\Controllers\AcademicSetupController::class, 'importDepartments', null],
+            'academic.import_olevel' => [\App\Http\Controllers\AcademicSetupController::class, 'importOlevel', null],
+            'hostel.import_rooms' => [\App\Http\Controllers\HostelController::class, 'importRooms', null],
+            'results.store' => [\App\Http\Controllers\ResultsController::class, 'store', null],
+            'results.update' => [\App\Http\Controllers\ResultsController::class, 'update', ['key' => 'grade_id', 'class' => Grade::class]],
+            'results.destroy' => [\App\Http\Controllers\ResultsController::class, 'destroy', ['key' => 'grade_id', 'class' => Grade::class]],
+            'results.submit' => [\App\Http\Controllers\ResultsController::class, 'submit', null],
+            'results.faculty_approve' => [\App\Http\Controllers\ResultsController::class, 'facultyApprove', null],
+            'results.faculty_return' => [\App\Http\Controllers\ResultsController::class, 'facultyReturn', null],
+            'results.import' => [\App\Http\Controllers\ResultsController::class, 'import', null],
+            'results.update_grading_scale' => [\App\Http\Controllers\ResultsController::class, 'updateGradingScale', ['key' => 'grading_scale_id', 'class' => GradingScale::class]],
+            'settings.update' => [\App\Http\Controllers\SecuritySettingsController::class, 'update', null],
+            'institution.update_settings' => [\App\Http\Controllers\InstitutionController::class, 'updateSettings', null],
+            'reports.store' => [\App\Http\Controllers\ReportController::class, 'storeSaved', null],
+            'reports.update' => [\App\Http\Controllers\ReportController::class, 'updateSaved', ['key' => 'saved_report_id', 'class' => SavedReport::class]],
+            'reports.destroy' => [\App\Http\Controllers\ReportController::class, 'destroySaved', ['key' => 'saved_report_id', 'class' => SavedReport::class]],
+            'medical.update_settings' => [\App\Http\Controllers\ClinicController::class, 'updateSettings', null],
+            'medical.check_in' => [\App\Http\Controllers\ClinicController::class, 'checkIn', null],
+            'medical.update_visit' => [\App\Http\Controllers\ClinicController::class, 'updateVisit', ['key' => 'visit_id', 'class' => ClinicVisit::class]],
+            'medical.add_item' => [\App\Http\Controllers\ClinicController::class, 'addItem', ['key' => 'visit_id', 'class' => ClinicVisit::class]],
+            'medical.update_item' => [\App\Http\Controllers\ClinicController::class, 'updateItem', ['key' => 'item_id', 'class' => ClinicVisitItem::class]],
+            'medical.delete_item' => [\App\Http\Controllers\ClinicController::class, 'deleteItem', ['key' => 'item_id', 'class' => ClinicVisitItem::class]],
+            'medical.add_prescription' => [\App\Http\Controllers\ClinicController::class, 'addPrescription', ['key' => 'visit_id', 'class' => ClinicVisit::class]],
+            'medical.dispense_prescription' => [\App\Http\Controllers\ClinicController::class, 'dispensePrescription', ['key' => 'prescription_id', 'class' => Prescription::class]],
+            'medical.add_sick_note' => [\App\Http\Controllers\ClinicController::class, 'addSickNote', ['key' => 'visit_id', 'class' => ClinicVisit::class]],
+            'medical.add_immunization' => [\App\Http\Controllers\MedicalController::class, 'addImmunization', ['key' => 'student_id', 'class' => Student::class]],
+            'medical.delete_immunization' => [\App\Http\Controllers\MedicalController::class, 'deleteImmunization', ['key' => 'immunization_id', 'class' => Immunization::class]],
         ];
+    }
+
+    private function requestForParameter(?string $typeName, Request $request): Request
+    {
+        if (! $typeName || $typeName === Request::class || ! is_subclass_of($typeName, Request::class)) {
+            return $request;
+        }
+
+        if (! is_subclass_of($typeName, FormRequest::class)) {
+            return $request;
+        }
+
+        /** @var FormRequest $form */
+        $form = $typeName::createFrom($request);
+        $form->setContainer(app());
+        $form->setRedirector(app('redirect'));
+        $form->setUserResolver($request->getUserResolver());
+
+        return $form;
+    }
+
+    private function attachStoredUpload(Request $request, array $payload): void
+    {
+        $relative = $payload['_uploaded_file_path'] ?? null;
+        if (! is_string($relative) || $relative === '') {
+            return;
+        }
+
+        $full = Storage::path($relative);
+        abort_unless(is_file($full), 500, 'The uploaded file for this approval is no longer available.');
+
+        $uploaded = new UploadedFile(
+            $full,
+            (string) ($payload['_uploaded_file_name'] ?? basename($full)),
+            mime_content_type($full) ?: 'application/octet-stream',
+            null,
+            true,
+        );
+        $request->files->set((string) ($payload['_uploaded_file_field'] ?? 'file'), $uploaded);
     }
 
     private function actingAs(array $payload, Request $request): void

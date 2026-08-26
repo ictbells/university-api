@@ -280,6 +280,110 @@ class OfficeApprovalTest extends TestCase
         $this->assertSame(OfficeApprovalRequest::PENDING_HOD, $payload['approval_request']['status']);
     }
 
+    public function test_creating_a_role_waits_for_office_approval_when_create_is_required(): void
+    {
+        $this->department->syncNavLinks([[
+            'key' => 'roles',
+            'require_create' => true,
+            'require_update' => false,
+            'require_delete' => false,
+            'approval_chain' => 'both',
+        ]]);
+
+        $role = Role::query()->create([
+            'name' => 'Role manager',
+            'slug' => 'role-manager-test',
+            'is_system' => false,
+            'is_active' => true,
+        ]);
+        $role->permissions()->sync(
+            Permission::query()->where('key', 'roles.manage')->pluck('id'),
+        );
+        $this->subunitStaff->roles()->attach($role->id);
+
+        Sanctum::actingAs($this->subunitStaff->fresh(['roles.permissions', 'staff']));
+        $this->postJson('/api/roles', [
+            'name' => 'Exam officer',
+            'description' => 'Marks scripts',
+            'permission_ids' => [],
+        ])
+            ->assertStatus(202)
+            ->assertJsonPath('status', 'pending_approval');
+
+        $this->assertFalse(Role::query()->where('name', 'Exam officer')->exists());
+        $this->assertSame(1, OfficeApprovalRequest::query()->where('action_key', 'roles.store')->count());
+    }
+
+    public function test_creating_a_user_waits_for_office_approval_when_create_is_required(): void
+    {
+        $this->department->syncNavLinks([[
+            'key' => 'users',
+            'require_create' => true,
+            'require_update' => false,
+            'require_delete' => false,
+            'approval_chain' => 'both',
+        ]]);
+
+        $role = Role::query()->create([
+            'name' => 'User manager',
+            'slug' => 'user-manager-test',
+            'is_system' => false,
+            'is_active' => true,
+        ]);
+        $role->permissions()->sync(
+            Permission::query()->where('key', 'users.manage')->pluck('id'),
+        );
+        $this->subunitStaff->roles()->attach($role->id);
+
+        Sanctum::actingAs($this->subunitStaff->fresh(['roles.permissions', 'staff']));
+        $this->postJson('/api/users', [
+            'name' => 'Ada Okoye',
+            'email' => 'ada.okoye@example.com',
+            'password' => 'Secret1!',
+            'password_confirmation' => 'Secret1!',
+            'role_ids' => [],
+        ])
+            ->assertStatus(202)
+            ->assertJsonPath('status', 'pending_approval');
+
+        $this->assertFalse(User::query()->where('email', 'ada.okoye@example.com')->exists());
+        $this->assertSame(1, OfficeApprovalRequest::query()->where('action_key', 'users.store')->count());
+    }
+
+    public function test_creating_an_office_department_waits_for_office_approval_when_create_is_required(): void
+    {
+        $this->department->syncNavLinks([[
+            'key' => 'office-setup',
+            'require_create' => true,
+            'require_update' => false,
+            'require_delete' => false,
+            'approval_chain' => 'both',
+        ]]);
+
+        $role = Role::query()->create([
+            'name' => 'Office manager',
+            'slug' => 'office-manager-test',
+            'is_system' => false,
+            'is_active' => true,
+        ]);
+        $role->permissions()->sync(
+            Permission::query()->whereIn('key', ['institution.manage', 'users.manage'])->pluck('id'),
+        );
+        $this->subunitStaff->roles()->attach($role->id);
+
+        Sanctum::actingAs($this->subunitStaff->fresh(['roles.permissions', 'staff']));
+        $this->postJson('/api/office-departments', [
+            'name' => 'Registry',
+            'code' => 'REG',
+            'is_active' => true,
+        ])
+            ->assertStatus(202)
+            ->assertJsonPath('status', 'pending_approval');
+
+        $this->assertFalse(OfficeDepartment::query()->where('name', 'Registry')->exists());
+        $this->assertSame(1, OfficeApprovalRequest::query()->where('action_key', 'office.store_department')->count());
+    }
+
     private function approvals(): OfficeApprovalService
     {
         return app(OfficeApprovalService::class);

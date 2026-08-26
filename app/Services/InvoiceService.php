@@ -431,7 +431,7 @@ class InvoiceService
         }
 
         $hasTranches = $lines->contains(fn (ProgrammeFee $fee) => FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
-            && $fee->feeItem?->installment_tranche !== null);
+            && $fee->effective_installment_tranche !== null);
         if ($hasTranches) {
             return $this->createTuitionInvoiceFromTranches($student, $lines, $percent, $fullAmount);
         }
@@ -460,6 +460,7 @@ class InvoiceService
             }
             $invoice->items()->create([
                 'fee_item_id' => $line->fee_item_id,
+                'programme_fee_id' => $line->id,
                 'description' => sprintf(
                     '%s%s',
                     $line->feeItem?->name ?: FeeSchedule::label((string) ($line->feeItem?->category ?? 'other')),
@@ -483,7 +484,19 @@ class InvoiceService
         int $percent,
         float $fullAmount,
     ): Invoice {
-        $paidFeeItemIds = InvoiceItem::query()
+        $paidProgrammeFeeIds = InvoiceItem::query()
+            ->whereNotNull('programme_fee_id')
+            ->whereHas('invoice', function ($query) use ($student) {
+                $query->where('student_id', $student->id)
+                    ->where('category', 'tuition')
+                    ->where('status', 'paid');
+            })
+            ->pluck('programme_fee_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->all();
+        $legacyPaidFeeItemIds = InvoiceItem::query()
+            ->whereNull('programme_fee_id')
             ->whereNotNull('fee_item_id')
             ->whereHas('invoice', function ($query) use ($student) {
                 $query->where('student_id', $student->id)
@@ -497,27 +510,27 @@ class InvoiceService
 
         $hasFullPackage = $lines->contains(
             fn (ProgrammeFee $fee) => FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
-                && (int) ($fee->feeItem?->installment_tranche ?? 0) === 100
+                && (int) ($fee->effective_installment_tranche ?? 0) === 100
         );
-        $hasPriorPaidSlice = $lines->contains(function (ProgrammeFee $fee) use ($paidFeeItemIds) {
-            $tranche = $fee->feeItem?->installment_tranche;
+        $hasPriorPaidSlice = $lines->contains(function (ProgrammeFee $fee) use ($paidProgrammeFeeIds, $legacyPaidFeeItemIds) {
+            $tranche = $fee->effective_installment_tranche;
             if (! FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
                 || $tranche === null || (int) $tranche === 100) {
                 return false;
             }
 
-            return in_array((int) $fee->fee_item_id, $paidFeeItemIds, true);
+            return $this->trancheLineAlreadyPaid($fee, $paidProgrammeFeeIds, $legacyPaidFeeItemIds);
         });
 
         $useFullPackage = $percent === 100 && $hasFullPackage && ! $hasPriorPaidSlice;
         $wanted = FeeSchedule::tranchesForInstallmentPercent($percent, $useFullPackage);
 
-        $billable = $lines->filter(function (ProgrammeFee $line) use ($wanted, $paidFeeItemIds) {
-            if (in_array((int) $line->fee_item_id, $paidFeeItemIds, true)) {
+        $billable = $lines->filter(function (ProgrammeFee $line) use ($wanted, $paidProgrammeFeeIds, $legacyPaidFeeItemIds) {
+            if ($this->trancheLineAlreadyPaid($line, $paidProgrammeFeeIds, $legacyPaidFeeItemIds)) {
                 return false;
             }
 
-            $tranche = $line->feeItem?->installment_tranche;
+            $tranche = $line->effective_installment_tranche;
             $isTaggedSlice = FeeSchedule::allowsInstallmentTranche((string) ($line->feeItem?->category ?? ''))
                 && $tranche !== null;
             if (! $isTaggedSlice) {
@@ -558,7 +571,7 @@ class InvoiceService
                 continue;
             }
             $name = $line->feeItem?->name ?: FeeSchedule::label((string) ($line->feeItem?->category ?? 'other'));
-            $tranche = $line->feeItem?->installment_tranche;
+            $tranche = $line->effective_installment_tranche;
             $isTaggedSlice = FeeSchedule::allowsInstallmentTranche((string) ($line->feeItem?->category ?? ''))
                 && $tranche !== null;
             $suffix = $isTaggedSlice
@@ -566,12 +579,30 @@ class InvoiceService
                 : ($percent < 100 ? "{$percent}%" : null);
             $invoice->items()->create([
                 'fee_item_id' => $line->fee_item_id,
+                'programme_fee_id' => $line->id,
                 'description' => $suffix ? "{$name} ({$suffix})" : $name,
                 'amount' => $lineAmount,
             ]);
         }
 
         return $invoice->fresh('items');
+    }
+
+    /**
+     * @param  list<int>  $paidProgrammeFeeIds
+     * @param  list<int>  $legacyPaidFeeItemIds
+     */
+    private function trancheLineAlreadyPaid(
+        ProgrammeFee $line,
+        array $paidProgrammeFeeIds,
+        array $legacyPaidFeeItemIds,
+    ): bool {
+        if (in_array((int) $line->id, $paidProgrammeFeeIds, true)) {
+            return true;
+        }
+
+        return $paidProgrammeFeeIds === []
+            && in_array((int) $line->fee_item_id, $legacyPaidFeeItemIds, true);
     }
 
     public function resolveTuitionAmount(Student $student, ?string $semester = null): float

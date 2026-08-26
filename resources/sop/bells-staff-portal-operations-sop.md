@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.17  
+**Version:** 1.20  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -119,7 +119,7 @@ Academic pages use **per-resource** permissions:
 
 Legacy permissions (`institution.manage`, `academic.catalog.manage`) still grant access to matching setup areas for backward compatibility.
 
-`institution.manage` is required for **Department Setup** (office hierarchy and portal links). The Institution administration route still exists for users with this permission, but it is not shown on the staff sidebar.
+`institution.manage` is required for **Department Setup** (office hierarchy and portal links). Institution is not an assignable portal link and is not shown on the staff sidebar.
 
 ---
 
@@ -284,7 +284,7 @@ When assigning a portal link on **Department Setup → Links**, every assigned l
 2. **Create / Update / Delete** — which mutation types require office approval (Update also covers workflow actions such as allocate, publish, board clear).
 3. **Who must approve** — unit head only, department head only, or **both** (normal path: unit head → department head).
 
-New assigned links default to **no approval**. Existing links keep the Create/Update/Delete flags already saved. Approval only takes effect on mutations that already go through office approval (for example advancing an application, creating a fee item). Flags on a link with no gated mutations are stored for when that module is wired.
+New assigned links default to **no approval**. Existing links keep the Create/Update/Delete flags already saved. When a flag is on, staff mutations on that module wait for office approval the same way Roles does (HTTP 202 `pending_approval`), except the acting HOD and Super Admin, who still execute immediately.
 
 When a mutation requires approval for an owned module:
 
@@ -367,7 +367,7 @@ Course registration, unit limits, and registration extensions are under **Academ
 
 #### Catalogue bulk import
 
-Use **Template / Choose file / Import** on Colleges, Departments, Programmes, Courses, and O'level. Import **creates** new rows only: matching records are **skipped** (not updated). Single-row Add/Edit still goes through office approval; bulk import writes directly.
+Use **Template / Choose file / Import** on Colleges, Departments, Programmes, Courses, and O'level. Import **creates** new rows only: matching records are **skipped** (not updated). Single-row Add/Edit and bulk import both go through office approval when Create is required on that link.
 
 Import order: **Colleges → Departments → Programmes → Courses**. O'level is independent. Campuses must already exist (there is no campus import). Download the template and copy parent **ids** from the lookup sheets; do not paste data into those sheets.
 
@@ -585,7 +585,7 @@ If an old payment was wallet-funded, record `paid_amount` on the invoice sheet *
 
 #### Hostel room bulk import
 
-On **Services → Hostel → Rooms**, download the **template**, fill the **Rooms** sheet, and import. Hostels and blocks must already exist. Import **creates** rooms only: the same room number in the same block is **skipped**. Beds are created from `capacity`. Copy `hostel_id` and `block_id` from the lookup **id** columns (the block must belong to that hostel). Required columns: `hostel_id`, `block_id`, `number`, `capacity`. Optional: `gender` (`male`/`female`), `is_active`. Single-row Add still goes through office approval; bulk import writes directly.
+On **Services → Hostel → Rooms**, download the **template**, fill the **Rooms** sheet, and import. Hostels and blocks must already exist. Import **creates** rooms only: the same room number in the same block is **skipped**. Beds are created from `capacity`. Copy `hostel_id` and `block_id` from the lookup **id** columns (the block must belong to that hostel). Required columns: `hostel_id`, `block_id`, `number`, `capacity`. Optional: `gender` (`male`/`female`), `is_active`. Single-row Add and bulk import both go through office approval when Create is required.
 
 - **Documents** — Issue documents (`documents.issue`)
 

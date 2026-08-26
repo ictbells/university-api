@@ -315,15 +315,19 @@ class HostelController extends Controller
             'file' => 'required|file|mimes:xlsx,xls,csv|max:10240',
         ]);
 
-        try {
-            $result = $this->roomImporter->import($request->file('file'));
-        } catch (\InvalidArgumentException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        }
+        $payload = $this->persistApprovalUpload($request);
 
-        $this->audit->record('hostel.room.imported', 'Hostel rooms imported', 'hostel', null, null, null, $result);
+        return $this->officeGate('hostel.import_rooms', null, $payload, 'Import hostel rooms', function () use ($request) {
+            try {
+                $result = $this->roomImporter->import($request->file('file'));
+            } catch (\InvalidArgumentException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
 
-        return $result;
+            $this->audit->record('hostel.room.imported', 'Hostel rooms imported', 'hostel', null, null, null, $result);
+
+            return $result;
+        });
     }
 
     public function storeBlock(Request $request, Hostel $hostel)

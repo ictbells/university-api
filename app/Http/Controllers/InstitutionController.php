@@ -59,23 +59,26 @@ class InstitutionController extends Controller
             'current_term_id' => 'nullable|exists:academic_terms,id',
             'maintenance' => 'nullable|boolean',
         ]);
-        $before = Setting::query()->pluck('value', 'key');
-        foreach ($data as $key => $value) {
-            if ($key === 'current_term_id' && $value) {
-                $term = AcademicTerm::query()->findOrFail($value);
-                AdmissionCurrentGate::assertCanSetCurrent($term, 'current_term_id');
-                AcademicTerm::query()->update(['is_current' => false]);
-                AcademicTerm::query()->where('id', $value)->update(['is_current' => true]);
-                Setting::setValue('current_term_id', $value);
-            } elseif ($key === 'maintenance') {
-                Setting::setValue('maintenance', $value ? '1' : '0');
-            } elseif ($value !== null) {
-                Setting::setValue($key, $value);
-            }
-        }
-        $this->audit->record('settings.updated', 'Institution settings updated', 'admin', 'setting', 1, $before, Setting::query()->pluck('value', 'key'));
 
-        return $this->show();
+        return $this->officeGate('institution.update_settings', null, $data, 'Update institution settings', function () use ($data) {
+            $before = Setting::query()->pluck('value', 'key');
+            foreach ($data as $key => $value) {
+                if ($key === 'current_term_id' && $value) {
+                    $term = AcademicTerm::query()->findOrFail($value);
+                    AdmissionCurrentGate::assertCanSetCurrent($term, 'current_term_id');
+                    AcademicTerm::query()->update(['is_current' => false]);
+                    AcademicTerm::query()->where('id', $value)->update(['is_current' => true]);
+                    Setting::setValue('current_term_id', $value);
+                } elseif ($key === 'maintenance') {
+                    Setting::setValue('maintenance', $value ? '1' : '0');
+                } elseif ($value !== null) {
+                    Setting::setValue($key, $value);
+                }
+            }
+            $this->audit->record('settings.updated', 'Institution settings updated', 'admin', 'setting', 1, $before, Setting::query()->pluck('value', 'key'));
+
+            return $this->show();
+        });
     }
 
     public function storeCampus(Request $request)

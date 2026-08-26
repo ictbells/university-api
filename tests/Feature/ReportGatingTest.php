@@ -205,12 +205,15 @@ class ReportGatingTest extends TestCase
         $ids = Permission::query()->whereIn('key', $permissions)->pluck('id');
         $role->permissions()->sync($ids);
 
-        $office = OfficeDepartment::query()->create([
-            'name' => 'Test office '.$role->slug,
-            'code' => substr($role->slug, 0, 20),
-            'is_active' => true,
-        ]);
-        $office->syncNavKeys($navKeys);
+        $office = $this->officeOwning($navKeys);
+        if (! $office) {
+            $office = OfficeDepartment::query()->create([
+                'name' => 'Test office '.$role->slug,
+                'code' => substr($role->slug, 0, 20),
+                'is_active' => true,
+            ]);
+            $office->syncNavKeys($navKeys);
+        }
 
         $user = User::factory()->create();
         $user->roles()->attach($role->id);
@@ -221,5 +224,26 @@ class ReportGatingTest extends TestCase
         ]);
 
         return $user->fresh(['roles.permissions', 'staff']);
+    }
+
+    /**
+     * @param  list<string>  $navKeys
+     */
+    private function officeOwning(array $navKeys): ?OfficeDepartment
+    {
+        foreach ($navKeys as $key) {
+            if ($key === 'home') {
+                continue;
+            }
+            $link = \App\Models\OfficeNavLink::query()->where('nav_key', $key)->first();
+            if (! $link) {
+                continue;
+            }
+            $owner = app(\App\Services\OfficeNavOwnerResolver::class)->departmentAndUnit($link->linkable);
+
+            return $owner['department'] ?? null;
+        }
+
+        return null;
     }
 }

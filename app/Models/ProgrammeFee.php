@@ -10,6 +10,7 @@ class ProgrammeFee extends BaseModel
         'program_id',
         'fee_item_id',
         'amount',
+        'installment_tranche',
         'level_code',
         'semester',
         'is_active',
@@ -20,6 +21,7 @@ class ProgrammeFee extends BaseModel
     {
         return [
             'amount' => 'decimal:2',
+            'installment_tranche' => 'integer',
             'is_active' => 'boolean',
             'display_order' => 'integer',
         ];
@@ -38,5 +40,16 @@ class ProgrammeFee extends BaseModel
     public function getEffectiveAmountAttribute(): float
     {
         return (float) ($this->amount ?? $this->feeItem?->amount ?? 0);
+    }
+
+    public function getEffectiveInstallmentTrancheAttribute(): ?int
+    {
+        $override = $this->attributes['installment_tranche'] ?? null;
+        if ($override !== null && $override !== '') {
+            return (int) $override;
+        }
+        $catalog = $this->feeItem?->installment_tranche;
+
+        return $catalog !== null ? (int) $catalog : null;
     }
 }

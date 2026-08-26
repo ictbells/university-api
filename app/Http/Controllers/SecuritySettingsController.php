@@ -8,6 +8,8 @@ use Illuminate\Http\Request;
 
 class SecuritySettingsController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
+
     public function show(): JsonResponse
     {
         return response()->json(SecuritySettings::all());
@@ -39,10 +41,12 @@ class SecuritySettingsController extends Controller
             'transcript_collect_instructions' => 'sometimes|nullable|string|max:2000',
         ]);
 
-        try {
-            return response()->json(SecuritySettings::update($data));
-        } catch (\InvalidArgumentException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        }
+        return $this->officeGate('settings.update', null, $data, 'Update application settings', function () use ($data) {
+            try {
+                return response()->json(SecuritySettings::update($data));
+            } catch (\InvalidArgumentException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+        });
     }
 }

@@ -47,11 +47,14 @@ class ClinicController extends Controller
             'nhis_default_coverage_percent' => 'sometimes|numeric|min:0|max:100',
             'nhis_auto_cover_lines' => 'sometimes|boolean',
         ]);
-        $before = ClinicSettings::all();
-        $after = ClinicSettings::update($data);
-        $this->audit->record('clinic.settings_updated', 'Clinic NHIS settings updated', 'medical', 'setting', null, $before, $after);
 
-        return $after;
+        return $this->officeGate('medical.update_settings', null, $data, 'Update clinic settings', function () use ($data) {
+            $before = ClinicSettings::all();
+            $after = ClinicSettings::update($data);
+            $this->audit->record('clinic.settings_updated', 'Clinic NHIS settings updated', 'medical', 'setting', null, $before, $after);
+
+            return $after;
+        });
     }
 
     public function queue(Request $request)
@@ -91,7 +94,13 @@ class ClinicController extends Controller
             'complaint' => 'nullable|string',
         ]);
 
-        return $this->appointments->checkIn($data, $request->user()->staff?->id);
+        return $this->officeGate(
+            'medical.check_in',
+            null,
+            $data,
+            'Check in clinic visit',
+            fn () => $this->appointments->checkIn($data, $request->user()->staff?->id),
+        );
     }
 
     public function appointments(Request $request)
@@ -199,22 +208,31 @@ class ClinicController extends Controller
         if (isset($data['status'])) {
             $this->appointments->assertStatusTransition($visit, $data['status']);
         }
-        $before = $visit->toArray();
-        $visit->update($data);
-        if (($data['status'] ?? null) === 'in_progress' && ! $visit->staff_id) {
-            $visit->update(['staff_id' => $request->user()->staff?->id]);
-        }
-        $this->audit->record(
-            'clinic.visit_updated',
-            'Clinic visit updated',
-            'medical',
-            'clinic_visit',
-            $visit->id,
-            $before,
-            $visit->fresh()->toArray()
-        );
 
-        return $visit->fresh(['student.medicalProfile', 'items', 'prescriptions', 'sickNotes', 'bill.invoice']);
+        return $this->officeGate(
+            'medical.update_visit',
+            $visit,
+            ['visit_id' => $visit->id, ...$data],
+            'Update clinic visit',
+            function () use ($request, $visit, $data) {
+                $before = $visit->toArray();
+                $visit->update($data);
+                if (($data['status'] ?? null) === 'in_progress' && ! $visit->staff_id) {
+                    $visit->update(['staff_id' => $request->user()->staff?->id]);
+                }
+                $this->audit->record(
+                    'clinic.visit_updated',
+                    'Clinic visit updated',
+                    'medical',
+                    'clinic_visit',
+                    $visit->id,
+                    $before,
+                    $visit->fresh()->toArray()
+                );
+
+                return $visit->fresh(['student.medicalProfile', 'items', 'prescriptions', 'sickNotes', 'bill.invoice']);
+            },
+        );
     }
 
     public function showVisit(Request $request, ClinicVisit $visit)
@@ -254,23 +272,31 @@ class ClinicController extends Controller
             'description' => 'prohibited',
         ]);
 
-        $fee = FeeItem::query()->findOrFail($data['fee_item_id']);
-        $qty = (float) ($data['quantity'] ?? 1);
-        $unit = round((float) $fee->amount, 2);
-        $profile = MedicalProfile::query()->firstOrCreate(['student_id' => $visit->student_id]);
-        $nhisCovered = array_key_exists('nhis_covered', $data)
-            ? (bool) $data['nhis_covered']
-            : ($profile->nhis_enrolled && ClinicSettings::nhisEnabled() && ClinicSettings::nhisAutoCoverLines());
+        return $this->officeGate(
+            'medical.add_item',
+            $visit,
+            ['visit_id' => $visit->id, ...$data],
+            'Add clinic bill item',
+            function () use ($visit, $data) {
+                $fee = FeeItem::query()->findOrFail($data['fee_item_id']);
+                $qty = (float) ($data['quantity'] ?? 1);
+                $unit = round((float) $fee->amount, 2);
+                $profile = MedicalProfile::query()->firstOrCreate(['student_id' => $visit->student_id]);
+                $nhisCovered = array_key_exists('nhis_covered', $data)
+                    ? (bool) $data['nhis_covered']
+                    : ($profile->nhis_enrolled && ClinicSettings::nhisEnabled() && ClinicSettings::nhisAutoCoverLines());
 
-        return ClinicVisitItem::query()->create([
-            'clinic_visit_id' => $visit->id,
-            'fee_item_id' => $fee->id,
-            'description' => $fee->name,
-            'quantity' => $qty,
-            'unit_amount' => $unit,
-            'line_total' => round($qty * $unit, 2),
-            'nhis_covered' => $nhisCovered,
-        ]);
+                return ClinicVisitItem::query()->create([
+                    'clinic_visit_id' => $visit->id,
+                    'fee_item_id' => $fee->id,
+                    'description' => $fee->name,
+                    'quantity' => $qty,
+                    'unit_amount' => $unit,
+                    'line_total' => round($qty * $unit, 2),
+                    'nhis_covered' => $nhisCovered,
+                ]);
+            },
+        );
     }
 
     public function updateItem(Request $request, ClinicVisitItem $item)
@@ -285,25 +311,43 @@ class ClinicController extends Controller
             'description' => 'prohibited',
             'fee_item_id' => 'prohibited',
         ]);
-        $qty = (float) ($data['quantity'] ?? $item->quantity);
-        $item->update([
-            'quantity' => $qty,
-            'nhis_covered' => array_key_exists('nhis_covered', $data)
-                ? (bool) $data['nhis_covered']
-                : $item->nhis_covered,
-            'line_total' => round($qty * (float) $item->unit_amount, 2),
-        ]);
 
-        return $item->fresh();
+        return $this->officeGate(
+            'medical.update_item',
+            $item,
+            ['item_id' => $item->id, ...$data],
+            'Update clinic bill item',
+            function () use ($item, $data) {
+                $qty = (float) ($data['quantity'] ?? $item->quantity);
+                $item->update([
+                    'quantity' => $qty,
+                    'nhis_covered' => array_key_exists('nhis_covered', $data)
+                        ? (bool) $data['nhis_covered']
+                        : $item->nhis_covered,
+                    'line_total' => round($qty * (float) $item->unit_amount, 2),
+                ]);
+
+                return $item->fresh();
+            },
+        );
     }
 
     public function deleteItem(Request $request, ClinicVisitItem $item)
     {
         abort_unless($request->user()->hasPermission('medical.billing') || $request->user()->hasPermission('medical.manage'), 403);
         abort_if($item->visit?->bill, 422, 'Cannot remove items after the bill is finalized.');
-        $item->delete();
 
-        return response()->json(['ok' => true]);
+        return $this->officeGate(
+            'medical.delete_item',
+            $item,
+            ['item_id' => $item->id],
+            'Remove clinic bill item',
+            function () use ($item) {
+                $item->delete();
+
+                return response()->json(['ok' => true]);
+            },
+        );
     }
 
     public function finalizeBill(Request $request, ClinicVisit $visit)
@@ -365,20 +409,35 @@ class ClinicController extends Controller
             'instructions' => 'nullable|string',
         ]);
 
-        return Prescription::query()->create([
-            ...$data,
-            'clinic_visit_id' => $visit->id,
-            'student_id' => $visit->student_id,
-            'staff_id' => $request->user()->staff?->id,
-        ]);
+        return $this->officeGate(
+            'medical.add_prescription',
+            $visit,
+            ['visit_id' => $visit->id, ...$data],
+            'Add prescription',
+            fn () => Prescription::query()->create([
+                ...$data,
+                'clinic_visit_id' => $visit->id,
+                'student_id' => $visit->student_id,
+                'staff_id' => $request->user()->staff?->id,
+            ]),
+        );
     }
 
     public function dispensePrescription(Request $request, Prescription $prescription)
     {
         abort_unless($request->user()->hasPermission('medical.manage'), 403);
-        $prescription->update(['dispensed_at' => now()]);
 
-        return $prescription->fresh();
+        return $this->officeGate(
+            'medical.dispense_prescription',
+            $prescription,
+            ['prescription_id' => $prescription->id],
+            'Dispense prescription',
+            function () use ($prescription) {
+                $prescription->update(['dispensed_at' => now()]);
+
+                return $prescription->fresh();
+            },
+        );
     }
 
     public function addSickNote(Request $request, ClinicVisit $visit)
@@ -392,24 +451,32 @@ class ClinicController extends Controller
             'restrictions' => 'nullable|string',
         ]);
 
-        $note = SickNote::query()->create([
-            ...$data,
-            'issued_on' => $data['issued_on'] ?? now()->toDateString(),
-            'clinic_visit_id' => $visit->id,
-            'student_id' => $visit->student_id,
-            'staff_id' => $request->user()->staff?->id,
-        ]);
-        $this->audit->record(
-            'clinic.sick_note_issued',
-            'Sick note issued',
-            'medical',
-            'sick_note',
-            $note->id,
-            null,
-            $note->toArray()
-        );
+        return $this->officeGate(
+            'medical.add_sick_note',
+            $visit,
+            ['visit_id' => $visit->id, ...$data],
+            'Issue sick note',
+            function () use ($request, $visit, $data) {
+                $note = SickNote::query()->create([
+                    ...$data,
+                    'issued_on' => $data['issued_on'] ?? now()->toDateString(),
+                    'clinic_visit_id' => $visit->id,
+                    'student_id' => $visit->student_id,
+                    'staff_id' => $request->user()->staff?->id,
+                ]);
+                $this->audit->record(
+                    'clinic.sick_note_issued',
+                    'Sick note issued',
+                    'medical',
+                    'sick_note',
+                    $note->id,
+                    null,
+                    $note->toArray()
+                );
 
-        return $note;
+                return $note;
+            },
+        );
     }
 
     public function printSickNote(Request $request, SickNote $sickNote)

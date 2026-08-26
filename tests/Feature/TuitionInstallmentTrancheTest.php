@@ -136,6 +136,42 @@ class TuitionInstallmentTrancheTest extends TestCase
         $this->assertEquals($lab->id, $third->items->first()->fee_item_id);
     }
 
+    public function test_one_catalog_item_can_cover_every_installment_slice(): void
+    {
+        $student = $this->activeStudent();
+        $tuition = FeeItem::query()->create([
+            'name' => 'Tuition',
+            'category' => 'tuition',
+            'installment_tranche' => 1,
+            'amount' => 10000,
+            'is_active' => true,
+        ]);
+        foreach ([1, 2, 3, 4] as $tranche) {
+            $student->program->programmeFees()->create([
+                'fee_item_id' => $tuition->id,
+                'amount' => 10000,
+                'installment_tranche' => $tranche,
+                'level_code' => 'all',
+                'semester' => 'both',
+                'is_active' => true,
+            ]);
+        }
+
+        $service = app(InvoiceService::class);
+        $first = $service->createTuitionInvoice($student->fresh(['program']), 25);
+        $this->assertEquals(10000.0, (float) $first->amount);
+        $this->assertCount(1, $first->items);
+        $this->assertEquals($tuition->id, $first->items->first()->fee_item_id);
+        $this->assertNotNull($first->items->first()->programme_fee_id);
+
+        $first->update(['status' => 'paid', 'balance' => 0]);
+        $second = $service->createTuitionInvoice($student->fresh(['program']), 50);
+        $this->assertEquals(10000.0, (float) $second->amount);
+        $this->assertCount(1, $second->items);
+        $this->assertEquals($tuition->id, $second->items->first()->fee_item_id);
+        $this->assertNotEquals($first->items->first()->programme_fee_id, $second->items->first()->programme_fee_id);
+    }
+
     /**
      * @return array{0: Student, 1: array<int, FeeItem>}
      */

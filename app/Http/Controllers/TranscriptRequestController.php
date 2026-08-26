@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\TranscriptRequest;
 use App\Services\TranscriptRequestService;
+use App\Support\OfficeApprovalCatalog;
 use App\Support\TranscriptChannel;
 use App\Support\TranscriptRequestSettings;
 use App\Support\TranscriptType;
@@ -14,6 +15,8 @@ use RuntimeException;
 
 class TranscriptRequestController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
+
     public function __construct(private TranscriptRequestService $service) {}
 
     public function meta()
@@ -214,7 +217,14 @@ class TranscriptRequestController extends Controller
     {
         abort_unless($request->user()->hasPermission('transcripts.process'), 403);
 
-        return $this->service->startProcessing($transcriptRequest, $request->user());
+        return $this->officeGate(
+            'transcripts.start',
+            $transcriptRequest,
+            ['transcript_request_id' => $transcriptRequest->id],
+            'Start transcript processing',
+            fn () => $this->service->startProcessing($transcriptRequest, $request->user()),
+            $this->transcriptNavKey($transcriptRequest),
+        );
     }
 
     public function ready(Request $request, TranscriptRequest $transcriptRequest)
@@ -226,18 +236,33 @@ class TranscriptRequestController extends Controller
             'file' => 'nullable|file|mimes:pdf|max:10240',
         ]);
 
-        try {
-            $updated = $this->service->markReady(
-                $transcriptRequest,
-                $request->user(),
-                $data['delivery_mode'],
-                $request->file('file'),
-            );
-        } catch (InvalidArgumentException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        }
+        $payload = [
+            'transcript_request_id' => $transcriptRequest->id,
+            'delivery_mode' => $data['delivery_mode'],
+            ...$this->persistApprovalUpload($request),
+        ];
 
-        return $this->service->staffPayload($updated);
+        return $this->officeGate(
+            'transcripts.ready',
+            $transcriptRequest,
+            $payload,
+            'Mark transcript ready',
+            function () use ($request, $transcriptRequest, $data) {
+                try {
+                    $updated = $this->service->markReady(
+                        $transcriptRequest,
+                        $request->user(),
+                        $data['delivery_mode'],
+                        $request->file('file'),
+                    );
+                } catch (InvalidArgumentException $e) {
+                    return response()->json(['message' => $e->getMessage()], 422);
+                }
+
+                return $this->service->staffPayload($updated);
+            },
+            $this->transcriptNavKey($transcriptRequest),
+        );
     }
 
     public function reject(Request $request, TranscriptRequest $transcriptRequest)
@@ -248,9 +273,16 @@ class TranscriptRequestController extends Controller
             'reason' => 'required|string|min:3|max:1000',
         ]);
 
-        $updated = $this->service->reject($transcriptRequest, $request->user(), $data['reason']);
-
-        return $this->service->staffPayload($updated);
+        return $this->officeGate(
+            'transcripts.reject',
+            $transcriptRequest,
+            ['transcript_request_id' => $transcriptRequest->id, ...$data],
+            'Reject transcript request',
+            fn () => $this->service->staffPayload(
+                $this->service->reject($transcriptRequest, $request->user(), $data['reason'])
+            ),
+            $this->transcriptNavKey($transcriptRequest),
+        );
     }
 
     public function staffDownload(Request $request, TranscriptRequest $transcriptRequest)
@@ -258,5 +290,15 @@ class TranscriptRequestController extends Controller
         abort_unless($request->user()->hasPermission('transcripts.view'), 403);
 
         return $this->service->downloadResponse($transcriptRequest);
+    }
+
+    private function transcriptNavKey(TranscriptRequest $transcriptRequest): string
+    {
+        $transcriptRequest->loadMissing(['program', 'student.program']);
+        $program = $transcriptRequest->program ?? $transcriptRequest->student?->program;
+
+        return OfficeApprovalCatalog::transcriptNavKey(
+            $program ? TranscriptChannel::forProgram($program) : null
+        );
     }
 }

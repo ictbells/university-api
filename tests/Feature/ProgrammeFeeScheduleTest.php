@@ -58,6 +58,34 @@ class ProgrammeFeeScheduleTest extends TestCase
             ->assertJsonCount(2, 'data');
     }
 
+    public function test_bulk_assign_reuses_one_fee_item_across_installment_slices(): void
+    {
+        [$staff, $program, $tuition] = $this->seedSchedule(assign: false);
+        Sanctum::actingAs($staff);
+
+        $this->postJson('/api/programme-fees/bulk', [
+            'program_id' => $program->id,
+            'level_code' => 'all',
+            'semester' => 'both',
+            'items' => [
+                ['fee_item_id' => $tuition->id, 'amount' => 20000, 'installment_tranche' => 1],
+                ['fee_item_id' => $tuition->id, 'amount' => 20000, 'installment_tranche' => 2],
+                ['fee_item_id' => $tuition->id, 'amount' => 20000, 'installment_tranche' => 3],
+                ['fee_item_id' => $tuition->id, 'amount' => 20000, 'installment_tranche' => 4],
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonCount(4, 'data')
+            ->assertJsonPath('total_amount', 80000);
+
+        $lines = $this->getJson('/api/programme-fees/program/'.$program->id)->json('data');
+        $this->assertEqualsCanonicalizing(
+            [1, 2, 3, 4],
+            array_column($lines, 'effective_installment_tranche'),
+        );
+        $this->assertCount(1, array_unique(array_column($lines, 'fee_item_id')));
+    }
+
     public function test_fee_catalog_keeps_installment_share_on_schedule_categories(): void
     {
         [$staff] = $this->seedSchedule(assign: false, syncNav: false);

@@ -19,14 +19,27 @@ trait ImportsAcademicCatalog
             'file' => 'required|file|mimes:xlsx,xls,csv|max:10240',
         ]);
 
-        try {
-            $result = $this->catalogImporter->import($type, $request->file('file'));
-        } catch (\InvalidArgumentException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        }
+        $actionKey = match ($type) {
+            'courses' => 'academic.import_courses',
+            'programmes' => 'academic.import_programs',
+            'colleges', 'faculties' => 'academic.import_faculties',
+            'departments' => 'academic.import_departments',
+            'olevel' => 'academic.import_olevel',
+            default => abort(500, 'Unknown catalog import type.'),
+        };
 
-        $this->audit->record($action, $summary, 'academic', null, null, null, $result);
+        $payload = $this->persistApprovalUpload($request);
 
-        return $result;
+        return $this->officeGate($actionKey, null, $payload, $summary, function () use ($request, $type, $action, $summary) {
+            try {
+                $result = $this->catalogImporter->import($type, $request->file('file'));
+            } catch (\InvalidArgumentException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+
+            $this->audit->record($action, $summary, 'academic', null, null, null, $result);
+
+            return $result;
+        });
     }
 }

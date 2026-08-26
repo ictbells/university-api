@@ -20,6 +20,8 @@ use InvalidArgumentException;
 
 class ReportController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
+
     public function __construct(
         private ReportQueryService $queries,
         private ReportExportService $exports,
@@ -183,19 +185,21 @@ class ReportController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        $report = SavedReport::query()->create([
-            'name' => $data['name'],
-            'description' => $data['description'] ?? null,
-            'dataset_key' => $data['dataset_key'],
-            'definition' => $definition,
-            'visibility' => $data['visibility'],
-            'created_by' => $request->user()->id,
-            'updated_by' => $request->user()->id,
-        ]);
+        return $this->officeGate('reports.store', null, $data, 'Save report '.$data['name'], function () use ($request, $data, $definition) {
+            $report = SavedReport::query()->create([
+                'name' => $data['name'],
+                'description' => $data['description'] ?? null,
+                'dataset_key' => $data['dataset_key'],
+                'definition' => $definition,
+                'visibility' => $data['visibility'],
+                'created_by' => $request->user()->id,
+                'updated_by' => $request->user()->id,
+            ]);
 
-        $this->audit->record('report.save', 'Saved report '.$report->name, 'reports', 'saved_report', $report->id, after: $report);
+            $this->audit->record('report.save', 'Saved report '.$report->name, 'reports', 'saved_report', $report->id, after: $report);
 
-        return response()->json($report, 201);
+            return response()->json($report, 201);
+        });
     }
 
     public function updateSaved(Request $request, SavedReport $savedReport)
@@ -220,19 +224,27 @@ class ReportController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        $before = $savedReport->toArray();
-        $savedReport->update([
-            'name' => $data['name'] ?? $savedReport->name,
-            'description' => array_key_exists('description', $data) ? $data['description'] : $savedReport->description,
-            'dataset_key' => $datasetKey,
-            'definition' => $definition,
-            'visibility' => $data['visibility'] ?? $savedReport->visibility,
-            'updated_by' => $request->user()->id,
-        ]);
+        return $this->officeGate(
+            'reports.update',
+            $savedReport,
+            ['saved_report_id' => $savedReport->id, ...$data, 'dataset_key' => $datasetKey, 'definition' => $definition],
+            'Update report '.$savedReport->name,
+            function () use ($request, $savedReport, $data, $datasetKey, $definition) {
+                $before = $savedReport->toArray();
+                $savedReport->update([
+                    'name' => $data['name'] ?? $savedReport->name,
+                    'description' => array_key_exists('description', $data) ? $data['description'] : $savedReport->description,
+                    'dataset_key' => $datasetKey,
+                    'definition' => $definition,
+                    'visibility' => $data['visibility'] ?? $savedReport->visibility,
+                    'updated_by' => $request->user()->id,
+                ]);
 
-        $this->audit->record('report.update', 'Updated report '.$savedReport->name, 'reports', 'saved_report', $savedReport->id, $before, $savedReport);
+                $this->audit->record('report.update', 'Updated report '.$savedReport->name, 'reports', 'saved_report', $savedReport->id, $before, $savedReport);
 
-        return $savedReport->fresh();
+                return $savedReport->fresh();
+            },
+        );
     }
 
     public function destroySaved(Request $request, SavedReport $savedReport)
@@ -241,11 +253,19 @@ class ReportController extends Controller
             abort(403, 'This action is not authorized.');
         }
 
-        $before = $savedReport->toArray();
-        $savedReport->delete();
-        $this->audit->record('report.delete', 'Deleted report '.$before['name'], 'reports', 'saved_report', $savedReport->id, $before);
+        return $this->officeGate(
+            'reports.destroy',
+            $savedReport,
+            ['saved_report_id' => $savedReport->id],
+            'Delete report '.$savedReport->name,
+            function () use ($savedReport) {
+                $before = $savedReport->toArray();
+                $savedReport->delete();
+                $this->audit->record('report.delete', 'Deleted report '.$before['name'], 'reports', 'saved_report', $savedReport->id, $before);
 
-        return response()->json(['ok' => true]);
+                return response()->json(['ok' => true]);
+            },
+        );
     }
 
     private function authorizeView(Request $request, SavedReport $savedReport): void

@@ -12,6 +12,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class InvoiceImportController extends Controller
 {
+    use Concerns\AuthorizesOfficeApprovals;
+
     public function __construct(private InvoiceImportService $importer) {}
 
     public function template(Request $request): StreamedResponse
@@ -34,44 +36,48 @@ class InvoiceImportController extends Controller
     {
         $this->authorizeImport($request);
 
-        $file = $request->file('file');
-        $rowCount = $this->importer->countDataRows($file);
-        $importId = (string) Str::uuid();
+        $payload = $this->persistApprovalUpload($request);
 
-        if ($this->importer->shouldQueue($rowCount)) {
-            $path = $this->importer->storeUpload($file);
-            $this->importer->cacheResult($importId, [
-                'status' => 'queued',
-                'queued' => true,
+        return $this->officeGate('finance.import_invoices', null, $payload, 'Import invoices', function () use ($request) {
+            $file = $request->file('file');
+            $rowCount = $this->importer->countDataRows($file);
+            $importId = (string) Str::uuid();
+
+            if ($this->importer->shouldQueue($rowCount)) {
+                $path = $this->importer->storeUpload($file);
+                $this->importer->cacheResult($importId, [
+                    'status' => 'queued',
+                    'queued' => true,
+                    'import_id' => $importId,
+                ]);
+                ImportInvoicesJob::dispatch($importId, $path, (int) $request->user()->id);
+
+                return response()->json([
+                    'message' => 'Import queued.',
+                    'queued' => true,
+                    'status' => 'queued',
+                    'import_id' => $importId,
+                ], 202);
+            }
+
+            try {
+                $result = $this->importer->import($file);
+            } catch (\InvalidArgumentException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+
+            $result = array_merge($result, [
+                'status' => 'done',
+                'queued' => false,
                 'import_id' => $importId,
             ]);
-            ImportInvoicesJob::dispatch($importId, $path, (int) $request->user()->id);
+            $this->importer->cacheResult($importId, $result);
 
             return response()->json([
-                'message' => 'Import queued.',
-                'queued' => true,
-                'status' => 'queued',
-                'import_id' => $importId,
-            ], 202);
-        }
-
-        try {
-            $result = $this->importer->import($file);
-        } catch (\InvalidArgumentException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        }
-
-        $result = array_merge($result, [
-            'status' => 'done',
-            'queued' => false,
-            'import_id' => $importId,
-        ]);
-        $this->importer->cacheResult($importId, $result);
-
-        return response()->json([
-            'message' => $this->summaryMessage($result),
-            'data' => $result,
-        ]);
+                'message' => $this->summaryMessage($result),
+                'data' => $result,
+            ]);
+        });
     }
 
     public function status(Request $request, string $importId): JsonResponse

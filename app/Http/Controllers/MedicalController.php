@@ -162,18 +162,35 @@ class MedicalController extends Controller
     {
         abort_unless($request->user()->hasPermission('medical.manage'), 403);
 
-        return Immunization::query()->create($request->validate([
+        $data = $request->validate([
             'vaccine' => 'required|string',
             'given_on' => 'nullable|date',
-        ]) + ['student_id' => $student->id]);
+        ]);
+
+        return $this->officeGate(
+            'medical.add_immunization',
+            $student,
+            ['student_id' => $student->id, ...$data],
+            'Record immunization',
+            fn () => Immunization::query()->create($data + ['student_id' => $student->id]),
+        );
     }
 
     public function deleteImmunization(Request $request, Immunization $immunization)
     {
         abort_unless($request->user()->hasPermission('medical.manage'), 403);
-        $immunization->delete();
 
-        return response()->json(['ok' => true]);
+        return $this->officeGate(
+            'medical.delete_immunization',
+            $immunization,
+            ['immunization_id' => $immunization->id],
+            'Delete immunization',
+            function () use ($immunization) {
+                $immunization->delete();
+
+                return response()->json(['ok' => true]);
+            },
+        );
     }
 
     private function authorizeMedical(Request $request, Student $student): void

@@ -105,7 +105,7 @@ class ResultsController extends Controller
             'points' => 'nullable|numeric|min:0|max:5',
         ]);
 
-        return $this->entry->upsert($data, $request->user());
+        return $this->officeGate('results.store', null, $data, 'Enter result', fn () => $this->entry->upsert($data, $request->user()));
     }
 
     public function update(Request $request, Grade $grade)
@@ -123,15 +123,24 @@ class ResultsController extends Controller
         $data['enrollment_id'] = $grade->enrollment_id;
         $data['sitting'] = $data['sitting'] ?? $grade->sitting;
 
-        return $this->entry->upsert($data, $request->user());
+        return $this->officeGate(
+            'results.update',
+            $grade,
+            ['grade_id' => $grade->id, ...$data],
+            'Update result',
+            fn () => $this->entry->upsert($data, $request->user()),
+        );
     }
 
     public function destroy(Request $request, Grade $grade)
     {
         abort_unless($request->user()->hasPermission('results.write'), 403);
-        $this->entry->destroy($grade, $request->user());
 
-        return response()->json(['message' => 'Grade deleted.']);
+        return $this->officeGate('results.destroy', $grade, ['grade_id' => $grade->id], 'Delete result', function () use ($request, $grade) {
+            $this->entry->destroy($grade, $request->user());
+
+            return response()->json(['message' => 'Grade deleted.']);
+        });
     }
 
     public function submit(Request $request)
@@ -139,7 +148,7 @@ class ResultsController extends Controller
         abort_unless($request->user()->hasPermission('results.submit'), 403);
         $data = $request->validate(['ids' => 'required|array|min:1', 'ids.*' => 'integer|exists:grades,id']);
 
-        return $this->workflow->submit($data['ids'], $request->user());
+        return $this->officeGate('results.submit', null, $data, 'Submit results', fn () => $this->workflow->submit($data['ids'], $request->user()));
     }
 
     public function facultyApprove(Request $request)
@@ -147,7 +156,7 @@ class ResultsController extends Controller
         abort_unless($request->user()->hasPermission('results.faculty_approve'), 403);
         $data = $request->validate(['ids' => 'required|array|min:1', 'ids.*' => 'integer|exists:grades,id']);
 
-        return $this->workflow->facultyApprove($data['ids'], $request->user());
+        return $this->officeGate('results.faculty_approve', null, $data, 'Faculty approve results', fn () => $this->workflow->facultyApprove($data['ids'], $request->user()));
     }
 
     public function facultyReturn(Request $request)
@@ -159,7 +168,13 @@ class ResultsController extends Controller
             'note' => 'nullable|string|max:2000',
         ]);
 
-        return $this->workflow->facultyReturn($data['ids'], $request->user(), $data['note'] ?? null);
+        return $this->officeGate(
+            'results.faculty_return',
+            null,
+            $data,
+            'Faculty return results',
+            fn () => $this->workflow->facultyReturn($data['ids'], $request->user(), $data['note'] ?? null),
+        );
     }
 
     public function boardClear(Request $request)
@@ -254,12 +269,23 @@ class ResultsController extends Controller
         ]);
 
         $csv = $data['csv'] ?? file_get_contents($request->file('file')->getRealPath());
+        $payload = [
+            'course_offering_id' => (int) $data['course_offering_id'],
+            'score_component' => $data['score_component'] ?? 'total',
+            'csv' => $csv,
+        ];
 
-        return $this->entry->importCsv(
-            (string) $csv,
-            (int) $data['course_offering_id'],
-            $data['score_component'] ?? 'total',
-            $request->user(),
+        return $this->officeGate(
+            'results.import',
+            null,
+            $payload,
+            'Import results CSV',
+            fn () => $this->entry->importCsv(
+                (string) $payload['csv'],
+                (int) $payload['course_offering_id'],
+                $payload['score_component'],
+                $request->user(),
+            ),
         );
     }
 
@@ -331,28 +357,36 @@ class ResultsController extends Controller
             'boundaries.*.grade_point' => 'required_with:boundaries|numeric|min:0|max:10',
         ]);
 
-        if (! empty($data['is_default'])) {
-            GradingScale::query()->where('id', '!=', $gradingScale->id)->update(['is_default' => false]);
-        }
+        return $this->officeGate(
+            'results.update_grading_scale',
+            $gradingScale,
+            ['grading_scale_id' => $gradingScale->id, ...$data],
+            'Update grading scale',
+            function () use ($request, $gradingScale, $data) {
+                if (! empty($data['is_default'])) {
+                    GradingScale::query()->where('id', '!=', $gradingScale->id)->update(['is_default' => false]);
+                }
 
-        $gradingScale->fill(collect($data)->only(['name', 'max_points', 'is_default'])->all())->save();
+                $gradingScale->fill(collect($data)->only(['name', 'max_points', 'is_default'])->all())->save();
 
-        if (isset($data['boundaries'])) {
-            $gradingScale->boundaries()->delete();
-            foreach ($data['boundaries'] as $row) {
-                GradeBoundary::query()->create([
-                    'grading_scale_id' => $gradingScale->id,
-                    'letter' => strtoupper($row['letter']),
-                    'min_score' => $row['min_score'],
-                    'max_score' => $row['max_score'],
-                    'grade_point' => $row['grade_point'],
-                ]);
-            }
-        }
+                if (isset($data['boundaries'])) {
+                    $gradingScale->boundaries()->delete();
+                    foreach ($data['boundaries'] as $row) {
+                        GradeBoundary::query()->create([
+                            'grading_scale_id' => $gradingScale->id,
+                            'letter' => strtoupper($row['letter']),
+                            'min_score' => $row['min_score'],
+                            'max_score' => $row['max_score'],
+                            'grade_point' => $row['grade_point'],
+                        ]);
+                    }
+                }
 
-        GradeAuditLogger::gradingScaleUpdated($request->user(), ['grading_scale_id' => $gradingScale->id]);
+                GradeAuditLogger::gradingScaleUpdated($request->user(), ['grading_scale_id' => $gradingScale->id]);
 
-        return $gradingScale->fresh('boundaries');
+                return $gradingScale->fresh('boundaries');
+            },
+        );
     }
 
     public function submissionList(Request $request, string $scope)
