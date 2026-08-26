@@ -182,11 +182,13 @@ class InvoiceService
         foreach ($fees as $fee) {
             $amount = round((float) $fee->amount, 2);
             $description = $fee->name;
-            // Tranche-tagged items already represent a fixed share; do not pro-rate again.
-            if ($fee->category === 'tuition' && $percent < 100 && $fee->installment_tranche === null) {
+            // Tranche-tagged schedule items already represent a fixed share; do not pro-rate again.
+            $tagged = FeeSchedule::allowsInstallmentTranche((string) $fee->category)
+                && $fee->installment_tranche !== null;
+            if (FeeSchedule::allowsInstallmentTranche((string) $fee->category) && $percent < 100 && $fee->installment_tranche === null) {
                 $amount = round($amount * ($percent / 100), 2);
                 $description .= " ({$percent}%)";
-            } elseif ($fee->category === 'tuition' && $fee->installment_tranche !== null) {
+            } elseif ($tagged) {
                 $label = FeeSchedule::installmentTrancheLabel((int) $fee->installment_tranche);
                 if ($label) {
                     $description .= " ({$label})";
@@ -210,7 +212,9 @@ class InvoiceService
             'student_id' => $student->id,
             'application_id' => $student->application_id,
             'category' => $category,
-            'installment_percent' => collect($fees)->contains(fn (FeeItem $fee) => $fee->category === 'tuition') ? $percent : null,
+            'installment_percent' => collect($fees)->contains(
+                fn (FeeItem $fee) => FeeSchedule::allowsInstallmentTranche((string) $fee->category)
+            ) ? $percent : null,
             'amount' => $total,
             'full_amount' => $total,
             'balance' => $total,
@@ -514,10 +518,10 @@ class InvoiceService
             }
 
             $tranche = $line->feeItem?->installment_tranche;
-            $isTuitionTranche = FeeSchedule::allowsInstallmentTranche((string) ($line->feeItem?->category ?? ''))
+            $isTaggedSlice = FeeSchedule::allowsInstallmentTranche((string) ($line->feeItem?->category ?? ''))
                 && $tranche !== null;
-            if (! $isTuitionTranche) {
-                // Untagged schedule lines (and non-tuition) ride with the first installment or the full package.
+            if (! $isTaggedSlice) {
+                // Untagged schedule lines ride with the first installment or the full package.
                 return in_array(1, $wanted, true) || in_array(100, $wanted, true);
             }
 
@@ -555,9 +559,9 @@ class InvoiceService
             }
             $name = $line->feeItem?->name ?: FeeSchedule::label((string) ($line->feeItem?->category ?? 'other'));
             $tranche = $line->feeItem?->installment_tranche;
-            $isTuitionTranche = FeeSchedule::allowsInstallmentTranche((string) ($line->feeItem?->category ?? ''))
+            $isTaggedSlice = FeeSchedule::allowsInstallmentTranche((string) ($line->feeItem?->category ?? ''))
                 && $tranche !== null;
-            $suffix = $isTuitionTranche
+            $suffix = $isTaggedSlice
                 ? FeeSchedule::installmentTrancheLabel((int) $tranche)
                 : ($percent < 100 ? "{$percent}%" : null);
             $invoice->items()->create([

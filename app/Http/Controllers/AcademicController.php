@@ -89,7 +89,7 @@ class AcademicController extends Controller
         return $this->officeGate('academic.store_program', null, $data + ['course_ids' => $courseIds], 'Create programme', function () use ($data, $courseIds) {
             $program = Program::query()->create($data);
             if ($courseIds !== null) {
-                $program->courses()->sync($courseIds);
+                $this->syncProgramCourseIds($program, $courseIds);
             }
             $this->audit->record('program.created', 'Programme created', 'academic', 'program', $program->id, null, $program);
 
@@ -128,7 +128,7 @@ class AcademicController extends Controller
         }
         return $this->officeGate('academic.update_program', $program, ['program_id' => $program->id, ...$data], 'Update programme', function () use ($program, $data, $before) {
             if (array_key_exists('course_ids', $data)) {
-                $program->courses()->sync($data['course_ids'] ?? []);
+                $this->syncProgramCourseIds($program, $data['course_ids'] ?? []);
                 unset($data['course_ids']);
             }
             $program->update($data);
@@ -196,7 +196,10 @@ class AcademicController extends Controller
 
     public function courses(Request $request)
     {
-        $query = Course::query()->with(['department', 'programs'])->orderBy('code');
+        $query = Course::query()
+            ->with(['department', 'programs'])
+            ->orderByRaw("CASE COALESCE(course_type, 'departmental') WHEN 'general' THEN 1 WHEN 'faculty' THEN 2 ELSE 3 END")
+            ->orderBy('code');
         ListSessionLevelFilter::applyLevelToCoursePrograms($query, $request);
 
         return $query->get();
@@ -209,21 +212,17 @@ class AcademicController extends Controller
             'code' => 'required|string',
             'title' => 'required|string',
             'units' => 'required|integer|min:1',
-            'course_type' => ['nullable', Rule::in(Course::TYPES)],
+            'course_type' => ['required', Rule::in(Course::TYPES)],
             'status' => ['nullable', Rule::in(Course::STATUSES)],
-            'program_ids' => 'required_unless:course_type,general|array|min:1',
-            'program_ids.*' => 'exists:programs,id',
+            'program_ids' => 'nullable|array',
+            'program_ids.*' => 'integer|exists:programs,id',
         ]);
-        $data['course_type'] = $data['course_type'] ?? 'departmental';
         $data['status'] = $data['status'] ?? 'core';
-        $programIds = $data['program_ids'] ?? [];
+        $programIds = $this->normalizeIds($data['program_ids'] ?? []);
         unset($data['program_ids']);
-        if ($programIds === [] && $data['course_type'] === 'general') {
-            $programIds = Program::query()->where('is_active', true)->pluck('id')->all();
-        }
         return $this->officeGate('academic.store_course', null, $data + ['program_ids' => $programIds], 'Create course', function () use ($data, $programIds) {
             $course = Course::query()->create($data);
-            $course->programs()->sync($this->programSync($programIds, $data['course_type']));
+            $this->syncCoursePrograms($course, $programIds);
             $this->audit->record('course.created', 'Course created', 'academic', 'course', $course->id, null, $course);
 
             return $course->load(['department', 'programs']);
@@ -238,25 +237,32 @@ class AcademicController extends Controller
             'code' => 'sometimes|string',
             'title' => 'sometimes|string',
             'units' => 'sometimes|integer|min:1',
-            'course_type' => ['nullable', Rule::in(Course::TYPES)],
+            'course_type' => ['sometimes', Rule::in(Course::TYPES)],
             'status' => ['nullable', Rule::in(Course::STATUSES)],
-            'program_ids' => 'sometimes|array',
-            'program_ids.*' => 'exists:programs,id',
+            'program_ids' => 'sometimes|nullable|array',
+            'program_ids.*' => 'integer|exists:programs,id',
         ]);
-        return $this->officeGate('academic.update_course', $course, ['course_id' => $course->id, ...$data], 'Update course', function () use ($course, $data, $before) {
-            $type = $data['course_type'] ?? $course->course_type ?? 'departmental';
-            if (array_key_exists('program_ids', $data)) {
-                $programIds = $data['program_ids'] ?? [];
-                if ($programIds === [] && $type === 'general') {
-                    $programIds = Program::query()->where('is_active', true)->pluck('id')->all();
-                }
-                $course->programs()->sync($this->programSync($programIds, $type));
-                unset($data['program_ids']);
-            }
+        $hasProgramIds = $request->exists('program_ids');
+        $programIds = $hasProgramIds ? $this->normalizeIds($data['program_ids'] ?? []) : null;
+        unset($data['program_ids']);
+        $payload = ['course_id' => $course->id, ...$data];
+        if ($hasProgramIds) {
+            $payload['program_ids'] = $programIds;
+        }
+        return $this->officeGate('academic.update_course', $course, $payload, 'Update course', function () use ($course, $data, $before, $programIds) {
             $course->update($data);
+            $fresh = $course->fresh() ?? $course;
+            if ($programIds !== null) {
+                $this->syncCoursePrograms($fresh, $programIds);
+            } elseif (array_key_exists('course_type', $data)) {
+                $this->syncCoursePrograms(
+                    $fresh,
+                    $fresh->programs()->pluck('programs.id')->map(fn ($id) => (int) $id)->all(),
+                );
+            }
             $this->audit->record('course.updated', 'Course updated', 'academic', 'course', $course->id, $before, $course);
 
-            return $course->load(['department', 'programs']);
+            return $fresh->load(['department', 'programs']);
         });
     }
 
@@ -293,17 +299,52 @@ class AcademicController extends Controller
     }
 
     /**
-     * @param  list<int>  $programIds
-     * @return array<int, array{bucket: string}>
+     * @param  list<int|string>  $ids
+     * @return list<int>
      */
-    private function programSync(array $programIds, string $type): array
+    private function normalizeIds(array $ids): array
     {
+        return array_values(array_unique(array_map('intval', $ids)));
+    }
+
+    /**
+     * Map a course onto programmes. Keeps existing level assignments for programmes that remain.
+     *
+     * @param  list<int>  $programIds
+     */
+    private function syncCoursePrograms(Course $course, array $programIds): void
+    {
+        $type = $course->course_type ?: 'departmental';
+        $existing = $course->programs()->get()->keyBy(fn (Program $program) => (int) $program->id);
         $sync = [];
         foreach ($programIds as $id) {
-            $sync[(int) $id] = ['bucket' => $type];
+            $id = (int) $id;
+            $sync[$id] = [
+                'bucket' => $type,
+                'academic_level_id' => $existing->get($id)?->pivot?->academic_level_id,
+            ];
         }
+        $course->programs()->sync($sync);
+    }
 
-        return $sync;
+    /**
+     * Map courses onto a programme. Keeps existing level assignments for courses that remain.
+     *
+     * @param  list<int|string>  $courseIds
+     */
+    private function syncProgramCourseIds(Program $program, array $courseIds): void
+    {
+        $courseIds = $this->normalizeIds($courseIds);
+        $existing = $program->courses()->get()->keyBy(fn (Course $course) => (int) $course->id);
+        $types = Course::query()->whereIn('id', $courseIds)->pluck('course_type', 'id');
+        $sync = [];
+        foreach ($courseIds as $id) {
+            $sync[$id] = [
+                'bucket' => ($types[$id] ?? null) ?: 'departmental',
+                'academic_level_id' => $existing->get($id)?->pivot?->academic_level_id,
+            ];
+        }
+        $program->courses()->sync($sync);
     }
 
     public function myEnrollments(Request $request)

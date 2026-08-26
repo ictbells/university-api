@@ -246,8 +246,8 @@ class AcademicCatalogImportService
             throw new CatalogImportSkipped('A course with this code already exists.');
         }
 
-        $type = strtolower(trim((string) ($data['course_type'] ?? ''))) ?: 'departmental';
-        if (! in_array($type, Course::TYPES, true)) {
+        $type = strtolower(trim((string) ($data['course_type'] ?? '')));
+        if ($type === '' || ! in_array($type, Course::TYPES, true)) {
             throw new RuntimeException('course_type must be general, faculty, or departmental.');
         }
         $status = strtolower(trim((string) ($data['status'] ?? ''))) ?: 'core';
@@ -266,11 +266,9 @@ class AcademicCatalogImportService
             $this->findById(AcademicLevel::query(), (string) $levelId, 'level_id');
         }
 
-        $programs = $programmeId === null && $type === 'general'
-            ? Program::query()->where('is_active', true)->get()
-            : ($programmeId !== null
-                ? collect([$this->findById(Program::query(), (string) $programmeId, 'programme_id')])
-                : collect());
+        $programs = $programmeId !== null
+            ? collect([$this->findById(Program::query(), (string) $programmeId, 'programme_id')])
+            : collect();
 
         $course = Course::query()->create([
             'department_id' => $department->id,

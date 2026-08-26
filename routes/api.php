@@ -454,6 +454,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::get('/programme-fees/summaries', [ProgrammeFeeController::class, 'summaries']);
         Route::get('/programme-fees/program/{program}', [ProgrammeFeeController::class, 'byProgram']);
         Route::post('/programme-fees/bulk', [ProgrammeFeeController::class, 'bulkStore']);
+        Route::post('/programme-fees/copy', [ProgrammeFeeController::class, 'copySchedule']);
         Route::post('/programme-fees', [ProgrammeFeeController::class, 'store']);
         Route::patch('/programme-fees/{programmeFee}', [ProgrammeFeeController::class, 'update']);
         Route::delete('/programme-fees/{programmeFee}', [ProgrammeFeeController::class, 'destroy']);

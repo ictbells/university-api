@@ -200,6 +200,54 @@ class CatalogImportTest extends TestCase
         $this->assertTrue($created->programs()->where('programs.id', $program->id)->exists());
     }
 
+    public function test_course_import_requires_catalogue_type_and_does_not_auto_attach_programmes(): void
+    {
+        Sanctum::actingAs($this->staffUser());
+        $tree = $this->seedAcademicTree();
+        $program = Program::query()->create([
+            'department_id' => $tree['department']->id,
+            'name' => 'B.Sc Computer Science',
+            'code' => 'BSC-CS',
+            'award_type' => 'B.Sc',
+            'study_level' => 'undergraduate',
+            'entry_modes' => ['utme'],
+            'duration_years' => 4,
+            'is_active' => true,
+            'workflow_template_id' => WorkflowCatalog::idByCode(WorkflowCatalog::UG_STANDARD),
+        ]);
+
+        $this->post('/api/academic/courses/import', [
+            'file' => $this->spreadsheetRows('Courses', CatalogImportColumns::all('courses'), [
+                [
+                    'code' => 'GST 101',
+                    'title' => 'Use of English',
+                    'units' => '2',
+                    'course_type' => '',
+                    'department_id' => (string) $tree['department']->id,
+                    'programme_id' => (string) $program->id,
+                    'level_id' => '',
+                ],
+                [
+                    'code' => 'GST 102',
+                    'title' => 'Nigerian Peoples',
+                    'units' => '2',
+                    'course_type' => 'general',
+                    'department_id' => (string) $tree['department']->id,
+                    'programme_id' => '',
+                    'level_id' => '',
+                ],
+            ]),
+        ], ['Accept' => 'application/json'])->assertOk()
+            ->assertJsonPath('created', 1)
+            ->assertJsonPath('failed', 1);
+
+        $this->assertDatabaseMissing('courses', ['code' => 'GST 101']);
+        $created = Course::query()->where('code', 'GST 102')->first();
+        $this->assertNotNull($created);
+        $this->assertSame('general', $created->course_type);
+        $this->assertSame(0, $created->programs()->count());
+    }
+
     /**
      * @param  list<string>  $columns
      * @param  list<array<string, string>>  $rows

@@ -179,6 +179,7 @@ class OfficeApprovalExecutor
             'finance.update_programme_fee' => [\App\Http\Controllers\ProgrammeFeeController::class, 'update', ['key' => 'programme_fee_id', 'class' => ProgrammeFee::class]],
             'finance.destroy_programme_fee' => [\App\Http\Controllers\ProgrammeFeeController::class, 'destroy', ['key' => 'programme_fee_id', 'class' => ProgrammeFee::class]],
             'finance.bulk_programme_fees' => [\App\Http\Controllers\ProgrammeFeeController::class, 'bulkStore', null],
+            'finance.copy_programme_fees' => [\App\Http\Controllers\ProgrammeFeeController::class, 'copySchedule', null],
             'documents.issue' => [\App\Http\Controllers\DocumentController::class, 'issue', null],
             'academic.staff_register' => [\App\Http\Controllers\CourseRegistrationController::class, 'staffRegister', null],
             'academic.staff_drop' => [\App\Http\Controllers\CourseRegistrationController::class, 'staffDrop', ['key' => 'enrollment_id', 'class' => Enrollment::class]],

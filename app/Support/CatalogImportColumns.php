@@ -52,7 +52,7 @@ class CatalogImportColumns
             'departments' => ['name', 'college_id'],
             'programmes' => ['name', 'department_id', 'award_type', 'study_level', 'duration_years', 'entry_modes'],
             'olevel' => ['name'],
-            'courses' => ['code', 'title', 'department_id'],
+            'courses' => ['code', 'title', 'department_id', 'course_type'],
             default => throw new \InvalidArgumentException('Unknown catalogue import type.'),
         };
     }
@@ -151,9 +151,9 @@ class CatalogImportColumns
                 '',
                 $order,
                 $skip,
-                'Required: code, title, department_id.',
-                'Optional: units (default 3), course_type (general, faculty, departmental), status (core, elective, required), programme_id, level_id.',
-                'Blank programme_id on a new general course attaches all active programmes.',
+                'Required: code, title, department_id, course_type (general, faculty, or departmental).',
+                'Optional: units (default 3), status (core, elective, required), programme_id, level_id.',
+                'If programme_id is set, the course is mapped on Programme courses. Leave it blank to assign later.',
                 $ids,
             ],
             default => [$order, $skip],

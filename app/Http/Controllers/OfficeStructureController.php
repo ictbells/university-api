@@ -9,7 +9,6 @@ use App\Models\OfficeUnit;
 use App\Models\Staff;
 use App\Services\AuditWriter;
 use App\Services\OfficeNavOwnerResolver;
-use App\Support\OfficeApprovalCatalog;
 use App\Support\StaffNavCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -33,12 +32,10 @@ class OfficeStructureController extends Controller
 
     public function navCatalog()
     {
-        $actionKeys = array_flip(OfficeApprovalCatalog::navKeysWithActions());
-
         return collect(StaffNavCatalog::all())
             ->map(fn (array $item) => [
                 ...$item,
-                'has_approval_actions' => isset($actionKeys[$item['key']]),
+                'has_approval_actions' => true,
             ])
             ->values()
             ->all();

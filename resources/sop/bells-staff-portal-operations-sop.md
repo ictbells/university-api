@@ -278,13 +278,13 @@ Each office **department** can have a **head of department (HOD)**. Each **unit*
 
 A sidebar module is **owned** by the office department that has that portal link. The same link cannot be given to two different departments.
 
-When assigning a portal link on **Department Setup → Links**, modules with gated actions can be assigned **without** office approval. Use the gear on that link to configure approval when needed:
+When assigning a portal link on **Department Setup → Links**, every assigned link can be given **without** office approval. Use the gear on that link to configure approval when needed:
 
 1. **Require office approval** — off means staff with permission act immediately; on lets you pick Create / Update / Delete gates.
 2. **Create / Update / Delete** — which mutation types require office approval (Update also covers workflow actions such as allocate, publish, board clear).
 3. **Who must approve** — unit head only, department head only, or **both** (normal path: unit head → department head).
 
-New gated links default to **no approval**. Existing links keep the Create/Update/Delete flags already saved.
+New assigned links default to **no approval**. Existing links keep the Create/Update/Delete flags already saved. Approval only takes effect on mutations that already go through office approval (for example advancing an application, creating a fee item). Flags on a link with no gated mutations are stored for when that module is wired.
 
 When a mutation requires approval for an owned module:
 
@@ -560,7 +560,16 @@ E-exam sync is not included in this release.
 
 ### 8.7 Services
 
-- **Fees & payments** — **Fee categories** (charge types, including programme-schedule vs operational) and **Fee items** (priced lines: **application fees per entry mode**, **official transcript fees per programme and transcript type**, **Clinic services** visit charges, and **tuition installment shares**: separate tuition catalog lines for 1st/2nd/3rd/4th 25% plus optional Full 100% pay-at-once; other categories do not use installment shares), rebates, programme fees, invoice generation, invoices, student financial status, **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices and Generate invoice filter by session and level; Programme fees filter by level. When tuition catalog lines are tagged with installment shares, student tuition invoices bill those fixed amounts (already-paid fee items are skipped); untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices.
+- **Fees & payments** — **Fee categories** (charge types, including programme-schedule vs operational) and **Fee items** (priced lines: **application fees per entry mode**, **official transcript fees per programme and transcript type**, **Clinic services** visit charges, and **school-fee installment shares**: any programme-schedule catalog line — tuition, ICT, laboratory, infrastructure, and the rest — can be tagged 1st/2nd/3rd/4th 25% or optional Full 100% pay-at-once; application, acceptance, and transcript fees stay online-only and cannot use shares), rebates, **Programme fees** (assign catalog lines to programmes with a naira override per line; copy a schedule to other programmes in the same college), invoice generation, invoices, student financial status, **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices and Generate invoice filter by session and level; Programme fees filter by level. When schedule lines are tagged with installment shares, student school-fee invoices bill those fixed amounts (already-paid fee items are skipped; 50% bills unpaid 1st + 2nd slices). Untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices. Hostel **Accommodation** on a school-fee sheet is a schedule catalog item, not a hostel-bed charge.
+
+#### Programme fees (25% matrix)
+
+The bursary sheet is four stacks of named lines with fixed naira amounts, grouped by college/department. Do **not** put the same catalog line on 25% and again on 50%. Create separate catalog items when the same name appears in more than one block (for example **Tuition · 1st 25%** and **Tuition · 2nd 25%**), because the amounts differ.
+
+1. **Fee categories** — mark school charges as programme-schedule (tuition, infrastructure, accommodation, BUSA, ICT, laboratory, and any other sheet heading). Reuse an existing category when the name already matches.
+2. **Fee items** — one catalog line per sheet row, with the matching installment share. Default amount can be the most common cell or 0.
+3. **Programme fees** — for each spreadsheet column, pick one programme in that group, assign every non-dash cell with its naira override, then **Copy schedule** to the other programmes in the same college (use Select all in this department when the group is one department). Dashes stay unassigned. Blank or 0 amounts are skipped on invoices.
+4. Skip **Full 100% (pay at once)** unless bursary wants a discounted lump sum. The sheet grand total is 1st + 2nd + 3rd + 4th 25%. Students who choose 50% or 75% still receive the next unpaid slices, not a pro-rata of that grand total.
 
 #### Import invoices and wallet history
 
@@ -726,6 +735,8 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.15 | Aug 2026 | Platform team | Course Core/Elective/Required status; JAMB programme selects from the university catalogue; O’level capped at 9 subjects; application fees set in the fee catalog by entry mode; session/level list filters; students add/drop on a dedicated Course registration page |
 | 1.16 | Aug 2026 | Platform team | Removed the staff PG research page; postgraduate applications and research workflows are unchanged |
 | 1.17 | Aug 2026 | Platform team | Clinic visit charges come from Finance fee-catalog Clinic services lines; clinic staff attach quantity only; Medical levy remains the programme schedule |
+| 1.18 | Aug 2026 | Platform team | Programme-schedule fee items (not only tuition) use 1st–4th 25% installment shares; Programme fees assign per-line amounts and copy a schedule within a college |
+| 1.19 | Aug 2026 | Platform team | Every assigned office portal link shows Create/Update/Delete approval settings (not only modules that already have gated actions) |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

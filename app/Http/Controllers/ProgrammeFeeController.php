@@ -242,6 +242,95 @@ class ProgrammeFeeController extends Controller
         return $this->byProgram($request, Program::query()->findOrFail($programId));
     }
 
+    public function copySchedule(Request $request)
+    {
+        abort_unless($request->user()->hasPermission('finance.invoices.manage'), 403);
+
+        $data = $request->validate([
+            'from_program_id' => 'required|integer|exists:programs,id',
+            'to_program_ids' => 'required|array|min:1',
+            'to_program_ids.*' => 'required|integer|exists:programs,id',
+            'replace' => 'sometimes|boolean',
+        ]);
+
+        $fromId = (int) $data['from_program_id'];
+        $toIds = array_values(array_unique(array_map('intval', $data['to_program_ids'])));
+        $toIds = array_values(array_filter($toIds, fn (int $id) => $id !== $fromId));
+        if ($toIds === []) {
+            abort(422, 'Select at least one other programme.');
+        }
+
+        $sourceProgram = Program::query()->with('department')->findOrFail($fromId);
+        $sourceFacultyId = $sourceProgram->department?->faculty_id;
+        $targets = Program::query()->with('department')->whereIn('id', $toIds)->get();
+        if ($targets->count() !== count($toIds)) {
+            abort(422, 'One or more destination programmes were not found.');
+        }
+        if ($sourceFacultyId) {
+            $outside = $targets->first(
+                fn (Program $program) => (int) ($program->department?->faculty_id ?? 0) !== (int) $sourceFacultyId
+            );
+            if ($outside) {
+                abort(422, 'Copy is limited to programmes in the same college as the source.');
+            }
+        }
+
+        $sourceLines = ProgrammeFee::query()
+            ->where('program_id', $fromId)
+            ->orderBy('display_order')
+            ->orderBy('id')
+            ->get();
+        if ($sourceLines->isEmpty()) {
+            abort(422, 'The source programme has no fee lines to copy.');
+        }
+
+        $replace = $request->boolean('replace');
+        $copied = [];
+
+        DB::transaction(function () use ($sourceLines, $toIds, $replace, &$copied) {
+            foreach ($toIds as $toId) {
+                if ($replace) {
+                    ProgrammeFee::query()->where('program_id', $toId)->delete();
+                }
+                foreach ($sourceLines as $index => $line) {
+                    $feeItem = FeeItem::query()->find($line->fee_item_id);
+                    if (! $feeItem || ! FeeSchedule::isScheduleCategory((string) $feeItem->category)) {
+                        continue;
+                    }
+                    $row = ProgrammeFee::query()->updateOrCreate(
+                        [
+                            'program_id' => $toId,
+                            'fee_item_id' => $line->fee_item_id,
+                            'level_code' => $line->level_code ?: 'all',
+                            'semester' => $line->semester ?: 'both',
+                        ],
+                        [
+                            'amount' => $line->amount,
+                            'display_order' => $line->display_order ?? ($index + 1),
+                            'is_active' => (bool) $line->is_active,
+                        ]
+                    );
+                    $copied[] = $row->id;
+                }
+                $this->syncProgramTuitionCache($toId);
+            }
+        });
+
+        $this->audit->record('programme_fee.copied', 'Programme fee schedule copied', 'fees', 'program', $fromId, null, [
+            'from_program_id' => $fromId,
+            'to_program_ids' => $toIds,
+            'replace' => $replace,
+            'ids' => $copied,
+        ]);
+
+        return [
+            'from_program_id' => $fromId,
+            'to_program_ids' => $toIds,
+            'copied_lines' => $sourceLines->count(),
+            'programmes' => count($toIds),
+        ];
+    }
+
     /**
      * @return array<string, mixed>
      */

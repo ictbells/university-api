@@ -84,6 +84,58 @@ class TuitionInstallmentTrancheTest extends TestCase
         $this->assertEquals(5000.0, (float) $invoice->items->first()->amount);
     }
 
+    public function test_non_tuition_schedule_lines_bill_with_their_slice(): void
+    {
+        $student = $this->activeStudent();
+        $tuition = FeeItem::query()->create([
+            'name' => 'Tuition 1st 25%',
+            'category' => 'tuition',
+            'installment_tranche' => 1,
+            'amount' => 10000,
+            'is_active' => true,
+        ]);
+        $ict = FeeItem::query()->create([
+            'name' => 'ICT 2nd 25%',
+            'category' => 'ict',
+            'installment_tranche' => 2,
+            'amount' => 5000,
+            'is_active' => true,
+        ]);
+        $lab = FeeItem::query()->create([
+            'name' => 'Laboratory 3rd 25%',
+            'category' => 'laboratory',
+            'installment_tranche' => 3,
+            'amount' => 8000,
+            'is_active' => true,
+        ]);
+        foreach ([$tuition, $ict, $lab] as $fee) {
+            $student->program->programmeFees()->create([
+                'fee_item_id' => $fee->id,
+                'amount' => null,
+                'level_code' => 'all',
+                'semester' => 'both',
+                'is_active' => true,
+            ]);
+        }
+
+        $service = app(InvoiceService::class);
+        $first = $service->createTuitionInvoice($student->fresh(['program']), 25);
+        $this->assertEquals(10000.0, (float) $first->amount);
+        $this->assertCount(1, $first->items);
+        $this->assertEquals($tuition->id, $first->items->first()->fee_item_id);
+
+        $first->update(['status' => 'paid', 'balance' => 0]);
+        $second = $service->createTuitionInvoice($student->fresh(['program']), 50);
+        $this->assertEquals(5000.0, (float) $second->amount);
+        $this->assertCount(1, $second->items);
+        $this->assertEquals($ict->id, $second->items->first()->fee_item_id);
+
+        $second->update(['status' => 'paid', 'balance' => 0]);
+        $third = $service->createTuitionInvoice($student->fresh(['program']), 75);
+        $this->assertEquals(8000.0, (float) $third->amount);
+        $this->assertEquals($lab->id, $third->items->first()->fee_item_id);
+    }
+
     /**
      * @return array{0: Student, 1: array<int, FeeItem>}
      */

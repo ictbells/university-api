@@ -58,7 +58,7 @@ class ProgrammeFeeScheduleTest extends TestCase
             ->assertJsonCount(2, 'data');
     }
 
-    public function test_fee_catalog_keeps_installment_share_on_tuition_only(): void
+    public function test_fee_catalog_keeps_installment_share_on_schedule_categories(): void
     {
         [$staff] = $this->seedSchedule(assign: false, syncNav: false);
         Sanctum::actingAs($staff);
@@ -73,13 +73,80 @@ class ProgrammeFeeScheduleTest extends TestCase
             ->assertJsonPath('installment_tranche', 1);
 
         $this->postJson('/api/fees', [
-            'name' => 'Library',
+            'name' => 'ICT 2nd 25%',
             'category' => 'library',
             'amount' => 3000,
+            'installment_tranche' => 2,
+            'is_active' => true,
+        ])->assertCreated()
+            ->assertJsonPath('installment_tranche', 2);
+
+        $this->postJson('/api/fees', [
+            'name' => 'UTME application',
+            'category' => 'application_fee',
+            'entry_mode' => 'utme',
+            'amount' => 5000,
             'installment_tranche' => 1,
             'is_active' => true,
         ])->assertCreated()
             ->assertJsonPath('installment_tranche', null);
+    }
+
+    public function test_copy_schedule_to_programmes_in_the_same_college(): void
+    {
+        [$staff, $program, $tuition, $clinic] = $this->seedSchedule();
+        $peer = Program::query()->create([
+            'department_id' => $program->department_id,
+            'name' => 'B.Sc Information Technology',
+            'code' => 'BSC-IT',
+            'award_type' => 'B.Sc',
+            'study_level' => 'undergraduate',
+            'entry_modes' => ['utme'],
+            'duration_years' => 4,
+            'is_active' => true,
+        ]);
+        Sanctum::actingAs($staff);
+
+        $this->postJson('/api/programme-fees/copy', [
+            'from_program_id' => $program->id,
+            'to_program_ids' => [$peer->id],
+        ])
+            ->assertOk()
+            ->assertJsonPath('programmes', 1)
+            ->assertJsonPath('copied_lines', 2);
+
+        $copied = $this->getJson('/api/programme-fees/program/'.$peer->id)
+            ->assertOk()
+            ->json('data');
+        $this->assertCount(2, $copied);
+        $this->assertEqualsCanonicalizing(
+            [$tuition->id, $clinic->id],
+            array_column($copied, 'fee_item_id'),
+        );
+    }
+
+    public function test_copy_schedule_rejects_a_programme_in_another_college(): void
+    {
+        [$staff, $program] = $this->seedSchedule();
+        $otherCampus = Campus::query()->create(['name' => 'West', 'is_active' => true]);
+        $otherFaculty = Faculty::query()->create(['campus_id' => $otherCampus->id, 'name' => 'College of Engineering']);
+        $otherDepartment = Department::query()->create(['faculty_id' => $otherFaculty->id, 'name' => 'Civil']);
+        $other = Program::query()->create([
+            'department_id' => $otherDepartment->id,
+            'name' => 'B.Eng Civil',
+            'code' => 'BENG-CV',
+            'award_type' => 'B.Eng',
+            'study_level' => 'undergraduate',
+            'entry_modes' => ['utme'],
+            'duration_years' => 5,
+            'is_active' => true,
+        ]);
+        Sanctum::actingAs($staff);
+
+        $this->postJson('/api/programme-fees/copy', [
+            'from_program_id' => $program->id,
+            'to_program_ids' => [$other->id],
+        ])->assertStatus(422);
     }
 
     /**
