@@ -10,6 +10,7 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Services\ApplicationStartService;
 use App\Services\AuditWriter;
+use App\Services\InvoiceService;
 use App\Services\PremblyService;
 use App\Services\StaffNavResolver;
 use App\Services\StaffOfficePlacement;
@@ -44,6 +45,7 @@ class AuthController extends Controller
         private TwoFactorChallengeService $twoFactor,
         private PremblyService $prembly,
         private ApplicationStartService $applicationStart,
+        private InvoiceService $invoices,
     ) {}
 
     public function previewNin(Request $request): JsonResponse
@@ -342,6 +344,15 @@ class AuthController extends Controller
             'latestApplication.intake.term.session',
             'latestNinVerification',
         ]);
+        if ($user->latestApplication) {
+            $this->invoices->ensureAcceptanceInvoiceIfOffered($user->latestApplication);
+            $user->unsetRelation('latestApplication');
+            $user->load([
+                'latestApplication.applicationFeeInvoice',
+                'latestApplication.acceptanceFeeInvoice',
+                'latestApplication.intake.term.session',
+            ]);
+        }
         $nav = $this->navResolver->resolve($user);
         $staff = $user->staff;
         if ($staff) {

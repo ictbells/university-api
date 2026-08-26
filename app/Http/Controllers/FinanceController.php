@@ -331,6 +331,10 @@ class FinanceController extends Controller
 
     public function invoices(Request $request)
     {
+        if ($application = $request->user()?->latestApplication) {
+            $this->invoices->ensureAcceptanceInvoiceIfOffered($application);
+        }
+
         $perPage = min(50, max(10, (int) $request->input('per_page', 25)));
 
         return $this->invoiceListQuery($request)->paginate($perPage);

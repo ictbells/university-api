@@ -327,6 +327,25 @@ class InvoiceService
         throw new RuntimeException('Set an acceptance fee in the fee catalog for this entry mode, or on the application session, before students can pay.');
     }
 
+    public function ensureAcceptanceInvoiceIfOffered(Application $application): ?Invoice
+    {
+        if (! in_array($application->stage, ['offer_issued', 'awaiting_acceptance_fee', 'admission'], true)) {
+            return $application->acceptanceFeeInvoice;
+        }
+
+        try {
+            $invoice = $this->ensureAcceptanceFeeInvoice($application);
+            $application->unsetRelation('acceptanceFeeInvoice');
+            $application->setRelation('acceptanceFeeInvoice', $invoice);
+
+            return $invoice;
+        } catch (\Throwable $e) {
+            report($e);
+
+            return $application->acceptanceFeeInvoice;
+        }
+    }
+
     public function ensureAcceptanceFeeInvoice(Application $application, ?float $amountOverride = null): Invoice
     {
         $application->loadMissing(['user', 'intake', 'acceptanceFeeInvoice']);
@@ -365,6 +384,8 @@ class InvoiceService
             'acceptance_fee_invoice_id' => $invoice->id,
             'stage' => $stage,
         ]);
+        $application->unsetRelation('acceptanceFeeInvoice');
+        $application->setRelation('acceptanceFeeInvoice', $invoice);
 
         return $invoice->fresh();
     }

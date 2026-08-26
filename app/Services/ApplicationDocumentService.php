@@ -102,6 +102,9 @@ class ApplicationDocumentService
         ])->filter()->implode(' ')) ?: ($application->user?->name ?? 'Applicant');
 
         $fee = $application->acceptanceFeeInvoice;
+        if ($fee && ! in_array($fee->status, ['unpaid', 'partial', 'paid'], true)) {
+            $fee = null;
+        }
         if (! $fee) {
             try {
                 $amount = app(InvoiceService::class)->resolveAcceptanceFeeAmount($application->intake);

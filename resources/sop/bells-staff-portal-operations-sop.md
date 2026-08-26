@@ -493,7 +493,7 @@ After import, the applicant signs in on the student portal with **application nu
 ### 8.6 Academic — Courses and exam clearance
 
 - **Course catalog** — Course catalogue with Core / Elective / Required status; bulk spreadsheet import (`academic.courses.manage`).
-- **Programme courses** — Assign catalog courses to a programme by college, department, and admission category (Undergraduate / JUPEB / Postgraduate). Students on that programme can register only from current-term offerings of the mapped courses (`academic.programmes.manage`).
+- **Programme courses** — Assign catalog courses to a programme by college, department, and admission category (UTME, Direct Entry, JUPEB, Transfer, Postgraduate). A programme that accepts several categories appears under each of them. Students on that programme can register only from current-term offerings of the mapped courses (`academic.programmes.manage`).
 - **Offerings** — Course offerings per session (`academic.offerings.manage`). Filter by admission session and study level.
 - **Course registration** — Staff view of student enrolments (`academic.enrollments.manage`). Students start add/drop on the student portal **Course registration** page. They must have paid at least 25% tuition before Register/Drop succeed; the catalogue stays visible while they are blocked. Staff can still register below that threshold when they provide a reason. Unit usage is shown on **one row** (General | Faculty | Departmental | Overall). Search the student picker by session and level.
 - **Unit limits** — Credit-unit caps (`academic.enrollments.manage`). Filter by session and level.

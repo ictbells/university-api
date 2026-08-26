@@ -252,7 +252,8 @@ class ApplicationController extends Controller
     public function offerLetter(Request $request, Application $application): Response
     {
         $this->authorizeView($request, $application);
-        $html = $this->documents->admissionLetterHtml($application);
+        $this->ensureAcceptanceInvoiceIfOffered($application);
+        $html = $this->documents->admissionLetterHtml($application->fresh(['acceptanceFeeInvoice']));
         $filename = 'admission-letter-'.str_replace('/', '-', (string) $application->offer_reference).'.html';
         $headers = ['Content-Type' => 'text/html; charset=UTF-8'];
         if ($request->boolean('download')) {
@@ -830,18 +831,7 @@ class ApplicationController extends Controller
 
     private function ensureAcceptanceInvoiceIfOffered(Application $application): void
     {
-        if ($application->acceptance_fee_invoice_id) {
-            return;
-        }
-        if (! in_array($application->stage, ['offer_issued', 'awaiting_acceptance_fee', 'admission'], true)) {
-            return;
-        }
-
-        try {
-            $this->invoices->ensureAcceptanceFeeInvoice($application);
-        } catch (\Throwable $e) {
-            report($e);
-        }
+        $this->invoices->ensureAcceptanceInvoiceIfOffered($application);
     }
 
     /**

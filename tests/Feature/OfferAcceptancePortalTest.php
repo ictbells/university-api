@@ -25,7 +25,7 @@ class OfferAcceptancePortalTest extends TestCase
         $this->getJson('/api/me')
             ->assertOk()
             ->assertJsonPath('unpaid_acceptance_fee', true)
-            ->assertJsonPath('lifecycle_stage', 'offer_issued');
+            ->assertJsonPath('lifecycle_stage', 'awaiting_acceptance_fee');
     }
 
     public function test_me_flags_unpaid_acceptance_when_invoice_is_outstanding(): void
@@ -106,6 +106,110 @@ class OfferAcceptancePortalTest extends TestCase
 
         $response = $this->getJson("/api/applications/{$user->latestApplication->id}")->assertOk();
         $this->assertEquals(7000, (float) $response->json('acceptance_fee_invoice.amount'));
+    }
+
+    public function test_opening_the_file_replaces_disabled_acceptance_invoice_with_updated_amount(): void
+    {
+        $user = $this->applicantWithOffer('awaiting_acceptance_fee', 5000);
+        $application = $user->latestApplication;
+        $old = Invoice::query()->create([
+            'number' => 'ACC-WRONG',
+            'user_id' => $user->id,
+            'application_id' => $application->id,
+            'category' => 'acceptance_fee',
+            'amount' => 5000,
+            'balance' => 5000,
+            'status' => 'cancelled',
+            'disabled_reason' => 'Wrong acceptance amount',
+        ]);
+        $application->update(['acceptance_fee_invoice_id' => $old->id]);
+        \App\Models\FeeItem::query()->create([
+            'name' => 'Acceptance',
+            'category' => 'acceptance_fee',
+            'amount' => 12000,
+            'is_active' => true,
+            'wallet_allowed' => false,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->getJson("/api/applications/{$application->id}")->assertOk();
+        $this->assertSame('unpaid', $response->json('acceptance_fee_invoice.status'));
+        $this->assertEquals(12000, (float) $response->json('acceptance_fee_invoice.amount'));
+        $this->assertNotEquals($old->id, $response->json('acceptance_fee_invoice.id'));
+        $this->assertSame(
+            (int) $response->json('acceptance_fee_invoice.id'),
+            (int) $application->fresh()->acceptance_fee_invoice_id,
+        );
+        $this->assertSame('cancelled', $old->fresh()->status);
+        $this->assertEquals(5000, (float) $old->fresh()->amount);
+    }
+
+    public function test_invoices_list_replaces_disabled_acceptance_invoice(): void
+    {
+        $user = $this->applicantWithOffer('awaiting_acceptance_fee', 5000);
+        $application = $user->latestApplication;
+        $old = Invoice::query()->create([
+            'number' => 'ACC-DISABLED',
+            'user_id' => $user->id,
+            'application_id' => $application->id,
+            'category' => 'acceptance_fee',
+            'amount' => 5000,
+            'balance' => 5000,
+            'status' => 'cancelled',
+            'disabled_reason' => 'Wrong acceptance amount',
+        ]);
+        $application->update(['acceptance_fee_invoice_id' => $old->id]);
+        \App\Models\FeeItem::query()->create([
+            'name' => 'Acceptance',
+            'category' => 'acceptance_fee',
+            'amount' => 15000,
+            'is_active' => true,
+            'wallet_allowed' => false,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->getJson('/api/invoices')->assertOk();
+        $rows = collect($response->json('data') ?? $response->json());
+        $live = $rows->first(
+            fn ($row) => ($row['category'] ?? null) === 'acceptance_fee' && ($row['status'] ?? null) === 'unpaid',
+        );
+        $this->assertNotNull($live);
+        $this->assertNotEquals($old->id, $live['id']);
+        $this->assertEquals(15000, (float) $live['amount']);
+        $this->assertSame('cancelled', $old->fresh()->status);
+        $this->assertSame((int) $live['id'], (int) $application->fresh()->acceptance_fee_invoice_id);
+    }
+
+    public function test_live_unpaid_acceptance_invoice_is_not_replaced_when_catalog_changes(): void
+    {
+        $user = $this->applicantWithOffer('awaiting_acceptance_fee', 5000);
+        $application = $user->latestApplication;
+        $live = Invoice::query()->create([
+            'number' => 'ACC-LIVE',
+            'user_id' => $user->id,
+            'application_id' => $application->id,
+            'category' => 'acceptance_fee',
+            'amount' => 5000,
+            'balance' => 5000,
+            'status' => 'unpaid',
+        ]);
+        $application->update(['acceptance_fee_invoice_id' => $live->id]);
+        \App\Models\FeeItem::query()->create([
+            'name' => 'Acceptance',
+            'category' => 'acceptance_fee',
+            'amount' => 20000,
+            'is_active' => true,
+            'wallet_allowed' => false,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->getJson("/api/applications/{$application->id}")->assertOk();
+        $this->assertSame($live->id, $response->json('acceptance_fee_invoice.id'));
+        $this->assertEquals(5000, (float) $response->json('acceptance_fee_invoice.amount'));
+        $this->assertSame('unpaid', $response->json('acceptance_fee_invoice.status'));
     }
 
     public function test_me_does_not_flag_acceptance_after_fee_is_paid(): void
