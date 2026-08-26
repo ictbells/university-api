@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AcademicLevel;
 use App\Models\AcademicTerm;
+use App\Models\Course;
 use App\Models\CourseOffering;
 use App\Models\Enrollment;
 use App\Models\Invoice;
@@ -130,14 +131,7 @@ class CourseRegistrationService
                     'unlimited' => $offering->hasUnlimitedCapacity(),
                     'bucket' => $offering->course?->course_type ?: 'departmental',
                     'required' => ($offering->course?->status ?: 'core') === 'required',
-                    'course' => [
-                        'id' => $offering->course?->id,
-                        'code' => $offering->course?->code,
-                        'title' => $offering->course?->title,
-                        'units' => (int) $offering->course?->units,
-                        'course_type' => $offering->course?->course_type,
-                        'status' => $offering->course?->status ?: 'core',
-                    ],
+                    'course' => $this->serializeCourse($offering->course),
                     'lecturer' => $offering->lecturer_display_name,
                 ];
             })
@@ -299,6 +293,33 @@ class CourseRegistrationService
         $this->workflows->completeEnrolmentIfRegistered($student, (string) ($context['roster_status'] ?? ''));
 
         return $enrollment;
+    }
+
+    /**
+     * @param  list<int>  $offeringIds
+     */
+    public function registerMany(Student $student, array $offeringIds, User $actor): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $offeringIds)));
+        if ($ids === []) {
+            $this->fail('course_offering_ids', 'Select at least one course to register.');
+        }
+
+        $offerings = CourseOffering::query()
+            ->with(['course', 'term'])
+            ->whereIn('id', $ids)
+            ->get();
+        if ($offerings->count() !== count($ids)) {
+            $this->fail('course_offering_ids', 'One of the selected courses is not available.');
+        }
+
+        return DB::transaction(function () use ($offerings, $student, $actor) {
+            foreach ($offerings as $offering) {
+                $this->register($student, $offering, $actor, false);
+            }
+
+            return $this->context($student->fresh(), ensureCarryOvers: false);
+        });
     }
 
     public function drop(Enrollment $enrollment, User $actor, bool $asStaff = false, ?string $reason = null): Enrollment
@@ -711,7 +732,7 @@ class CourseRegistrationService
     private function enrolledRows(Student $student, AcademicTerm $term): Collection
     {
         return Enrollment::query()
-            ->with(['offering.course.department.faculty', 'grade'])
+            ->with(['offering.course.department.faculty', 'offering.course.programs', 'grade'])
             ->where('student_id', $student->id)
             ->enrolled()
             ->whereHas('offering', fn ($query) => $query->where('academic_term_id', $term->id))
@@ -932,6 +953,43 @@ class CourseRegistrationService
         return array_values(array_diff(array_keys($failed), array_keys($passed)));
     }
 
+    /**
+     * @return array{id: ?int, code: ?string, title: ?string, units: int, course_type: ?string, status: string, programs: list<array{id: int, name: string, code: ?string}>}
+     */
+    private function serializeCourse(?Course $course): array
+    {
+        if (! $course) {
+            return [
+                'id' => null,
+                'code' => null,
+                'title' => null,
+                'units' => 0,
+                'course_type' => 'departmental',
+                'status' => 'core',
+                'programs' => [],
+            ];
+        }
+
+        $course->loadMissing('programs');
+
+        return [
+            'id' => $course->id,
+            'code' => $course->code,
+            'title' => $course->title,
+            'units' => (int) $course->units,
+            'course_type' => $course->course_type,
+            'status' => $course->status ?: 'core',
+            'programs' => $course->programs
+                ->map(fn ($program) => [
+                    'id' => $program->id,
+                    'name' => $program->name,
+                    'code' => $program->code,
+                ])
+                ->values()
+                ->all(),
+        ];
+    }
+
     private function serializeEnrollment(Enrollment $row): array
     {
         return [
@@ -945,14 +1003,7 @@ class CourseRegistrationService
                 'id' => $row->offering?->id,
                 'section' => $row->offering?->section,
                 'academic_term_id' => $row->offering?->academic_term_id,
-                'course' => [
-                    'id' => $row->offering?->course?->id,
-                    'code' => $row->offering?->course?->code,
-                    'title' => $row->offering?->course?->title,
-                    'units' => (int) $row->offering?->course?->units,
-                    'course_type' => $row->offering?->course?->course_type,
-                    'status' => $row->offering?->course?->status ?: 'core',
-                ],
+                'course' => $this->serializeCourse($row->offering?->course),
             ],
             'grade' => $row->grade ? [
                 'letter' => $row->grade->letter,

@@ -111,11 +111,16 @@ class CourseRegistrationController extends Controller
     {
         $this->denyStaff($request);
         $data = $request->validate([
-            'course_offering_id' => 'required|exists:course_offerings,id',
+            'course_offering_id' => 'required_without:course_offering_ids|exists:course_offerings,id',
+            'course_offering_ids' => 'required_without:course_offering_id|array|min:1',
+            'course_offering_ids.*' => 'integer|distinct|exists:course_offerings,id',
         ]);
-        $offering = CourseOffering::query()->findOrFail($data['course_offering_id']);
+        $student = $this->student($request);
+        $ids = isset($data['course_offering_ids'])
+            ? $data['course_offering_ids']
+            : [$data['course_offering_id']];
 
-        return $this->registration->register($this->student($request), $offering, $request->user(), false);
+        return $this->registration->registerMany($student, $ids, $request->user());
     }
 
     public function myDrop(Request $request, Enrollment $enrollment)
