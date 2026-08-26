@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.26  
+**Version:** 1.27  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -337,6 +337,8 @@ The **Applications** section is the active admissions pipeline, split by entry c
 Staff advance complete files through:
 
 `submitted` → `screening` → `verification` → `shortlisting` → `recommended` → `approved` → `offer_issued` → matriculation
+
+When staff issue the offer (`offer_issued`, or postgraduate `admission`), the applicant is emailed at the address on their account. The message includes the programme, session, offer reference, acceptance-fee amount when known, and a link to the student portal to pay within two weeks and print the admission letter. A mail failure is logged and does not block the offer.
 
 Transfer files include a **credit assessment** step after verification (`admissions.credit_assess`). Postgraduate files may include extra PG review steps.
 

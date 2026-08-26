@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\AdmissionOfferMail;
 use App\Models\Application;
 use App\Models\ApplicationDocument;
 use App\Models\Document;
@@ -29,6 +30,8 @@ use App\Support\RegistrationCriteria;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -796,6 +799,25 @@ class ApplicationController extends Controller
                 'status' => 'issued',
             ]
         );
+        $this->sendOfferEmail($application);
+    }
+
+    private function sendOfferEmail(Application $application): void
+    {
+        $user = $application->user;
+        if (! $user?->email) {
+            return;
+        }
+
+        try {
+            Mail::to($user->email)->send(new AdmissionOfferMail($application));
+        } catch (\Throwable $exception) {
+            Log::warning('application.offer_email_failed', [
+                'application_id' => $application->id,
+                'user_id' => $user->id,
+                'message' => $exception->getMessage(),
+            ]);
+        }
     }
 
     public function eligibility(Request $request, Application $application)

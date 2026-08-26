@@ -78,7 +78,6 @@
             <th>Course title</th>
             <th>Status</th>
             <th class="units">Units</th>
-            <th>Note</th>
           </tr>
         </thead>
         <tbody>
@@ -89,7 +88,6 @@
               <td>{{ $row['title'] }}</td>
               <td>{{ $row['status'] }}</td>
               <td class="units">{{ $row['units'] }}</td>
-              <td>{{ $row['carry_over'] ? 'Carry-over' : '' }}</td>
             </tr>
           @endforeach
         </tbody>
