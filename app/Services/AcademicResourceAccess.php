@@ -61,8 +61,12 @@ class AcademicResourceAccess
             return true;
         }
 
-        if (in_array($resourceKey, ['programmes', 'courses'], true)
+        if (in_array($resourceKey, ['programmes', 'courses', 'programme-courses'], true)
             && $user->hasPermission('academic.catalog.manage')) {
+            return true;
+        }
+
+        if ($resourceKey === 'programme-courses' && $user->hasPermission('academic.courses.manage')) {
             return true;
         }
 

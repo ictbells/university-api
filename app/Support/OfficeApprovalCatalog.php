@@ -78,6 +78,7 @@ class OfficeApprovalCatalog
             'academic.store_course' => ['nav_key' => 'courses', 'label' => 'Create course', 'mutation' => self::MUTATION_CREATE],
             'academic.update_course' => ['nav_key' => 'courses', 'label' => 'Update course', 'mutation' => self::MUTATION_UPDATE],
             'academic.destroy_course' => ['nav_key' => 'courses', 'label' => 'Delete course', 'mutation' => self::MUTATION_DELETE],
+            'academic.sync_program_courses' => ['nav_key' => 'programme-courses', 'label' => 'Assign programme courses', 'mutation' => self::MUTATION_UPDATE],
             'academic.store_campus' => ['nav_key' => 'campuses', 'label' => 'Create campus', 'mutation' => self::MUTATION_CREATE],
             'academic.update_campus' => ['nav_key' => 'campuses', 'label' => 'Update campus', 'mutation' => self::MUTATION_UPDATE],
             'academic.destroy_campus' => ['nav_key' => 'campuses', 'label' => 'Delete campus', 'mutation' => self::MUTATION_DELETE],

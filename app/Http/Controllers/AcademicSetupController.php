@@ -119,7 +119,11 @@ class AcademicSetupController extends Controller
 
     public function programs()
     {
-        return Program::query()->with(['department.faculty', 'courses', 'workflowTemplate.stages'])->orderBy('name')->get();
+        return Program::query()
+            ->with(['department.faculty', 'courses' => fn ($query) => $query->orderBy('code'), 'workflowTemplate.stages'])
+            ->withCount('students')
+            ->orderBy('name')
+            ->get();
     }
 
     public function courses()

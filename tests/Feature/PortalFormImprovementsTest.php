@@ -12,10 +12,13 @@ use App\Models\Faculty;
 use App\Models\FeeItem;
 use App\Models\Intake;
 use App\Models\OlevelSubject;
+use App\Models\Permission;
+use App\Models\Program;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\InvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -100,6 +103,137 @@ class PortalFormImprovementsTest extends TestCase
             ],
         ])->assertStatus(422)
             ->assertJsonValidationErrors(['payload.first_sitting.results']);
+    }
+
+    public function test_olevel_exam_type_is_kept_on_applicant_save_and_printout(): void
+    {
+        $application = $this->formInProgressApplication();
+        $subject = OlevelSubject::query()->create(['name' => 'English Language', 'code' => 'ENG', 'is_active' => true]);
+        Sanctum::actingAs($application->user);
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'academic_qualifications',
+            'payload' => $this->sittingPayload($subject->id),
+        ])->assertOk();
+
+        $payload = $application->fresh(['steps'])->steps->firstWhere('step_key', 'academic_qualifications')?->payload;
+        $this->assertSame('WAEC', $payload['first_sitting']['exam_type'] ?? null);
+        $this->assertSame('Ibadan', $payload['first_sitting']['exam_center'] ?? null);
+
+        $html = $this->get("/api/applications/{$application->id}/form-print")->assertOk()->getContent();
+        $this->assertStringContainsString('WAEC', $html);
+        $this->assertStringContainsString('Ibadan', $html);
+        $this->assertStringContainsString('2019', $html);
+        $this->assertStringContainsString('12345678AB', $html);
+    }
+
+    public function test_staff_update_keeps_olevel_exam_meta(): void
+    {
+        $application = $this->formInProgressApplication();
+        $subject = OlevelSubject::query()->create(['name' => 'English Language', 'code' => 'ENG', 'is_active' => true]);
+        $program = $this->programme();
+        $application->update(['program_id' => $program->id, 'jamb_registration' => '12345678AB']);
+        $application->user->update(['jamb_registration' => '12345678AB']);
+        $application->steps()->where('step_key', 'academic_qualifications')->update([
+            'status' => 'saved',
+            'payload' => $this->sittingPayload($subject->id),
+        ]);
+        $application->steps()->where('step_key', 'programme_selection')->update([
+            'status' => 'saved',
+            'payload' => ['first_choice_program_id' => $program->id],
+        ]);
+
+        Sanctum::actingAs($this->staffUser(['admissions.view']));
+
+        $this->patchJson("/api/applications/{$application->id}", [
+            'email' => $application->user->email,
+            'jamb_registration' => '12345678AB',
+            'first_name' => 'Favour',
+            'last_name' => 'Akinremi',
+            'first_choice_program_id' => $program->id,
+            'first_sitting' => [
+                'exam_type' => 'NECO',
+                'exam_center' => 'Ojoo, Ibadan',
+                'exam_year' => '2020',
+                'exam_number' => 'NECO-999',
+                'results' => [
+                    ['subject_id' => $subject->id, 'subject_name' => 'English Language', 'grade' => 'C6'],
+                ],
+            ],
+        ])->assertOk();
+
+        $payload = $application->fresh(['steps'])->steps->firstWhere('step_key', 'academic_qualifications')?->payload;
+        $this->assertSame('NECO', $payload['first_sitting']['exam_type'] ?? null);
+        $this->assertSame('Ojoo, Ibadan', $payload['first_sitting']['exam_center'] ?? null);
+        $this->assertSame('2020', $payload['first_sitting']['exam_year'] ?? null);
+        $this->assertSame('NECO-999', $payload['first_sitting']['exam_number'] ?? null);
+
+        Sanctum::actingAs($this->staffUser(['admissions.view']));
+        $html = $this->get("/api/applications/{$application->id}/form-print")->assertOk()->getContent();
+        $this->assertStringContainsString('NECO', $html);
+        $this->assertStringContainsString('Ojoo, Ibadan', $html);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function sittingPayload(int $subjectId): array
+    {
+        return [
+            'first_sitting' => [
+                'exam_type' => 'WAEC',
+                'exam_center' => 'Ibadan',
+                'exam_year' => '2019',
+                'exam_number' => '12345678AB',
+                'results' => [
+                    ['subject_id' => $subjectId, 'subject_name' => 'English Language', 'grade' => 'C6'],
+                ],
+            ],
+        ];
+    }
+
+    private function programme(): Program
+    {
+        $department = $this->department();
+
+        return Program::query()->create([
+            'department_id' => $department->id,
+            'name' => 'B.Sc Computer Science',
+            'code' => 'CSC',
+            'award_type' => 'B.Sc',
+            'study_level' => 'undergraduate',
+            'entry_modes' => ['utme'],
+            'duration_years' => 4,
+            'is_active' => true,
+        ]);
+    }
+
+    /**
+     * @param  list<string>  $permissions
+     */
+    private function staffUser(array $permissions): User
+    {
+        foreach ($permissions as $key) {
+            Permission::query()->updateOrCreate(
+                ['key' => $key],
+                ['module' => 'admissions', 'label' => $key],
+            );
+        }
+
+        $role = Role::query()->create([
+            'name' => 'Admissions tester',
+            'slug' => 'admissions-tester-'.Str::lower(Str::random(8)),
+            'is_system' => false,
+            'is_active' => true,
+        ]);
+        $role->permissions()->sync(
+            Permission::query()->whereIn('key', $permissions)->pluck('id')
+        );
+
+        $user = User::factory()->create();
+        $user->roles()->attach($role->id);
+
+        return $user->fresh(['roles.permissions']);
     }
 
     private function department(): Department

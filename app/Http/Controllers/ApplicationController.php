@@ -201,10 +201,8 @@ class ApplicationController extends Controller
             'sponsor_address' => 'nullable|string|max:500',
             'other_qualifications' => 'nullable|string|max:2000',
             'utme' => 'nullable|array',
-            'first_sitting' => 'nullable|array',
-            'first_sitting.results' => 'nullable|array|max:9',
-            'second_sitting' => 'nullable|array',
-            'second_sitting.results' => 'nullable|array|max:9',
+            ...$this->sittingValidationRules('first_sitting'),
+            ...$this->sittingValidationRules('second_sitting'),
             'prior_degrees' => 'nullable|array',
             'nysc_status' => 'nullable|string',
             'nysc_number' => 'nullable|string|max:80',
@@ -885,6 +883,24 @@ class ApplicationController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function sittingValidationRules(string $prefix): array
+    {
+        return [
+            $prefix => 'nullable|array',
+            $prefix.'.exam_type' => 'nullable|string|in:WAEC,NECO,GCE,NABTEB,Other',
+            $prefix.'.exam_center' => 'nullable|string|max:150',
+            $prefix.'.exam_year' => 'nullable|string|max:10',
+            $prefix.'.exam_number' => 'nullable|string|max:50',
+            $prefix.'.results' => 'nullable|array|max:9',
+            $prefix.'.results.*.subject_id' => 'nullable|integer',
+            $prefix.'.results.*.subject_name' => 'nullable|string|max:120',
+            $prefix.'.results.*.grade' => 'nullable|string|max:10',
+        ];
     }
 
     private function authorizeOwner(Request $request, Application $application): void

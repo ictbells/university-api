@@ -237,8 +237,11 @@ class ApplicationDocumentService
             return null;
         }
 
-        $sitting['exam_type'] = $sitting['exam_type'] ?? $sitting['exam_type'] ?? null;
-        $sitting['exam_center'] = $sitting['exam_center'] ?? $sitting['exam_center'] ?? ($sitting['exam_centre'] ?? null);
+        $sitting['exam_type'] = $sitting['exam_type'] ?? $sitting['examType'] ?? null;
+        $sitting['exam_center'] = $sitting['exam_center']
+            ?? $sitting['exam_centre']
+            ?? $sitting['examCenter']
+            ?? null;
         $sitting['exam_year'] = $sitting['exam_year'] ?? null;
         $sitting['exam_number'] = $sitting['exam_number'] ?? null;
         $sitting['results'] = array_map(function ($row) {

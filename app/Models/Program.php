@@ -43,6 +43,11 @@ class Program extends BaseModel
             ->withTimestamps();
     }
 
+    public function students(): HasMany
+    {
+        return $this->hasMany(Student::class);
+    }
+
     public function programmeFees(): HasMany
     {
         return $this->hasMany(ProgrammeFee::class);

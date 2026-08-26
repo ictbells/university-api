@@ -32,7 +32,9 @@ class CourseOfferingController extends Controller
         ListSessionLevelFilter::applyLevelToCoursePrograms($query, $request, 'course');
 
         return $query->orderByDesc('id')->get()->map(function (CourseOffering $offering) {
-            $offering->setAttribute('seats_left', max(0, (int) $offering->capacity - (int) $offering->enrolled_count));
+            $taken = (int) $offering->enrolled_count;
+            $offering->setAttribute('seats_left', $offering->seatsLeft($taken));
+            $offering->setAttribute('unlimited', $offering->hasUnlimitedCapacity());
 
             return $offering;
         });
@@ -44,10 +46,13 @@ class CourseOfferingController extends Controller
             'course_id' => 'required|exists:courses,id',
             'academic_term_id' => 'required|exists:academic_terms,id',
             'faculty_staff_id' => 'nullable|exists:staff,id',
+            'lecturer_name' => 'nullable|string|max:190',
             'section' => 'nullable|string|max:20',
-            'capacity' => 'required|integer|min:1|max:1000',
+            'capacity' => 'nullable|integer|min:1|max:1000',
         ]);
         $data['section'] = $data['section'] ?? 'A';
+        $data['lecturer_name'] = $this->normalizedLecturerName($data['lecturer_name'] ?? null);
+        $data['capacity'] = $this->normalizedCapacity($data['capacity'] ?? null);
 
         $exists = CourseOffering::query()
             ->where('course_id', $data['course_id'])
@@ -73,9 +78,16 @@ class CourseOfferingController extends Controller
             'course_id' => 'sometimes|exists:courses,id',
             'academic_term_id' => 'sometimes|exists:academic_terms,id',
             'faculty_staff_id' => 'nullable|exists:staff,id',
+            'lecturer_name' => 'nullable|string|max:190',
             'section' => 'nullable|string|max:20',
-            'capacity' => 'sometimes|integer|min:1|max:1000',
+            'capacity' => 'nullable|integer|min:1|max:1000',
         ]);
+        if (array_key_exists('lecturer_name', $data)) {
+            $data['lecturer_name'] = $this->normalizedLecturerName($data['lecturer_name']);
+        }
+        if (array_key_exists('capacity', $data)) {
+            $data['capacity'] = $this->normalizedCapacity($data['capacity']);
+        }
         return $this->officeGate('academic.update_offering', $offering, ['offering_id' => $offering->id, ...$data], 'Update course offering', function () use ($offering, $data, $before) {
             $offering->update($data);
             $this->audit->record('offering.updated', 'Course offering updated', 'academic', 'course_offering', $offering->id, $before, $offering);
@@ -104,6 +116,24 @@ class CourseOfferingController extends Controller
             ->with('user:id,name,email')
             ->orderBy('id')
             ->get(['id', 'user_id', 'staff_number', 'title']);
+    }
+
+    private function normalizedLecturerName(mixed $value): ?string
+    {
+        $name = trim((string) $value);
+
+        return $name === '' ? null : $name;
+    }
+
+    private function normalizedCapacity(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $capacity = (int) $value;
+
+        return $capacity < 1 ? null : $capacity;
     }
 
     public function courses()

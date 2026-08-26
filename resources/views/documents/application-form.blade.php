@@ -53,7 +53,31 @@
     th, td { text-align: left; padding: 7px 0; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
     th { color: #64748b; font-weight: 500; width: 38%; }
     .identity { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 18px; }
-    .identity .meta { flex: 1; margin-bottom: 0; }
+    .identity-body { flex: 1; min-width: 0; }
+    .identity .meta { margin-bottom: 0; }
+    .choices {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 16px;
+      margin-top: 12px;
+    }
+    .choice-col {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 10px 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #f8fafc;
+    }
+    .choice-heading {
+      margin: 0 0 2px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #0369a1;
+    }
     .photo {
       width: 110px;
       height: 130px;
@@ -102,20 +126,27 @@
       @if ($photoUri)
         <img class="photo" src="{{ $photoUri }}" alt="Passport photograph">
       @endif
+      <div class="identity-body">
       <div class="meta">
       <div><span class="label">Application number:</span> <span class="value">{{ $application->application_number ?: '—' }}</span></div>
       <div><span class="label">JAMB registration:</span> <span class="value">{{ $application->jamb_registration ?: $application->user?->jamb_registration ?: '—' }}</span></div>
       <div><span class="label">Entry mode:</span> <span class="value">{{ strtoupper((string) $application->entry_mode) }}</span></div>
       <div><span class="label">Session:</span> <span class="value">{{ $application->intake?->term?->session_label ?: '—' }}</span></div>
-      <div><span class="label">1st choice:</span> <span class="value">{{ $first_choice ?: ($programme ?: '—') }}</span></div>
-      <div><span class="label">2nd choice:</span> <span class="value">{{ $second_choice ?: '—' }}</span></div>
-      <div><span class="label">College:</span> <span class="value">{{ $college ?: '—' }}</span></div>
-      <div><span class="label">Department:</span> <span class="value">{{ $department ?: '—' }}</span></div>
-      <div><span class="label">Programme:</span> <span class="value">{{ $programme ?: '—' }}</span></div>
-      @if (!empty($second_choice))
-        <div><span class="label">2nd college:</span> <span class="value">{{ $second_choice_college ?: '—' }}</span></div>
-        <div><span class="label">2nd department:</span> <span class="value">{{ $second_choice_department ?: '—' }}</span></div>
-      @endif
+      </div>
+      <div class="choices">
+        <div class="choice-col">
+          <p class="choice-heading">1st choice</p>
+          <div><span class="label">Programme:</span> <span class="value">{{ $first_choice ?: ($programme ?: '—') }}</span></div>
+          <div><span class="label">College:</span> <span class="value">{{ $first_choice_college ?: ($college ?: '—') }}</span></div>
+          <div><span class="label">Department:</span> <span class="value">{{ $first_choice_department ?: ($department ?: '—') }}</span></div>
+        </div>
+        <div class="choice-col">
+          <p class="choice-heading">2nd choice</p>
+          <div><span class="label">Programme:</span> <span class="value">{{ $second_choice ?: '—' }}</span></div>
+          <div><span class="label">College:</span> <span class="value">{{ $second_choice_college ?: '—' }}</span></div>
+          <div><span class="label">Department:</span> <span class="value">{{ $second_choice_department ?: '—' }}</span></div>
+        </div>
+      </div>
       </div>
     </div>
 
@@ -179,8 +210,8 @@
     @foreach ($sittings as $sitting)
       <h2>{{ $sitting['label'] }}</h2>
       <table>
-        <tr><th>Exam type</th><td>{{ $sitting['data']['exam_type'] ?? $sitting['data']['exam_type'] ?? '—' }}</td></tr>
-        <tr><th>Exam centre</th><td>{{ $sitting['data']['exam_center'] ?? $sitting['data']['exam_center'] ?? '—' }}</td></tr>
+        <tr><th>Exam type</th><td>{{ $sitting['data']['exam_type'] ?? '—' }}</td></tr>
+        <tr><th>Exam centre</th><td>{{ $sitting['data']['exam_center'] ?? $sitting['data']['exam_centre'] ?? '—' }}</td></tr>
         <tr><th>Exam year</th><td>{{ $sitting['data']['exam_year'] ?? '—' }}</td></tr>
         <tr><th>Exam number</th><td>{{ $sitting['data']['exam_number'] ?? '—' }}</td></tr>
       </table>

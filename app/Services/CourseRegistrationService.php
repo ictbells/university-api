@@ -122,9 +122,10 @@ class CourseRegistrationService
                 return [
                     'id' => $offering->id,
                     'section' => $offering->section,
-                    'capacity' => (int) $offering->capacity,
+                    'capacity' => $offering->hasUnlimitedCapacity() ? null : (int) $offering->capacity,
                     'taken' => $taken,
-                    'seats_left' => max(0, (int) $offering->capacity - $taken),
+                    'seats_left' => $offering->seatsLeft($taken),
+                    'unlimited' => $offering->hasUnlimitedCapacity(),
                     'bucket' => $offering->course?->course_type ?: 'departmental',
                     'required' => ($offering->course?->status ?: 'core') === 'required',
                     'course' => [
@@ -135,7 +136,7 @@ class CourseRegistrationService
                         'course_type' => $offering->course?->course_type,
                         'status' => $offering->course?->status ?: 'core',
                     ],
-                    'lecturer' => $offering->lecturer?->user?->name,
+                    'lecturer' => $offering->lecturer_display_name,
                 ];
             })
             ->values();
@@ -170,7 +171,7 @@ class CourseRegistrationService
         if ($existing && $existing->status === 'enrolled') {
             $this->fail('offering', 'Already registered for this course.');
         }
-        if ($offering->seatsLeft() <= 0) {
+        if ($offering->isFull()) {
             $this->fail('offering', 'This offering has no seats left.');
         }
 
@@ -807,19 +808,16 @@ class CourseRegistrationService
         if (! $program) {
             return $type === 'general';
         }
-        $course->loadMissing(['department.faculty', 'programs']);
+        $course->loadMissing('programs');
         $linked = $course->programs->firstWhere('id', $program->id);
-        if ($linked && $linked->pivot?->academic_level_id && $level && (int) $linked->pivot->academic_level_id !== (int) $level->id) {
+        if (! $linked) {
             return false;
         }
-        if ($type === 'general') {
-            return true;
-        }
-        if ($type === 'faculty') {
-            return (int) $course->department?->faculty_id === (int) $program->department?->faculty_id;
+        if ($linked->pivot?->academic_level_id && $level && (int) $linked->pivot->academic_level_id !== (int) $level->id) {
+            return false;
         }
 
-        return (int) $course->department_id === (int) $program->department_id;
+        return true;
     }
 
     private function activeExtension(Student $student, AcademicTerm $term): ?RegistrationExtension

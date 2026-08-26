@@ -138,6 +138,50 @@ class AcademicController extends Controller
         });
     }
 
+    public function syncProgramCourses(Request $request, Program $program)
+    {
+        $data = $request->validate([
+            'courses' => 'present|array',
+            'courses.*.course_id' => 'required|integer|exists:courses,id|distinct',
+            'courses.*.academic_level_id' => 'nullable|exists:academic_levels,id',
+        ]);
+
+        $courseIds = collect($data['courses'])->pluck('course_id')->map(fn ($id) => (int) $id)->all();
+        $types = Course::query()->whereIn('id', $courseIds)->pluck('course_type', 'id');
+        $sync = [];
+        foreach ($data['courses'] as $row) {
+            $courseId = (int) $row['course_id'];
+            $sync[$courseId] = [
+                'academic_level_id' => $row['academic_level_id'] ?? null,
+                'bucket' => ($types[$courseId] ?? null) ?: 'departmental',
+            ];
+        }
+
+        $before = $program->courses()->pluck('courses.id')->all();
+
+        return $this->officeGate(
+            'academic.sync_program_courses',
+            $program,
+            ['program_id' => $program->id, 'courses' => $data['courses']],
+            'Assign programme courses',
+            function () use ($program, $sync, $before) {
+                $program->courses()->sync($sync);
+                $this->audit->record(
+                    'program.courses_synced',
+                    'Programme courses assigned',
+                    'academic',
+                    'program',
+                    $program->id,
+                    ['course_ids' => $before],
+                    ['course_ids' => array_keys($sync)],
+                );
+
+                return $program->load(['department.faculty', 'courses' => fn ($query) => $query->orderBy('code')])
+                    ->loadCount('students');
+            },
+        );
+    }
+
     public function destroyProgram(Program $program)
     {
         $before = $program->toArray();

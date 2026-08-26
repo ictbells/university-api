@@ -200,7 +200,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/payments/{payment}/receipt', [FinanceController::class, 'paymentReceipt']);
 
     Route::get('/academic/courses', [AcademicController::class, 'courses'])
-        ->middleware('academic.resource:courses,programmes,offerings,course-registration');
+        ->middleware('academic.resource:courses,programmes,offerings,course-registration,programme-courses');
     Route::get('/academic/my-enrollments', [AcademicController::class, 'myEnrollments']);
     Route::get('/academic/my-registration', [CourseRegistrationController::class, 'myContext']);
     Route::get('/academic/my-registration-context', [CourseRegistrationController::class, 'myContext']);
@@ -281,7 +281,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::delete('/campuses/{campus}', [InstitutionController::class, 'destroyCampus']);
     });
     Route::get('/academic/faculties', [AcademicSetupController::class, 'faculties'])
-        ->middleware('academic.resource:colleges,departments');
+        ->middleware('academic.resource:colleges,departments,programmes,courses,programme-courses');
     Route::middleware('academic.resource:colleges')->group(function () {
         Route::get('/academic/faculties/import-template', [AcademicSetupController::class, 'importFacultiesTemplate']);
         Route::post('/academic/faculties/import', [AcademicSetupController::class, 'importFaculties']);
@@ -290,7 +290,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::delete('/faculties/{faculty}', [InstitutionController::class, 'destroyFaculty']);
     });
     Route::get('/academic/departments', [AcademicSetupController::class, 'departments'])
-        ->middleware('academic.resource:departments,programmes,courses');
+        ->middleware('academic.resource:departments,programmes,courses,programme-courses');
     Route::middleware('academic.resource:departments')->group(function () {
         Route::get('/academic/departments/import-template', [AcademicSetupController::class, 'importDepartmentsTemplate']);
         Route::post('/academic/departments/import', [AcademicSetupController::class, 'importDepartments']);
@@ -317,7 +317,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::delete('/terms/{term}', [InstitutionController::class, 'destroyTerm']);
     });
     Route::get('/academic/levels', [AcademicSetupController::class, 'levelsList'])
-        ->middleware('academic.resource:levels,unit-limits,course-registration');
+        ->middleware('academic.resource:levels,unit-limits,course-registration,programme-courses,programmes');
     Route::middleware('academic.resource:levels')->group(function () {
         Route::post('/academic/levels', [AcademicSetupController::class, 'storeLevel']);
         Route::patch('/academic/levels/{academicLevel}', [AcademicSetupController::class, 'updateLevel']);
@@ -340,7 +340,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::delete('/olevel-subjects/{olevelSubject}', [AcademicSetupController::class, 'destroyOlevelSubject']);
     });
     Route::get('/academic/programs', [AcademicSetupController::class, 'programs'])
-        ->middleware('academic.resource:programmes,courses,offerings,course-registration,unit-limits,graduation');
+        ->middleware('academic.resource:programmes,courses,offerings,course-registration,unit-limits,graduation,programme-courses');
     Route::get('/academic/workflow-templates', [AcademicController::class, 'workflowTemplates'])
         ->middleware('academic.resource:programmes');
     Route::middleware('academic.resource:programmes')->group(function () {
@@ -350,6 +350,8 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::patch('/programs/{program}', [AcademicController::class, 'updateProgram']);
         Route::delete('/programs/{program}', [AcademicController::class, 'destroyProgram']);
     });
+    Route::put('/academic/programs/{program}/courses', [AcademicController::class, 'syncProgramCourses'])
+        ->middleware('academic.resource:programme-courses,programmes,courses');
     Route::middleware('academic.resource:courses')->group(function () {
         Route::get('/academic/courses/import-template', [AcademicController::class, 'importTemplate']);
         Route::post('/academic/courses/import', [AcademicController::class, 'importCourses']);

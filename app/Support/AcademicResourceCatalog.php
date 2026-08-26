@@ -13,6 +13,7 @@ class AcademicResourceCatalog
         'graduation' => 'academic.graduate',
         'levels' => 'academic.levels.manage',
         'courses' => 'academic.courses.manage',
+        'programme-courses' => 'academic.programmes.manage',
         'offerings' => 'academic.offerings.manage',
         'course-registration' => 'academic.enrollments.manage',
         'unit-limits' => 'academic.enrollments.manage',

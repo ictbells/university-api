@@ -29,6 +29,7 @@ class StaffNavCatalog
             ['key' => 'candidate-data', 'section' => 'Academic', 'label' => 'Candidate data', 'perm' => 'admissions.import'],
             ['key' => 'import-applicants', 'section' => 'Academic', 'label' => 'Import applicants', 'perm' => 'admissions.import'],
             ['key' => 'courses', 'section' => 'Academic', 'label' => 'Course catalog', 'perm' => 'academic.courses.manage'],
+            ['key' => 'programme-courses', 'section' => 'Academic', 'label' => 'Programme courses', 'perm' => 'academic.programmes.manage'],
             ['key' => 'offerings', 'section' => 'Academic', 'label' => 'Offerings', 'perm' => 'academic.offerings.manage'],
             ['key' => 'course-registration', 'section' => 'Academic', 'label' => 'Course registration', 'perm' => 'academic.enrollments.manage'],
             ['key' => 'exam-clearance', 'section' => 'Academic', 'label' => 'Exam clearance', 'perm' => 'exam_clearance.view'],

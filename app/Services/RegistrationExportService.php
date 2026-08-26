@@ -181,17 +181,18 @@ class RegistrationExportService
             $drawing->setHeight($logoHeight);
             $drawing->setCoordinates('A'.$logoRow);
 
+            $font = $spreadsheet->getDefaultStyle()->getFont();
             $totalWidthPx = 0;
             foreach ($columns as $column) {
                 $columnWidth = $sheet->getColumnDimension($column)->getWidth();
                 if ($columnWidth <= 0) {
                     $columnWidth = 8.43;
                 }
-                $totalWidthPx += SharedDrawing::cellDimensionToPixels($columnWidth);
+                $totalWidthPx += SharedDrawing::cellDimensionToPixels((float) $columnWidth, $font);
             }
 
             $drawing->setOffsetX(max(0, (int) (($totalWidthPx - $drawing->getWidth()) / 2)));
-            $rowHeightPx = SharedDrawing::pointsToPixels($sheet->getRowDimension($logoRow)->getRowHeight());
+            $rowHeightPx = SharedDrawing::pointsToPixels((float) $sheet->getRowDimension($logoRow)->getRowHeight());
             $drawing->setOffsetY(max(0, (int) (($rowHeightPx - $logoHeight) / 2)));
             $drawing->setWorksheet($sheet);
             $row++;

@@ -203,11 +203,11 @@ When a section (for example Administration) contains a single dropdown whose lab
 
 **Application Setup** contains: Application sessions, Programmes, O'level, Candidate data, Import applicants.
 
-**Courses** contains: Course catalog, Offerings, Course registration, Unit limits, Registration extensions.
+**Courses** contains: Course catalog, Programme courses, Offerings, Course registration, Unit limits, Registration extensions.
 
 **Results** contains: Results dashboard, Result entry, CSV import, Department uploads, Faculty Approval, Board, Release, Grading scale. Grade changes appear under System → Audit (module `results`).
 
-**Fees & payments** contains: Fee catalog (categories + priced lines), Rebates, Programme fees, Generate invoice, Invoices, Students Financial Status, Import invoices, Import wallet history.
+**Fees & payments** contains: Fee categories, Fee items, Rebates, Programme fees, Generate invoice, Invoices, Students Financial Status, Import invoices, Import wallet history.
 
 ### 6.3 Office hierarchy
 
@@ -446,7 +446,7 @@ Leave the field blank unless the programme needs a different path. If none is se
 These are two calendars, not one record with a type flag.
 
 - **Admission session** — Academic → Admission Setup → Academic Sessions. Used by enrolled students (course registration, hostels, session close and promotion). A session becomes the live calendar only when one of its semesters is marked **Current**.
-- **Application session** — Academic → Application Setup → Application sessions (intake). Open when **Accepting applications** is on and today is within the open and close dates. Application form fees are **not** edited here; they live in **Fees & payments → Fee catalog** as `application_fee` lines **per entry mode** (UTME, DE, JUPEB, Transfer, PG). Invoices use the catalog amount and fall back to a stored session amount only if no catalog line exists.
+- **Application session** — Academic → Application Setup → Application sessions (intake). Open when **Accepting applications** is on and today is within the open and close dates. Application form fees are **not** edited here; they live in **Fees & payments → Fee items** as `application_fee` lines **per entry mode** (UTME, DE, JUPEB, Transfer, PG). Invoices use the catalog amount and fall back to a stored session amount only if no catalog line exists.
 
 **Lifecycle for a new year**
 
@@ -489,6 +489,7 @@ After import, the applicant signs in on the student portal with **application nu
 ### 8.6 Academic — Courses and exam clearance
 
 - **Course catalog** — Course catalogue with Core / Elective / Required status; bulk spreadsheet import (`academic.courses.manage`).
+- **Programme courses** — Assign catalog courses to a programme by college, department, and admission category (Undergraduate / JUPEB / Postgraduate). Students on that programme can register only from current-term offerings of the mapped courses (`academic.programmes.manage`).
 - **Offerings** — Course offerings per session (`academic.offerings.manage`). Filter by admission session and study level.
 - **Course registration** — Staff view of student enrolments (`academic.enrollments.manage`). Students start add/drop on the student portal **Course registration** page. They must have paid at least 25% tuition before Register/Drop succeed; the catalogue stays visible while they are blocked. Staff can still register below that threshold when they provide a reason. Unit usage is shown on **one row** (General | Faculty | Departmental | Overall). Search the student picker by session and level.
 - **Unit limits** — Credit-unit caps (`academic.enrollments.manage`). Filter by session and level.
@@ -541,7 +542,7 @@ The fee is quoted only after both programme and type are selected. Finance owns 
 
 **Setup**
 
-1. **Fees & payments → Fee catalog** — create an active **Official transcript** (`transcript`) line for each programme and transcript type you offer. Amount is owned by Finance.
+1. **Fees & payments → Fee items** — create an active **Official transcript** (`transcript`) line for each programme and transcript type you offer. Amount is owned by Finance. Add the **Official transcript** type first under **Fee categories** if it is missing.
 2. **Application settings** — enable **Accept public transcript requests** and at least one delivery mode (collect at Registry, system PDF, staff-uploaded PDF). Optionally edit collection instructions.
 3. **Department Setup** — assign portal links **`transcript-undergraduate`**, **`transcript-jupeb`**, and **`transcript-postgraduate`**, and grant `transcripts.view` / `transcripts.process` (Registrar role includes these when re-seeded).
 
@@ -559,7 +560,7 @@ E-exam sync is not included in this release.
 
 ### 8.7 Services
 
-- **Fees & payments** — **Fee catalog** (categories + priced lines in one screen: **application fees per entry mode**, **official transcript fees per programme and transcript type**, **Clinic services** visit charges, and **tuition installment shares**: separate tuition catalog lines for 1st/2nd/3rd/4th 25% plus optional Full 100% pay-at-once; other categories do not use installment shares), rebates, programme fees, invoice generation, invoices, student financial status, **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices and Generate invoice filter by session and level; Programme fees filter by level. When tuition catalog lines are tagged with installment shares, student tuition invoices bill those fixed amounts (already-paid fee items are skipped); untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices.
+- **Fees & payments** — **Fee categories** (charge types, including programme-schedule vs operational) and **Fee items** (priced lines: **application fees per entry mode**, **official transcript fees per programme and transcript type**, **Clinic services** visit charges, and **tuition installment shares**: separate tuition catalog lines for 1st/2nd/3rd/4th 25% plus optional Full 100% pay-at-once; other categories do not use installment shares), rebates, programme fees, invoice generation, invoices, student financial status, **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices and Generate invoice filter by session and level; Programme fees filter by level. When tuition catalog lines are tagged with installment shares, student tuition invoices bill those fixed amounts (already-paid fee items are skipped); untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices.
 
 #### Import invoices and wallet history
 
@@ -570,7 +571,7 @@ Use these when moving continuing students from another portal. **Do not** invent
 3. **Academic → Admission Setup → Import students.** Select an application session and category. Download the template and copy `programme_id` from the **Programmes** lookup **id** column and `current_level` from **Levels**. Required: email, phone, nin, first_name, last_name, programme_id, matric_number, current_level. Fill `old_application_number` and `jamb_registration` when those ids were used to pay fees. Creates a user (student role), a historical application at stage `matriculated`, and a student record with the **supplied** matric (not an auto-generated `BUT/{year}/M/{####}`). Then posts pending invoices (matched by matric, application number, or JAMB) and wallet rows. Paid `application_fee` / `acceptance_fee` rows are linked on the application so student finance shows the correct payment status.
 
 If an old payment was wallet-funded, record `paid_amount` on the invoice sheet **and** a matching **debit** on the wallet sheet. These imports do not call Paystack and do not settle invoices from the wallet automatically.
-- **Clinic** — Queue, student charts, encounters, prescriptions, sick notes, NHIS-aware billing (`medical.view_any` / `medical.manage` / `medical.billing`). Enrol a student on NHIS by **matric number**. Coverage may be a **percent** of eligible lines (campus default if blank) or a **fixed naira amount**. Visit prices live in **Fees & payments → Fee catalog** under **Clinic services**. Clinic staff pick those lines and quantity; finalizing invoices the student for the NHIS-adjusted payable (wallet only; not Paystack).
+- **Clinic** — Queue, student charts, encounters, prescriptions, sick notes, NHIS-aware billing (`medical.view_any` / `medical.manage` / `medical.billing`). Enrol a student on NHIS by **matric number**. Coverage may be a **percent** of eligible lines (campus default if blank) or a **fixed naira amount**. Visit prices live in **Fees & payments → Fee items** under **Clinic services**. Clinic staff pick those lines and quantity; finalizing invoices the student for the NHIS-adjusted payable (wallet only; not Paystack).
 - **Hostel** — Hostels, blocks, rooms, level windows, queue, and allocations (`hostel.view`; manage rooms with `hostel.manage`; allocate with `hostel.allocate`). Students see selection **Open** only when their **level window** is on for the current semester (Save after toggling). A hostel record marked Active does not by itself open student selection.
 
 #### Hostel room bulk import
@@ -622,7 +623,7 @@ Use the audit trail for compliance reviews and incident investigation.
 
 1. Create the **Admission session** for the new year with at least two semesters. Do **not** mark any semester current yet — keep the previous year current for enrolled students.
 2. Confirm **Programmes** have the correct entry modes and are active.
-3. Open **Application sessions** for each category (UTME, DE, JUPEB, Transfer, PG). Set the matching **application fee** under **Fees & payments → Fee catalog** (one line per entry mode). Applicants must select the session they qualify for at signup; opening only UTME does not admit other categories.
+3. Open **Application sessions** for each category (UTME, DE, JUPEB, Transfer, PG). Set the matching **application fee** under **Fees & payments → Fee items** (one line per entry mode). Applicants must select the session they qualify for at signup; opening only UTME does not admit other categories.
 4. Upload **Candidate data** for UTME/DE sessions before applicants register (if JAMB-list enforcement is required).
 5. If migrating from another portal, use **Import applicants** (see §8.5).
 6. When the window ends, **stop accepting** on those application sessions.

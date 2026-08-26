@@ -51,7 +51,7 @@ class ApplicationFormSteps
             'payload.utme.course_choice' => ($required ? 'required' : 'nullable').'|string|max:190',
             'payload.utme.exam_year' => ($required ? 'required' : 'nullable').'|string|max:10',
             'payload.utme.english_score' => 'nullable|numeric|min:0|max:400',
-            'payload.utme.subjects' => ($required ? 'required' : 'nullable').'|array'.($required ? '|min:4' : ''),
+            'payload.utme.subjects' => ($required ? 'required' : 'nullable').'|array|max:4'.($required ? '|min:4' : ''),
             'payload.utme.subjects.*.subject' => ($required ? 'required' : 'nullable').'|string|max:120',
             'payload.utme.subjects.*.score' => ($required ? 'required' : 'nullable').'|numeric|min:0|max:400',
             'payload.utme.institution_choices' => ($required ? 'required' : 'nullable').'|array|max:4',
@@ -78,8 +78,13 @@ class ApplicationFormSteps
         }
 
         if (is_array($payload['utme'] ?? null)) {
+            $payload['utme']['subjects'] = collect($payload['utme']['subjects'] ?? [])
+                ->take(4)
+                ->values()
+                ->all();
             $payload['utme']['institution_choices'] = collect($payload['utme']['institution_choices'] ?? [])
                 ->values()
+                ->take(4)
                 ->map(function ($row, $index) {
                     return [
                         'choice_order' => (int) ($row['choice_order'] ?? ($index + 1)),

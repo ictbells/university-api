@@ -9,7 +9,28 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CourseOffering extends BaseModel
 {
-    protected $fillable = ['course_id', 'academic_term_id', 'faculty_staff_id', 'section', 'capacity'];
+    protected $fillable = ['course_id', 'academic_term_id', 'faculty_staff_id', 'lecturer_name', 'section', 'capacity'];
+
+    protected $appends = ['lecturer_display_name'];
+
+    protected function casts(): array
+    {
+        return [
+            'capacity' => 'integer',
+        ];
+    }
+
+    public function getLecturerDisplayNameAttribute(): ?string
+    {
+        $typed = trim((string) ($this->attributes['lecturer_name'] ?? ''));
+        if ($typed !== '') {
+            return $typed;
+        }
+
+        $fromStaff = $this->lecturer?->user?->name;
+
+        return filled($fromStaff) ? (string) $fromStaff : null;
+    }
 
     public function course(): BelongsTo
     {
@@ -36,8 +57,30 @@ class CourseOffering extends BaseModel
         return $this->enrollments()->enrolled()->count();
     }
 
-    public function seatsLeft(): int
+    public function hasUnlimitedCapacity(): bool
     {
-        return max(0, (int) $this->capacity - $this->enrolledCount());
+        return $this->capacity === null;
+    }
+
+    public function seatsLeft(?int $enrolledCount = null): ?int
+    {
+        if ($this->hasUnlimitedCapacity()) {
+            return null;
+        }
+
+        $taken = $enrolledCount ?? $this->enrolledCount();
+
+        return max(0, (int) $this->capacity - $taken);
+    }
+
+    public function isFull(?int $enrolledCount = null): bool
+    {
+        if ($this->hasUnlimitedCapacity()) {
+            return false;
+        }
+
+        $taken = $enrolledCount ?? $this->enrolledCount();
+
+        return $taken >= (int) $this->capacity;
     }
 }
