@@ -52,6 +52,10 @@ class CourseRegistrationBulkTest extends TestCase
         $this->assertStringContainsString('GST111', $html);
         $this->assertStringContainsString('CHM101', $html);
         $this->assertStringContainsString('ADA OKOYE', $html);
+        $this->assertStringContainsString('Unit total:</strong> 4', $html);
+        $this->assertStringNotContainsString('Faculty ', $html);
+        $this->assertStringNotContainsString('Departmental ', $html);
+        $this->assertStringNotContainsString('Overall ', $html);
     }
 
     public function test_single_course_offering_id_still_registers(): void

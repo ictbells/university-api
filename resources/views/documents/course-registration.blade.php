@@ -97,11 +97,7 @@
     @endif
 
     <p class="totals">
-      <strong>Unit total:</strong>
-      General {{ $units['general'] ?? 0 }},
-      Faculty {{ $units['faculty'] ?? 0 }},
-      Departmental {{ $units['departmental'] ?? 0 }},
-      Overall {{ $units['overall'] ?? 0 }}.
+      <strong>Unit total:</strong> {{ $units['overall'] ?? 0 }}
     </p>
 
     <div class="signs">

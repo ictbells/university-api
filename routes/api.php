@@ -383,6 +383,8 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::middleware('academic.resource:unit-limits')->group(function () {
         Route::get('/academic/unit-limits/meta', [UnitLimitController::class, 'meta']);
         Route::get('/academic/unit-limits', [UnitLimitController::class, 'index']);
+        Route::put('/academic/unit-limits/sync', [UnitLimitController::class, 'sync']);
+        Route::post('/academic/unit-limits/destroy-group', [UnitLimitController::class, 'destroyGroup']);
         Route::post('/academic/unit-limits', [UnitLimitController::class, 'store']);
         Route::patch('/academic/unit-limits/{unitLimit}', [UnitLimitController::class, 'update']);
         Route::delete('/academic/unit-limits/{unitLimit}', [UnitLimitController::class, 'destroy']);
@@ -435,6 +437,8 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::post('/course-registration/grace', [CourseRegistrationController::class, 'grantGrace']);
         Route::get('/unit-limits/meta', [UnitLimitController::class, 'meta']);
         Route::get('/unit-limits', [UnitLimitController::class, 'index']);
+        Route::put('/unit-limits/sync', [UnitLimitController::class, 'sync']);
+        Route::post('/unit-limits/destroy-group', [UnitLimitController::class, 'destroyGroup']);
         Route::post('/unit-limits', [UnitLimitController::class, 'store']);
         Route::patch('/unit-limits/{unitLimit}', [UnitLimitController::class, 'update']);
         Route::delete('/unit-limits/{unitLimit}', [UnitLimitController::class, 'destroy']);

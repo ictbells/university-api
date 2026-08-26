@@ -203,6 +203,8 @@ class OfficeApprovalExecutor
             'academic.store_unit_limit' => [\App\Http\Controllers\UnitLimitController::class, 'store', null],
             'academic.update_unit_limit' => [\App\Http\Controllers\UnitLimitController::class, 'update', ['key' => 'unit_limit_id', 'class' => UnitLimit::class]],
             'academic.destroy_unit_limit' => [\App\Http\Controllers\UnitLimitController::class, 'destroy', ['key' => 'unit_limit_id', 'class' => UnitLimit::class]],
+            'academic.sync_unit_limits' => [\App\Http\Controllers\UnitLimitController::class, 'sync', null],
+            'academic.destroy_unit_limit_group' => [\App\Http\Controllers\UnitLimitController::class, 'destroyGroup', null],
             'academic.store_offering' => [\App\Http\Controllers\CourseOfferingController::class, 'store', null],
             'academic.publish_curriculum_offerings' => [\App\Http\Controllers\CourseOfferingController::class, 'publishFromCurriculum', null],
             'academic.update_offering' => [\App\Http\Controllers\CourseOfferingController::class, 'update', ['key' => 'offering_id', 'class' => CourseOffering::class]],

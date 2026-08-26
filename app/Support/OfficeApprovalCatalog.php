@@ -73,6 +73,8 @@ class OfficeApprovalCatalog
             'academic.store_unit_limit' => ['nav_key' => 'unit-limits', 'label' => 'Create unit limit', 'mutation' => self::MUTATION_CREATE],
             'academic.update_unit_limit' => ['nav_key' => 'unit-limits', 'label' => 'Update unit limit', 'mutation' => self::MUTATION_UPDATE],
             'academic.destroy_unit_limit' => ['nav_key' => 'unit-limits', 'label' => 'Delete unit limit', 'mutation' => self::MUTATION_DELETE],
+            'academic.sync_unit_limits' => ['nav_key' => 'unit-limits', 'label' => 'Save unit limit schedule', 'mutation' => self::MUTATION_UPSERT],
+            'academic.destroy_unit_limit_group' => ['nav_key' => 'unit-limits', 'label' => 'Delete unit limit schedule', 'mutation' => self::MUTATION_DELETE],
             'academic.store_offering' => ['nav_key' => 'offerings', 'label' => 'Create course offering', 'mutation' => self::MUTATION_CREATE],
             'academic.publish_curriculum_offerings' => ['nav_key' => 'offerings', 'label' => 'Publish programme courses as offerings', 'mutation' => self::MUTATION_CREATE],
             'academic.update_offering' => ['nav_key' => 'offerings', 'label' => 'Update course offering', 'mutation' => self::MUTATION_UPDATE],
