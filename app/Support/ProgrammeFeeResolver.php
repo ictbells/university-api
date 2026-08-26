@@ -77,7 +77,7 @@ class ProgrammeFeeResolver
      */
     public static function scheduleFullAmount(Collection $lines): float
     {
-        $tagged = $lines->filter(fn (ProgrammeFee $fee) => $fee->feeItem?->installment_tranche !== null);
+        $tagged = $lines->filter(fn (ProgrammeFee $fee) => self::isTuitionTranche($fee));
         if ($tagged->isEmpty()) {
             return round((float) $lines->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
         }
@@ -86,7 +86,7 @@ class ProgrammeFeeResolver
             fn (ProgrammeFee $fee) => in_array((int) $fee->feeItem->installment_tranche, [1, 2, 3, 4], true)
         );
         if ($slices->isNotEmpty()) {
-            $untagged = $lines->filter(fn (ProgrammeFee $fee) => $fee->feeItem?->installment_tranche === null);
+            $untagged = $lines->reject(fn (ProgrammeFee $fee) => self::isTuitionTranche($fee));
 
             return round((float) $slices->sum(fn (ProgrammeFee $fee) => $fee->effective_amount)
                 + $untagged->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
@@ -95,5 +95,11 @@ class ProgrammeFeeResolver
         return round((float) $tagged
             ->filter(fn (ProgrammeFee $fee) => (int) $fee->feeItem->installment_tranche === 100)
             ->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
+    }
+
+    private static function isTuitionTranche(ProgrammeFee $fee): bool
+    {
+        return FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
+            && $fee->feeItem?->installment_tranche !== null;
     }
 }

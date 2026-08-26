@@ -25,7 +25,7 @@ class DatabaseSeeder extends Seeder
 
         $roles = [
             'super-admin' => ['Super Admin', true, $allIds],
-            'registrar' => ['Registrar', true, Permission::query()->whereIn('module', ['sis', 'academic', 'admissions', 'registrations', 'reports', 'institution'])->pluck('id')],
+            'registrar' => ['Registrar', true, Permission::query()->whereIn('module', ['sis', 'academic', 'admissions', 'registrations', 'reports', 'institution', 'transcripts', 'documents'])->pluck('id')],
             'admissions' => ['Admissions', true, Permission::query()
                 ->where('module', 'admissions')
                 ->orWhereIn('key', [

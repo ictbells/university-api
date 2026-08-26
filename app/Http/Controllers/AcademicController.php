@@ -294,7 +294,31 @@ class AcademicController extends Controller
         abort_unless($target, 404);
         abort_if($student && $student->id !== $target->id, 403);
 
-        return \App\Support\TranscriptBuilder::forStudent($target, true, true);
+        $payload = \App\Support\TranscriptBuilder::forStudent($target, true, true);
+        $payload['official'] = false;
+        $payload['can_sign'] = false;
+        $payload['notice'] = 'Unofficial transcript for viewing only. It is not signed and is not valid for official use.';
+
+        if ($request->input('format') === 'html') {
+            $target->loadMissing('program');
+
+            return response()->view('reports.unofficial-transcript', [
+                'report' => [
+                    'university' => (string) \App\Models\Setting::getValue('university_name', 'Bells University of Technology'),
+                    'generated_at' => now()->format('d M Y H:i'),
+                    'cgpa' => $payload['cgpa'] ?? $payload['gpa'] ?? null,
+                    'total_credits' => $payload['total_credits'] ?? null,
+                    'terms' => $payload['terms'] ?? [],
+                    'student' => [
+                        'name' => trim(($target->first_name ?? '').' '.($target->last_name ?? '')),
+                        'matric_number' => $target->matric_number,
+                        'programme' => $target->program?->name,
+                    ],
+                ],
+            ]);
+        }
+
+        return $payload;
     }
 
     public function workflowTemplates()

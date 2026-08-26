@@ -198,7 +198,7 @@ class FinanceController extends Controller
         if ($data['category'] !== 'application_fee') {
             $data['entry_mode'] = null;
         }
-        if (! FeeSchedule::isScheduleCategory($data['category'])) {
+        if (! FeeSchedule::allowsInstallmentTranche($data['category'])) {
             $data['installment_tranche'] = null;
         } else {
             $data['installment_tranche'] = $data['installment_tranche'] ?? null;
@@ -238,7 +238,7 @@ class FinanceController extends Controller
         if ($category !== 'application_fee') {
             $data['entry_mode'] = null;
         }
-        if (! FeeSchedule::isScheduleCategory($category)) {
+        if (! FeeSchedule::allowsInstallmentTranche($category)) {
             $data['installment_tranche'] = null;
         } elseif ($request->exists('installment_tranche') && $request->input('installment_tranche') === null) {
             $data['installment_tranche'] = null;

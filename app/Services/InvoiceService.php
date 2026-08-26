@@ -186,7 +186,7 @@ class InvoiceService
             if ($fee->category === 'tuition' && $percent < 100 && $fee->installment_tranche === null) {
                 $amount = round($amount * ($percent / 100), 2);
                 $description .= " ({$percent}%)";
-            } elseif ($fee->installment_tranche !== null) {
+            } elseif ($fee->category === 'tuition' && $fee->installment_tranche !== null) {
                 $label = FeeSchedule::installmentTrancheLabel((int) $fee->installment_tranche);
                 if ($label) {
                     $description .= " ({$label})";
@@ -426,7 +426,8 @@ class InvoiceService
             throw new RuntimeException('Programme school fees have not been set for this programme and level. Contact the bursary.');
         }
 
-        $hasTranches = $lines->contains(fn (ProgrammeFee $fee) => $fee->feeItem?->installment_tranche !== null);
+        $hasTranches = $lines->contains(fn (ProgrammeFee $fee) => FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
+            && $fee->feeItem?->installment_tranche !== null);
         if ($hasTranches) {
             return $this->createTuitionInvoiceFromTranches($student, $lines, $percent, $fullAmount);
         }
@@ -491,11 +492,13 @@ class InvoiceService
             ->all();
 
         $hasFullPackage = $lines->contains(
-            fn (ProgrammeFee $fee) => (int) ($fee->feeItem?->installment_tranche ?? 0) === 100
+            fn (ProgrammeFee $fee) => FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
+                && (int) ($fee->feeItem?->installment_tranche ?? 0) === 100
         );
         $hasPriorPaidSlice = $lines->contains(function (ProgrammeFee $fee) use ($paidFeeItemIds) {
             $tranche = $fee->feeItem?->installment_tranche;
-            if ($tranche === null || (int) $tranche === 100) {
+            if (! FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
+                || $tranche === null || (int) $tranche === 100) {
                 return false;
             }
 
@@ -511,8 +514,10 @@ class InvoiceService
             }
 
             $tranche = $line->feeItem?->installment_tranche;
-            if ($tranche === null) {
-                // Untagged schedule lines ride with the first installment or the full package.
+            $isTuitionTranche = FeeSchedule::allowsInstallmentTranche((string) ($line->feeItem?->category ?? ''))
+                && $tranche !== null;
+            if (! $isTuitionTranche) {
+                // Untagged schedule lines (and non-tuition) ride with the first installment or the full package.
                 return in_array(1, $wanted, true) || in_array(100, $wanted, true);
             }
 
@@ -550,7 +555,9 @@ class InvoiceService
             }
             $name = $line->feeItem?->name ?: FeeSchedule::label((string) ($line->feeItem?->category ?? 'other'));
             $tranche = $line->feeItem?->installment_tranche;
-            $suffix = $tranche !== null
+            $isTuitionTranche = FeeSchedule::allowsInstallmentTranche((string) ($line->feeItem?->category ?? ''))
+                && $tranche !== null;
+            $suffix = $isTuitionTranche
                 ? FeeSchedule::installmentTrancheLabel((int) $tranche)
                 : ($percent < 100 ? "{$percent}%" : null);
             $invoice->items()->create([
@@ -613,6 +620,10 @@ class InvoiceService
 
         if ($invoice->category === 'course_registration_extension' && $invoice->status === 'paid') {
             app(CourseRegistrationService::class)->markExtensionPaid($invoice);
+        }
+
+        if ($invoice->category === 'transcript' && $invoice->status === 'paid') {
+            app(TranscriptRequestService::class)->markPaid($invoice);
         }
 
         return $invoice->fresh();

@@ -113,6 +113,7 @@ class FeeSchedule
             'clinic',
             'sundry',
             'course_registration_extension',
+            'transcript',
         ];
     }
 
@@ -190,7 +191,12 @@ class FeeSchedule
 
     public static function walletBlocked(string $category): bool
     {
-        return in_array($category, ['application_fee', 'acceptance_fee'], true);
+        return in_array($category, ['application_fee', 'acceptance_fee', 'transcript'], true);
+    }
+
+    public static function allowsInstallmentTranche(string $category): bool
+    {
+        return $category === 'tuition';
     }
 
     public static function walletAllowed(string $category): bool
@@ -200,7 +206,7 @@ class FeeSchedule
 
     public static function onlinePaymentAllowed(string $category): bool
     {
-        return in_array($category, ['application_fee', 'acceptance_fee'], true);
+        return in_array($category, ['application_fee', 'acceptance_fee', 'transcript'], true);
     }
 
     public static function label(string $category): string
@@ -225,6 +231,7 @@ class FeeSchedule
             'hostel' => 'Hostel',
             'sundry' => 'Sundry',
             'course_registration_extension' => 'Course registration extension',
+            'transcript' => 'Official transcript',
             'other' => 'Other',
             'application_fee' => 'Application fee',
             default => ucfirst(str_replace('_', ' ', $category)),

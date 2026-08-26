@@ -12,12 +12,33 @@ final class TranscriptBuilder
     /**
      * @return array<string, mixed>
      */
-    public static function forStudent(Student $student, bool $releasedOnly = true, bool $includePendingHint = false): array
-    {
-        $grades = Grade::query()
+    public static function forStudent(
+        Student $student,
+        bool $releasedOnly = true,
+        bool $includePendingHint = false,
+        ?int $programId = null,
+    ): array {
+        $gradesQuery = Grade::query()
             ->with(['enrollment.offering.course', 'enrollment.offering.term.session'])
-            ->whereHas('enrollment', fn ($q) => $q->where('student_id', $student->id))
-            ->get();
+            ->whereHas('enrollment', fn ($q) => $q->where('student_id', $student->id));
+
+        if ($programId) {
+            $courseIds = \App\Models\Program::query()
+                ->whereKey($programId)
+                ->first()
+                ?->courses()
+                ->pluck('courses.id')
+                ->all() ?? [];
+
+            if ($courseIds !== []) {
+                $gradesQuery->whereHas(
+                    'enrollment.offering',
+                    fn ($q) => $q->whereIn('course_id', $courseIds),
+                );
+            }
+        }
+
+        $grades = $gradesQuery->get();
 
         $allEligible = GpaCalculator::eligibleRows($grades, $releasedOnly);
         $cgpaSummary = GpaCalculator::summary($grades, $releasedOnly);
@@ -53,6 +74,7 @@ final class TranscriptBuilder
 
         return [
             'student' => $student->only(['id', 'student_number', 'matric_number', 'first_name', 'last_name']),
+            'program_id' => $programId,
             'gpa' => $cgpaSummary['gpa'] ?? 0,
             'cgpa' => $cgpaSummary['gpa'] ?? 0,
             'total_credits' => $cgpaSummary['total_credits'],

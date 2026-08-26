@@ -27,7 +27,7 @@ class PaystackService
             abort(422, 'This invoice cannot be paid.');
         }
         if (! FeeSchedule::onlinePaymentAllowed($invoice->category)) {
-            abort(422, 'This invoice must be paid from the campus wallet. Only application and acceptance fees can be paid online.');
+            abort(422, 'This invoice must be paid from the campus wallet. Only application, acceptance, and transcript fees can be paid online.');
         }
         $reference = 'PSK-'.Str::upper(Str::random(12));
         $payment = Payment::query()->create([

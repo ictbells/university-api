@@ -32,8 +32,17 @@ class SecuritySettingsController extends Controller
             'staff_support_email' => 'sometimes|nullable|email|max:255',
             'staff_support_phone' => 'sometimes|nullable|string|max:40',
             'studentship_years_after_graduation' => 'sometimes|integer|min:1|max:10',
+            'transcript_requests_enabled' => 'sometimes|boolean',
+            'transcript_delivery_collect' => 'sometimes|boolean',
+            'transcript_delivery_generated_pdf' => 'sometimes|boolean',
+            'transcript_delivery_uploaded_pdf' => 'sometimes|boolean',
+            'transcript_collect_instructions' => 'sometimes|nullable|string|max:2000',
         ]);
 
-        return response()->json(SecuritySettings::update($data));
+        try {
+            return response()->json(SecuritySettings::update($data));
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
     }
 }

@@ -165,6 +165,16 @@ class GradeWorkflowTest extends TestCase
         $transcript->assertOk();
         $this->assertEquals(5.0, (float) $transcript->json('cgpa'));
         $this->assertNotEmpty($transcript->json('rows'));
+        $transcript->assertJsonPath('official', false);
+        $transcript->assertJsonPath('can_sign', false);
+        $this->assertStringContainsString('not signed', (string) $transcript->json('notice'));
+
+        $html = $this->get('/api/academic/transcript?format=html', ['Accept' => 'text/html']);
+        $html->assertOk();
+        $html->assertSee('UNOFFICIAL — FOR STUDENT VIEWING ONLY', false);
+        $html->assertSee('not signed', false);
+        $html->assertDontSee('Signature', false);
+        $html->assertDontSee('Registrar', false);
     }
 
     public function test_student_transcript_hides_unreleased_grades(): void
@@ -184,7 +194,9 @@ class GradeWorkflowTest extends TestCase
         $this->getJson('/api/academic/transcript')
             ->assertOk()
             ->assertJsonPath('cgpa', 0)
-            ->assertJsonPath('rows', []);
+            ->assertJsonPath('rows', [])
+            ->assertJsonPath('can_sign', false)
+            ->assertJsonPath('official', false);
 
         $enrollments = $this->getJson('/api/academic/my-enrollments')->assertOk()->json();
         $this->assertTrue(collect($enrollments)->contains(fn ($row) => ($row['pending_grade'] ?? false) === true));

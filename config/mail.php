@@ -112,7 +112,14 @@ return [
 
     'from' => [
         'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
-        'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
+        'name' => (static function () {
+            $name = env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel'));
+            if (! is_string($name) || $name === '' || str_contains($name, 'APP_NAME')) {
+                return (string) env('APP_NAME', 'Laravel');
+            }
+
+            return $name;
+        })(),
     ],
 
 ];

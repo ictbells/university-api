@@ -38,6 +38,7 @@ use App\Http\Controllers\SecuritySettingsController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\StudentImportController;
 use App\Http\Controllers\TwoFactorController;
+use App\Http\Controllers\TranscriptRequestController;
 use App\Http\Controllers\UnitLimitController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WalletController;
@@ -59,6 +60,21 @@ Route::post('/two-factor/setup', [TwoFactorController::class, 'setup']);
 Route::post('/two-factor/confirm', [TwoFactorController::class, 'confirm']);
 Route::post('/two-factor/verify', [TwoFactorController::class, 'verify']);
 Route::post('/payments/paystack/webhook', [PaymentController::class, 'webhook']);
+
+Route::get('/transcript-requests/meta', [TranscriptRequestController::class, 'meta']);
+Route::post('/transcript-requests/lookup', [TranscriptRequestController::class, 'lookup'])
+    ->middleware('throttle:20,1');
+Route::post('/transcript-requests', [TranscriptRequestController::class, 'store'])
+    ->middleware('throttle:10,1');
+Route::get('/transcript-requests/{token}', [TranscriptRequestController::class, 'show'])
+    ->where('token', '[A-Za-z0-9]+');
+Route::post('/transcript-requests/{token}/pay', [TranscriptRequestController::class, 'pay'])
+    ->where('token', '[A-Za-z0-9]+')
+    ->middleware('throttle:10,1');
+Route::get('/transcript-requests/{token}/verify/{reference}', [TranscriptRequestController::class, 'verify'])
+    ->where('token', '[A-Za-z0-9]+');
+Route::get('/transcript-requests/{token}/download', [TranscriptRequestController::class, 'download'])
+    ->where('token', '[A-Za-z0-9]+');
 
 Route::get('/portal-info', [InstitutionController::class, 'portalInfo']);
 Route::get('/intakes', [AcademicSetupController::class, 'openIntakes']);
@@ -371,7 +387,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::post('/academic/registration-extensions/{extension}/review', [RegistrationExtensionController::class, 'review']);
     });
 
-    Route::middleware('academic.resource:results,results-students,results-import,results-approvals,results-board,results-release,results-grading-scale')->group(function () {
+    Route::middleware('academic.resource:results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale')->group(function () {
         Route::get('/academic/results/dashboard', [ResultsController::class, 'dashboard']);
         Route::get('/academic/results/grades', [ResultsController::class, 'index']);
         Route::post('/academic/results/grades', [ResultsController::class, 'store']);
@@ -516,6 +532,19 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::post('/hostel-allocations/{allocation}/reject', [HostelController::class, 'reject'])->middleware('permission:hostel.allocate');
 
     Route::post('/documents', [DocumentController::class, 'issue'])->middleware('permission:documents.issue');
+
+    Route::get('/staff/transcript-requests', [TranscriptRequestController::class, 'index'])
+        ->middleware('permission:transcripts.view');
+    Route::get('/staff/transcript-requests/{transcriptRequest}', [TranscriptRequestController::class, 'staffShow'])
+        ->middleware('permission:transcripts.view');
+    Route::get('/staff/transcript-requests/{transcriptRequest}/download', [TranscriptRequestController::class, 'staffDownload'])
+        ->middleware('permission:transcripts.view');
+    Route::post('/staff/transcript-requests/{transcriptRequest}/start', [TranscriptRequestController::class, 'start'])
+        ->middleware('permission:transcripts.process');
+    Route::post('/staff/transcript-requests/{transcriptRequest}/ready', [TranscriptRequestController::class, 'ready'])
+        ->middleware('permission:transcripts.process');
+    Route::post('/staff/transcript-requests/{transcriptRequest}/reject', [TranscriptRequestController::class, 'reject'])
+        ->middleware('permission:transcripts.process');
 
     Route::post('/announcements', [AnnouncementController::class, 'store'])->middleware('permission:announcements.manage');
     Route::patch('/announcements/{announcement}', [AnnouncementController::class, 'update'])->middleware('permission:announcements.manage');

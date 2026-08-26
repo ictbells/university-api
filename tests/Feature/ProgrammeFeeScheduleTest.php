@@ -58,10 +58,34 @@ class ProgrammeFeeScheduleTest extends TestCase
             ->assertJsonCount(2, 'data');
     }
 
+    public function test_fee_catalog_keeps_installment_share_on_tuition_only(): void
+    {
+        [$staff] = $this->seedSchedule(assign: false, syncNav: false);
+        Sanctum::actingAs($staff);
+
+        $this->postJson('/api/fees', [
+            'name' => 'Tuition 1st 25%',
+            'category' => 'tuition',
+            'amount' => 10000,
+            'installment_tranche' => 1,
+            'is_active' => true,
+        ])->assertCreated()
+            ->assertJsonPath('installment_tranche', 1);
+
+        $this->postJson('/api/fees', [
+            'name' => 'Library',
+            'category' => 'library',
+            'amount' => 3000,
+            'installment_tranche' => 1,
+            'is_active' => true,
+        ])->assertCreated()
+            ->assertJsonPath('installment_tranche', null);
+    }
+
     /**
      * @return array{0: User, 1: Program, 2: FeeItem, 3: FeeItem}
      */
-    private function seedSchedule(bool $assign = true): array
+    private function seedSchedule(bool $assign = true, bool $syncNav = true): array
     {
         foreach (PermissionCatalog::all() as $perm) {
             Permission::query()->updateOrCreate(['key' => $perm['key']], $perm);
@@ -123,7 +147,9 @@ class ProgrammeFeeScheduleTest extends TestCase
             'code' => 'BUR',
             'is_active' => true,
         ]);
-        $office->syncNavKeys(['finance']);
+        if ($syncNav) {
+            $office->syncNavKeys(['finance']);
+        }
         $user = User::factory()->create();
         $user->roles()->attach($role->id);
         Staff::query()->create([

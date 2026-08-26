@@ -60,6 +60,8 @@ class PermissionCatalog
             ['key' => 'documents.view_own', 'module' => 'documents', 'label' => 'View own documents'],
             ['key' => 'documents.issue', 'module' => 'documents', 'label' => 'Issue documents'],
             ['key' => 'documents.manage', 'module' => 'documents', 'label' => 'Manage documents'],
+            ['key' => 'transcripts.view', 'module' => 'transcripts', 'label' => 'View transcript requests'],
+            ['key' => 'transcripts.process', 'module' => 'transcripts', 'label' => 'Process transcript requests'],
             ['key' => 'hostel.view', 'module' => 'hostel', 'label' => 'View hostels'],
             ['key' => 'hostel.manage', 'module' => 'hostel', 'label' => 'Manage hostels'],
             ['key' => 'hostel.allocate', 'module' => 'hostel', 'label' => 'Allocate hostel beds'],

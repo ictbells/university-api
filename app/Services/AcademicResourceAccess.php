@@ -72,7 +72,12 @@ class AcademicResourceAccess
         }
 
         if ($resourceKey === 'results-approvals'
-            && ($user->hasPermission('results.submit') || $user->hasPermission('results.faculty_approve'))) {
+            && ($user->hasPermission('results.faculty_approve') || $user->hasPermission('results.submit'))) {
+            return true;
+        }
+
+        if ($resourceKey === 'results-department'
+            && ($user->hasPermission('results.submit') || $user->hasPermission('results.read'))) {
             return true;
         }
 

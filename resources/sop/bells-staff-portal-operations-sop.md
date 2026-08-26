@@ -205,7 +205,7 @@ When a section (for example Administration) contains a single dropdown whose lab
 
 **Courses** contains: Course catalog, Offerings, Course registration, Unit limits, Registration extensions.
 
-**Results** contains: Results dashboard, Result entry, CSV import, Approvals, Board, Release, Grading scale. Grade changes appear under System → Audit (module `results`).
+**Results** contains: Results dashboard, Result entry, CSV import, Department uploads, Faculty Approval, Board, Release, Grading scale. Grade changes appear under System → Audit (module `results`).
 
 **Fees & payments** contains: Fee catalog, Fee category, Rebates, Programme fees, Generate invoice, Invoices, Students Financial Status, Import invoices, Import wallet history.
 
@@ -508,8 +508,9 @@ Result entry follows a controlled workflow before students can see grades on the
 | Results dashboard | Counts by status | `results.read` |
 | Result entry | Search students, enter CA/exam/total | `results.read` + `results.write` / `results.submit` |
 | CSV import | Bulk draft import (`matric,score` or ca/exam columns) | `results.import` |
-| Approvals | Submit queue, faculty approve/return, printable dept/faculty lists | `results.submit` or `results.faculty_approve` |
-| Board | Board clear / request corrections, printable board lists | `results.board` |
+| Department uploads | Department grade list, submit drafts, print department list | `results.submit` |
+| Faculty Approval | Faculty approve/return submitted grades; print faculty list | `results.faculty_approve` |
+| Board | Board-ready/cleared records list; board clear / request corrections; printable board list | `results.board` |
 | Release | Release board-cleared grades to students | `results.release` |
 | Grading scale | Edit letter boundaries (seeded default 5.0 scale) | `scales.manage` |
 
@@ -517,18 +518,39 @@ Grade create/update/import/status changes are written to the platform **Audit** 
 
 **Typical flow**
 
-1. Assign Results portal links under Department Setup (`results`, `results-students`, `results-approvals`, `results-board`, `results-release`, etc.) and grant the matching permissions.
+1. Assign Results portal links under Department Setup (`results`, `results-students`, `results-department`, `results-approvals`, `results-board`, `results-release`, etc.) and grant the matching permissions.
 2. Review **Grading scale** before first use.
 3. Enter or import drafts on Result entry / CSV import.
-4. Submit → faculty approve (or return) on Approvals. Download printable lists as needed.
-5. Board clear on Board (may require office approval).
-6. Release on Release (may require office approval). Students then see letter grades and CGPA.
+4. On **Department uploads**, review drafts and submit; print the department list as needed.
+5. On **Faculty Approval**, approve (or return). Print the faculty list as needed.
+6. On **Board**, review the records list, then board clear (may require office approval).
+7. Release on Release (may require office approval). Students then see letter grades and CGPA.
+
+On the **student portal → Academic**, students can view and print an **unofficial** transcript (released grades only). It is marked unofficial, has **no signature lines**, and cannot be signed from the portal.
+
+### 8.6b Official transcript requests (Registry)
+
+Public requests (for the school website) use the student portal path **`/transcript-request`** (no login). Requesters enter **matric number + account email**, select the **programme** linked to their record (current programme, prior programmes from level progression / applications / enrolled curricula), pay the Finance-set **Official transcript** fee online (Paystack), then Registry processes the queue.
+
+**Setup**
+
+1. **Fees & payments → Fee catalog** — create an active fee item under category **Official transcript** (`transcript`). Amount is owned by Finance.
+2. **Application settings** — enable **Accept public transcript requests** and at least one delivery mode (collect at Registry, system PDF, staff-uploaded PDF). Optionally edit collection instructions.
+3. **Department Setup** — assign portal link **`transcript-requests`** and grant `transcripts.view` / `transcripts.process` (Registrar role includes these when re-seeded).
+
+**Flow**
+
+1. Requester submits and pays on `/transcript-request`.
+2. Staff open **Services → Transcript requests**, start processing, then **Mark ready** with an enabled delivery mode (upload PDF when required).
+3. Requester is emailed; PDF modes include a download link on the public request page.
+
+Unofficial Academic transcript viewing is separate and remains free.
 
 E-exam sync is not included in this release.
 
 ### 8.7 Services
 
-- **Fees & payments** — Fee catalogue (including **application fees per entry mode**, **Clinic services** visit charges, and **installment shares**: separate catalog lines for 1st/2nd/3rd/4th 25% plus optional Full 100% pay-at-once), fee categories, rebates, programme fees, invoice generation, invoices, student financial status, **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices and Generate invoice filter by session and level; Programme fees filter by level. When programme schedule lines are tagged with installment shares, student tuition invoices bill those fixed amounts (already-paid fee items are skipped); untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices.
+- **Fees & payments** — Fee catalogue (including **application fees per entry mode**, **Clinic services** visit charges, and **tuition installment shares**: separate tuition catalog lines for 1st/2nd/3rd/4th 25% plus optional Full 100% pay-at-once; other categories do not use installment shares), fee categories, rebates, programme fees, invoice generation, invoices, student financial status, **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices and Generate invoice filter by session and level; Programme fees filter by level. When tuition catalog lines are tagged with installment shares, student tuition invoices bill those fixed amounts (already-paid fee items are skipped); untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices.
 
 #### Import invoices and wallet history
 

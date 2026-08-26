@@ -31,6 +31,7 @@ class SecuritySettings
             ...AdmissionsContactSettings::all(),
             ...StaffSupportContactSettings::all(),
             'studentship_years_after_graduation' => Studentship::yearsAfterGraduation(),
+            ...TranscriptRequestSettings::all(),
         ];
     }
 
@@ -78,6 +79,15 @@ class SecuritySettings
                 Studentship::YEARS_KEY,
                 (string) max(1, min(10, (int) $data['studentship_years_after_graduation'])),
             );
+        }
+        if (
+            array_key_exists('transcript_requests_enabled', $data)
+            || array_key_exists('transcript_delivery_collect', $data)
+            || array_key_exists('transcript_delivery_generated_pdf', $data)
+            || array_key_exists('transcript_delivery_uploaded_pdf', $data)
+            || array_key_exists('transcript_collect_instructions', $data)
+        ) {
+            TranscriptRequestSettings::update($data);
         }
 
         return self::all();
