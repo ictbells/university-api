@@ -56,6 +56,50 @@ class CourseOfferingLecturerNameTest extends TestCase
         $this->assertSame('Staff Lecturer', $offering->fresh('lecturer.user')->lecturer_display_name);
     }
 
+    public function test_store_accepts_multiple_course_ids(): void
+    {
+        [$user, $course, $term] = $this->seedOfferingContext();
+        $second = Course::query()->create([
+            'department_id' => $course->department_id,
+            'code' => 'GST111',
+            'title' => 'Communication in English',
+            'units' => 2,
+            'course_type' => 'general',
+        ]);
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/academic/offerings', [
+            'course_ids' => [$course->id, $second->id],
+            'academic_term_id' => $term->id,
+            'section' => 'A',
+        ])
+            ->assertSuccessful()
+            ->assertJsonPath('created', 2);
+
+        $this->assertSame(2, CourseOffering::query()->where('academic_term_id', $term->id)->count());
+    }
+
+    public function test_store_accepts_course_id_array(): void
+    {
+        [$user, $course, $term] = $this->seedOfferingContext();
+        $second = Course::query()->create([
+            'department_id' => $course->department_id,
+            'code' => 'GST112',
+            'title' => 'Nigerian Peoples and Culture',
+            'units' => 2,
+            'course_type' => 'general',
+        ]);
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/academic/offerings', [
+            'course_id' => [$course->id, $second->id],
+            'academic_term_id' => $term->id,
+            'section' => 'A',
+        ])
+            ->assertSuccessful()
+            ->assertJsonPath('created', 2);
+    }
+
     public function test_unset_capacity_is_unlimited(): void
     {
         [$user, $course, $term] = $this->seedOfferingContext();

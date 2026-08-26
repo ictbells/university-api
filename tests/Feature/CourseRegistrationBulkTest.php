@@ -38,6 +38,22 @@ class CourseRegistrationBulkTest extends TestCase
         $this->assertTrue(Enrollment::query()->where('course_offering_id', $chm->id)->where('status', 'enrolled')->exists());
     }
 
+    public function test_student_can_print_registered_courses(): void
+    {
+        [$user, $gst, $chm] = $this->openStudentWithTwoOfferings();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/academic/my-registration', [
+            'course_offering_ids' => [$gst->id, $chm->id],
+        ])->assertOk();
+
+        $html = $this->get('/api/academic/my-registration/print')->assertOk()->getContent();
+        $this->assertStringContainsString('Course registration form', $html);
+        $this->assertStringContainsString('GST111', $html);
+        $this->assertStringContainsString('CHM101', $html);
+        $this->assertStringContainsString('ADA OKOYE', $html);
+    }
+
     public function test_single_course_offering_id_still_registers(): void
     {
         [$user, $gst] = $this->openStudentWithTwoOfferings();

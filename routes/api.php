@@ -203,6 +203,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         ->middleware('academic.resource:courses,programmes,offerings,course-registration,programme-courses');
     Route::get('/academic/my-enrollments', [AcademicController::class, 'myEnrollments']);
     Route::get('/academic/my-registration', [CourseRegistrationController::class, 'myContext']);
+    Route::get('/academic/my-registration/print', [CourseRegistrationController::class, 'myPrint']);
     Route::get('/academic/my-registration-context', [CourseRegistrationController::class, 'myContext']);
     Route::post('/academic/my-registration', [CourseRegistrationController::class, 'myRegister']);
     Route::post('/academic/my-enrollments', [CourseRegistrationController::class, 'myRegister']);

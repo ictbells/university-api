@@ -4,16 +4,19 @@ namespace App\Services;
 
 use App\Models\AcademicLevel;
 use App\Models\AcademicTerm;
+use App\Models\Campus;
 use App\Models\Course;
 use App\Models\CourseOffering;
 use App\Models\Enrollment;
 use App\Models\Invoice;
 use App\Models\Program;
 use App\Models\RegistrationExtension;
+use App\Models\Setting;
 use App\Models\Student;
 use App\Models\UnitGrace;
 use App\Models\UnitLimit;
 use App\Models\User;
+use App\Support\InstitutionLogo;
 use App\Support\StudyLevel;
 use App\Support\TuitionProgress;
 use Illuminate\Support\Collection;
@@ -105,6 +108,65 @@ class CourseRegistrationService
                 ->map(fn (Enrollment $row) => $this->serializeEnrollment($row))
                 ->values(),
         ];
+    }
+
+    public function printHtml(Student $student): string
+    {
+        $context = $this->context($student, ensureCarryOvers: false);
+        if (! $context['term']) {
+            $this->fail('term', 'No academic semester is current.');
+        }
+
+        $student->loadMissing(['program.department.faculty', 'user']);
+        $campus = Campus::query()->where('is_active', true)->orderBy('id')->first()
+            ?? Campus::query()->orderBy('id')->first();
+        $fullName = trim(collect([
+            $student->first_name,
+            $student->middle_name,
+            $student->last_name,
+        ])->filter()->implode(' ')) ?: ($student->user?->name ?? 'Student');
+
+        $rows = collect($context['enrollments'])->values()->map(function (array $row, int $index) {
+            $course = is_array($row['offering']['course'] ?? null) ? $row['offering']['course'] : [];
+
+            return [
+                'sn' => $index + 1,
+                'code' => $course['code'] ?? '—',
+                'title' => $course['title'] ?? '—',
+                'status' => match ($course['status'] ?? 'core') {
+                    'elective' => 'Elective',
+                    'required' => 'Required',
+                    default => 'Core',
+                },
+                'units' => (int) ($course['units'] ?? 0),
+                'carry_over' => ! empty($row['is_carry_over']),
+            ];
+        });
+
+        $session = (string) ($context['term']['session_label'] ?? '');
+        $semester = (string) ($context['term']['name'] ?? '');
+
+        return view('documents.course-registration', [
+            'institution' => [
+                'name' => (string) Setting::getValue('university_name', 'Bells University of Technology'),
+                'motto' => (string) Setting::getValue('university_motto', 'Chords of Knowledge'),
+                'address' => trim(collect([
+                    $campus?->address,
+                    $campus?->city,
+                ])->filter()->implode(', '))
+                    ?: 'KM 8, Idiroko Road, Benja Village P.M.B 1015, Ota, Ogun State',
+            ],
+            'logo_data_uri' => InstitutionLogo::dataUri(),
+            'full_name' => $fullName,
+            'matric_number' => $student->matric_number ?: '—',
+            'programme' => $student->program?->name ?: '—',
+            'level' => $student->current_level ?: '—',
+            'session' => $session,
+            'semester' => $semester,
+            'rows' => $rows,
+            'units' => $context['units'],
+            'generated_at' => now()->format('d M Y, h:i A'),
+        ])->render();
     }
 
     public function availableOfferings(Student $student, AcademicTerm $term): Collection

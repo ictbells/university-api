@@ -10,6 +10,7 @@ use App\Services\CourseRegistrationService;
 use App\Support\ListSessionLevelFilter;
 use App\Support\RegistrationCriteria;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 class CourseRegistrationController extends Controller
 {
@@ -105,6 +106,19 @@ class CourseRegistrationController extends Controller
         $this->denyStaff($request);
 
         return $this->registration->context($this->student($request));
+    }
+
+    public function myPrint(Request $request): Response
+    {
+        $this->denyStaff($request);
+        $html = $this->registration->printHtml($this->student($request));
+        $filename = 'course-registration.html';
+        $headers = ['Content-Type' => 'text/html; charset=UTF-8'];
+        if ($request->boolean('download')) {
+            $headers['Content-Disposition'] = 'attachment; filename="'.$filename.'"';
+        }
+
+        return response($html, 200, $headers);
     }
 
     public function myRegister(Request $request)

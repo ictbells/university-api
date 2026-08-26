@@ -11,6 +11,7 @@ use App\Services\AuditWriter;
 use App\Services\CourseRegistrationService;
 use App\Support\ListSessionLevelFilter;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class CourseOfferingController extends Controller
 {
@@ -47,33 +48,70 @@ class CourseOfferingController extends Controller
 
     public function store(Request $request)
     {
+        $courseIds = $this->selectedCourseIds($request);
+        $request->merge([
+            'course_ids' => $courseIds,
+            'course_id' => $courseIds[0] ?? null,
+        ]);
         $data = $request->validate([
-            'course_id' => 'required|exists:courses,id',
+            'course_id' => 'nullable|integer|exists:courses,id',
+            'course_ids' => 'required|array|min:1|max:50',
+            'course_ids.*' => 'integer|distinct|exists:courses,id',
             'academic_term_id' => 'required|exists:academic_terms,id',
             'faculty_staff_id' => 'nullable|exists:staff,id',
             'lecturer_name' => 'nullable|string|max:190',
             'section' => 'nullable|string|max:20',
             'capacity' => 'nullable|integer|min:1|max:1000',
         ]);
+        unset($data['course_id'], $data['course_ids']);
         $data['section'] = $data['section'] ?? 'A';
         $data['lecturer_name'] = $this->normalizedLecturerName($data['lecturer_name'] ?? null);
         $data['capacity'] = $this->normalizedCapacity($data['capacity'] ?? null);
 
-        $exists = CourseOffering::query()
-            ->where('course_id', $data['course_id'])
+        $existing = CourseOffering::query()
+            ->with('course:id,code')
             ->where('academic_term_id', $data['academic_term_id'])
             ->where('section', $data['section'])
-            ->exists();
-        if ($exists) {
-            return response()->json(['message' => 'This section is already offered for the selected course and semester.'], 422);
+            ->whereIn('course_id', $courseIds)
+            ->get();
+        if ($existing->isNotEmpty()) {
+            $codes = $existing->map(fn (CourseOffering $row) => $row->course?->code ?: '#'.$row->course_id)->implode(', ');
+
+            return response()->json([
+                'message' => 'Already offered this semester for section '.$data['section'].': '.$codes.'.',
+            ], 422);
         }
 
-        return $this->officeGate('academic.store_offering', null, $data, 'Create course offering', function () use ($data) {
-            $offering = CourseOffering::query()->create($data);
-            $this->audit->record('offering.created', 'Course offering created', 'academic', 'course_offering', $offering->id, null, $offering);
+        $count = count($courseIds);
+        $summary = $count === 1 ? 'Create course offering' : 'Create '.$count.' course offerings';
 
-            return $offering->load(['course.department', 'term', 'lecturer.user']);
-        });
+        return $this->officeGate(
+            'academic.store_offering',
+            null,
+            [...$data, 'course_ids' => $courseIds],
+            $summary,
+            function () use ($data, $courseIds) {
+                $offerings = DB::transaction(function () use ($data, $courseIds) {
+                    $created = [];
+                    foreach ($courseIds as $courseId) {
+                        $created[] = CourseOffering::query()->create([
+                            ...$data,
+                            'course_id' => $courseId,
+                        ])->load(['course.department', 'term', 'lecturer.user']);
+                    }
+
+                    return $created;
+                });
+
+                foreach ($offerings as $offering) {
+                    $this->audit->record('offering.created', 'Course offering created', 'academic', 'course_offering', $offering->id, null, $offering);
+                }
+
+                return count($offerings) === 1
+                    ? $offerings[0]
+                    : ['created' => count($offerings), 'offerings' => $offerings];
+            },
+        );
     }
 
     public function publishFromCurriculum(Request $request)
@@ -159,6 +197,20 @@ class CourseOfferingController extends Controller
             ->with('user:id,name,email')
             ->orderBy('id')
             ->get(['id', 'user_id', 'staff_number', 'title']);
+    }
+
+    private function selectedCourseIds(Request $request): array
+    {
+        $raw = array_merge(
+            is_array($request->input('course_ids')) ? $request->input('course_ids') : [],
+            $request->exists('course_id') ? (array) $request->input('course_id') : [],
+        );
+        $ids = [];
+        array_walk_recursive($raw, function ($value) use (&$ids) {
+            $ids[] = (int) $value;
+        });
+
+        return array_values(array_unique(array_filter($ids)));
     }
 
     private function normalizedLecturerName(mixed $value): ?string
