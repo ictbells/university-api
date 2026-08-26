@@ -8,8 +8,10 @@ use App\Models\Department;
 use App\Models\Faculty;
 use App\Models\Hostel;
 use App\Models\HostelBlock;
+use App\Models\Lga;
 use App\Models\OlevelSubject;
 use App\Models\Program;
+use App\Models\StateOfOrigin;
 
 class ImportLookupSheets
 {
@@ -24,6 +26,8 @@ class ImportLookupSheets
             self::departments(),
             self::programmes($entryMode),
             self::levels(),
+            self::states(),
+            self::lgas(),
             self::olevelSubjects(),
         ];
     }
@@ -175,6 +179,45 @@ class ImportLookupSheets
             ->all();
 
         return ['title' => 'Levels', 'headers' => $headers, 'rows' => $rows];
+    }
+
+    /**
+     * @return array{title: string, headers: list<string>, rows: list<list<mixed>>}
+     */
+    public static function states(): array
+    {
+        $headers = ['id', 'name'];
+        $rows = StateOfOrigin::query()
+            ->orderBy('state_title')
+            ->get(['state_id', 'state_title'])
+            ->map(fn (StateOfOrigin $state) => [
+                $state->state_id,
+                (string) $state->state_title,
+            ])
+            ->all();
+
+        return ['title' => 'States', 'headers' => $headers, 'rows' => $rows];
+    }
+
+    /**
+     * @return array{title: string, headers: list<string>, rows: list<list<mixed>>}
+     */
+    public static function lgas(): array
+    {
+        $headers = ['id', 'name', 'state_id', 'state_name'];
+        $rows = Lga::query()
+            ->with('state:state_id,state_title')
+            ->orderBy('lga_title')
+            ->get(['lga_id', 'lga_title', 'state_id'])
+            ->map(fn (Lga $lga) => [
+                $lga->lga_id,
+                (string) $lga->lga_title,
+                $lga->state_id,
+                (string) ($lga->state?->state_title ?? ''),
+            ])
+            ->all();
+
+        return ['title' => 'LGAs', 'headers' => $headers, 'rows' => $rows];
     }
 
     /**

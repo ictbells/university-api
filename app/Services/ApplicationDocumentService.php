@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Models\Application;
 use App\Models\Campus;
-use App\Models\FeeItem;
 use App\Models\Program;
 use App\Models\Setting;
 use App\Support\ApplicantPassport;
@@ -104,10 +103,7 @@ class ApplicationDocumentService
         $fee = $application->acceptanceFeeInvoice;
         if (! $fee) {
             try {
-                $amount = (float) (FeeItem::query()->where('category', 'acceptance_fee')->where('is_active', true)->value('amount') ?? 0);
-                if ($amount <= 0) {
-                    $amount = (float) ($application->intake?->acceptanceFeeAmount() ?? 0);
-                }
+                $amount = app(InvoiceService::class)->resolveAcceptanceFeeAmount($application->intake);
             } catch (\Throwable) {
                 $amount = (float) ($application->intake?->acceptanceFeeAmount() ?? 0);
             }

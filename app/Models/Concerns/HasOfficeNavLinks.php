@@ -49,9 +49,9 @@ trait HasOfficeNavLinks
                 $key = $entry;
                 $normalized[$key] = [
                     'nav_key' => $key,
-                    'require_create' => true,
-                    'require_update' => true,
-                    'require_delete' => true,
+                    'require_create' => false,
+                    'require_update' => false,
+                    'require_delete' => false,
                     'approval_chain' => OfficeNavLink::CHAIN_BOTH,
                 ];
 

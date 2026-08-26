@@ -33,14 +33,16 @@ class OfficeApprovalService
         ?callable $execute = null,
     ): mixed {
         $navKey ??= OfficeApprovalCatalog::navKey($actionKey);
-        $user = Auth::user();
-        abort_unless($user instanceof User, 401);
-
         $run = $execute ?? fn () => $this->executor->run($actionKey, $payload);
         if (self::$replaying) {
             return $run();
         }
-        $owner = $this->owners->ownerForNavKey($navKey);
+
+        $user = request()->user() ?? Auth::user();
+        abort_unless($user instanceof User, 401);
+        $user->loadMissing('staff');
+
+        $owner = $this->owners->ownerForNavKey($navKey, $user);
 
         if (! $owner) {
             return $run();
@@ -362,6 +364,7 @@ class OfficeApprovalService
         return match ($mutation) {
             OfficeApprovalCatalog::MUTATION_CREATE => (bool) $owner['require_create'],
             OfficeApprovalCatalog::MUTATION_DELETE => (bool) $owner['require_delete'],
+            OfficeApprovalCatalog::MUTATION_UPSERT => (bool) $owner['require_create'] || (bool) $owner['require_update'],
             default => (bool) $owner['require_update'],
         };
     }
@@ -382,10 +385,6 @@ class OfficeApprovalService
         $unitId = $unit?->id;
 
         if ($approvalChain === OfficeNavLink::CHAIN_DEPARTMENT_HEAD) {
-            if (! $department->head_staff_id) {
-                return ['execute' => true, 'block' => null, 'status' => null, 'unit_id' => $unitId];
-            }
-
             return [
                 'execute' => false,
                 'block' => null,
@@ -394,7 +393,6 @@ class OfficeApprovalService
             ];
         }
 
-        // unit_head or both — may need unit head first
         $needsUnitStep = false;
         if ($isSubunitStaff) {
             if (! $unit?->head_staff_id) {
@@ -421,14 +419,11 @@ class OfficeApprovalService
             ];
         }
 
-        // Actor is unit head or department staff without a unit-head step
         if ($approvalChain === OfficeNavLink::CHAIN_UNIT_HEAD) {
-            // No further reviewer required for this actor
-            return ['execute' => true, 'block' => null, 'status' => null, 'unit_id' => $unitId];
-        }
+            if ($isUnitHead) {
+                return ['execute' => true, 'block' => null, 'status' => null, 'unit_id' => $unitId];
+            }
 
-        // both — escalate to HOD when present
-        if ($department->head_staff_id) {
             return [
                 'execute' => false,
                 'block' => null,
@@ -437,7 +432,12 @@ class OfficeApprovalService
             ];
         }
 
-        return ['execute' => true, 'block' => null, 'status' => null, 'unit_id' => $unitId];
+        return [
+            'execute' => false,
+            'block' => null,
+            'status' => OfficeApprovalRequest::PENDING_HOD,
+            'unit_id' => $unitId,
+        ];
     }
 
     private function requestApprovalChain(OfficeApprovalRequest $request): string

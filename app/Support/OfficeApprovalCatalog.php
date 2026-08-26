@@ -10,6 +10,9 @@ class OfficeApprovalCatalog
 
     public const MUTATION_DELETE = 'delete';
 
+    /** Bulk/upsert POSTs wait if Create or Update is required on the link. */
+    public const MUTATION_UPSERT = 'upsert';
+
     /**
      * @return array<string, array{nav_key: string, label: string, mutation: string}>
      */
@@ -60,8 +63,8 @@ class OfficeApprovalCatalog
             'finance.store_programme_fee' => ['nav_key' => 'finance', 'label' => 'Create programme fee', 'mutation' => self::MUTATION_CREATE],
             'finance.update_programme_fee' => ['nav_key' => 'finance', 'label' => 'Update programme fee', 'mutation' => self::MUTATION_UPDATE],
             'finance.destroy_programme_fee' => ['nav_key' => 'finance', 'label' => 'Delete programme fee', 'mutation' => self::MUTATION_DELETE],
-            'finance.bulk_programme_fees' => ['nav_key' => 'finance', 'label' => 'Bulk save programme fees', 'mutation' => self::MUTATION_UPDATE],
-            'finance.copy_programme_fees' => ['nav_key' => 'finance', 'label' => 'Copy programme fee schedule', 'mutation' => self::MUTATION_UPDATE],
+            'finance.bulk_programme_fees' => ['nav_key' => 'finance', 'label' => 'Bulk save programme fees', 'mutation' => self::MUTATION_UPSERT],
+            'finance.copy_programme_fees' => ['nav_key' => 'finance', 'label' => 'Copy programme fee schedule', 'mutation' => self::MUTATION_UPSERT],
             'documents.issue' => ['nav_key' => 'documents', 'label' => 'Issue document', 'mutation' => self::MUTATION_CREATE],
             'academic.staff_register' => ['nav_key' => 'course-registration', 'label' => 'Staff course registration', 'mutation' => self::MUTATION_CREATE],
             'academic.staff_drop' => ['nav_key' => 'course-registration', 'label' => 'Staff course drop', 'mutation' => self::MUTATION_DELETE],

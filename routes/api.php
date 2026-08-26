@@ -229,7 +229,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::put('/users/{user}/roles', [UserController::class, 'assignRoles']);
     });
 
-    Route::middleware('permission:roles.manage')->group(function () {
+    Route::middleware(['permission:roles.manage', 'portal.nav:roles'])->group(function () {
         Route::get('/roles', [RoleController::class, 'index']);
         Route::post('/roles', [RoleController::class, 'store']);
         Route::patch('/roles/{role}', [RoleController::class, 'update']);

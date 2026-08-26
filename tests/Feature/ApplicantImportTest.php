@@ -12,12 +12,14 @@ use App\Models\Department;
 use App\Models\Faculty;
 use App\Models\Intake;
 use App\Models\Invoice;
+use App\Models\Lga;
 use App\Models\OfficeDepartment;
 use App\Models\OlevelSubject;
 use App\Models\Permission;
 use App\Models\Program;
 use App\Models\Role;
 use App\Models\Staff;
+use App\Models\StateOfOrigin;
 use App\Models\User;
 use App\Services\PremblyService;
 use App\Support\ApplicantImportColumns;
@@ -43,6 +45,10 @@ class ApplicantImportTest extends TestCase
     private Intake $intake;
 
     private Program $program;
+
+    private OlevelSubject $english;
+
+    private OlevelSubject $maths;
 
     protected function setUp(): void
     {
@@ -84,6 +90,12 @@ class ApplicantImportTest extends TestCase
         ]);
         OlevelSubject::query()->create(['name' => 'English Language', 'code' => 'ENG', 'is_active' => true]);
         OlevelSubject::query()->create(['name' => 'Mathematics', 'code' => 'MTH', 'is_active' => true]);
+        $this->english = OlevelSubject::query()->where('code', 'ENG')->firstOrFail();
+        $this->maths = OlevelSubject::query()->where('code', 'MTH')->firstOrFail();
+        StateOfOrigin::query()->create(['state_id' => 28, 'state_title' => 'Ogun']);
+        StateOfOrigin::query()->create(['state_id' => 24, 'state_title' => 'Lagos']);
+        Lga::query()->create(['lga_id' => 560, 'lga_title' => 'Ado-Odo/Ota', 'state_id' => 28]);
+        Lga::query()->create(['lga_id' => 400, 'lga_title' => 'Ikeja', 'state_id' => 24]);
     }
 
     public function test_staff_can_download_utme_template(): void
@@ -95,7 +107,7 @@ class ApplicantImportTest extends TestCase
             ->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 
         $spreadsheet = $this->loadWorkbook($response->streamedContent());
-        foreach (['Instructions', 'Applicants', 'Campuses', 'Colleges', 'Departments', 'Programmes', 'Levels', 'O-level subjects'] as $title) {
+        foreach (['Instructions', 'Applicants', 'Campuses', 'Colleges', 'Departments', 'Programmes', 'Levels', 'States', 'LGAs', 'O-level subjects'] as $title) {
             $this->assertNotNull($spreadsheet->getSheetByName($title), "Missing sheet {$title}");
         }
 
@@ -106,6 +118,26 @@ class ApplicantImportTest extends TestCase
         $subjects = $spreadsheet->getSheetByName('O-level subjects')->toArray(null, true, true, false);
         $names = collect($subjects)->skip(1)->map(fn ($row) => (string) ($row[2] ?? ''));
         $this->assertTrue($names->contains('English Language'));
+
+        $headers = $spreadsheet->getSheetByName('Applicants')->toArray(null, true, true, false)[0] ?? [];
+        $this->assertContains('state_id', $headers);
+        $this->assertContains('lga_id', $headers);
+        $this->assertContains('sitting1_subject_1_id', $headers);
+        $this->assertContains('sitting2_exam_type', $headers);
+        $this->assertContains('utme_institution_1', $headers);
+        $this->assertContains('utme_institution_2', $headers);
+        $this->assertNotContains('state', $headers);
+        $this->assertNotContains('lga', $headers);
+        $this->assertNotContains('sitting1_subject_1', $headers);
+        $this->assertNotContains('utme_institution_3', $headers);
+        $this->assertNotContains('utme_institution_4', $headers);
+
+        $instructions = collect($spreadsheet->getSheetByName('Instructions')->toArray(null, true, true, false))
+            ->flatten()
+            ->filter()
+            ->implode(' ');
+        $this->assertStringContainsString('copy ids from this workbook', strtolower($instructions));
+        $this->assertStringContainsString('exactly 2 jamb institution', strtolower($instructions));
     }
 
     public function test_import_creates_unsubmitted_application_and_allows_student_login(): void
@@ -141,7 +173,8 @@ class ApplicantImportTest extends TestCase
         Mail::assertSent(ApplicationCredentialsMail::class, function (ApplicationCredentialsMail $mail) use (&$plain) {
             $plain = $mail->plainPassword;
 
-            return $mail->loginId === '12345678AB';
+            return $mail->loginId === '12345678AB'
+                && $mail->envelope()->subject === 'Your Bells University student portal account';
         });
         $this->assertNotNull($plain);
 
@@ -162,6 +195,95 @@ class ApplicantImportTest extends TestCase
             ->assertJsonFragment(['missing' => ['required_documents']]);
         $this->assertSame('form_in_progress', $application->fresh()->stage);
         $this->assertNull($application->fresh()->submitted_at);
+    }
+
+    public function test_import_stores_canonical_state_lga_and_olevel_from_ids(): void
+    {
+        Mail::fake();
+        Sanctum::actingAs($this->staffUser());
+
+        $this->post('/api/applicants/import', [
+            'file' => $this->spreadsheet([
+                'email' => 'geo.import@example.com',
+                'phone' => '08030000011',
+                'nin' => '12345678911',
+                'jamb_registration' => '12345678GH',
+                'state_id' => '28',
+                'lga_id' => '560',
+                'sitting1_subject_1_id' => (string) $this->english->id,
+                'sitting1_grade_1' => 'C6',
+                'sitting1_subject_2_id' => (string) $this->maths->id,
+                'sitting1_grade_2' => 'B3',
+            ]),
+            'intake_id' => $this->intake->id,
+            'entry_mode' => 'utme',
+            'verify_nin' => '0',
+            'send_credentials' => '0',
+        ], ['Accept' => 'application/json'])->assertOk()
+            ->assertJsonPath('data.created', 1);
+
+        $application = Application::query()->where('jamb_registration', '12345678GH')->first();
+        $this->assertNotNull($application);
+
+        $personal = $application->steps()->where('step_key', 'personal_details')->value('payload');
+        $this->assertSame(28, (int) ($personal['state_id'] ?? 0));
+        $this->assertSame('Ogun', $personal['state'] ?? null);
+        $this->assertSame(560, (int) ($personal['lga_id'] ?? 0));
+        $this->assertSame('Ado-Odo/Ota', $personal['lga'] ?? null);
+
+        $academic = $application->steps()->where('step_key', 'academic_qualifications')->value('payload');
+        $results = $academic['first_sitting']['results'] ?? [];
+        $this->assertSame($this->english->id, (int) ($results[0]['subject_id'] ?? 0));
+        $this->assertSame('English Language', $results[0]['subject_name'] ?? null);
+        $this->assertSame($this->maths->id, (int) ($results[1]['subject_id'] ?? 0));
+        $this->assertSame('Mathematics', $results[1]['subject_name'] ?? null);
+    }
+
+    public function test_import_skips_unknown_olevel_subject_id(): void
+    {
+        Sanctum::actingAs($this->staffUser());
+
+        $response = $this->post('/api/applicants/import', [
+            'file' => $this->spreadsheet([
+                'email' => 'bad.subject@example.com',
+                'phone' => '08030000012',
+                'nin' => '12345678912',
+                'jamb_registration' => '12345678IJ',
+                'sitting1_subject_1_id' => '99999',
+            ]),
+            'intake_id' => $this->intake->id,
+            'entry_mode' => 'utme',
+            'verify_nin' => '0',
+            'send_credentials' => '0',
+        ], ['Accept' => 'application/json']);
+        $response->assertOk()
+            ->assertJsonPath('data.created', 0)
+            ->assertJsonPath('data.skipped', 1);
+        $this->assertStringContainsString('Unknown sitting1_subject_1_id', (string) $response->json('data.errors.0.message'));
+    }
+
+    public function test_import_skips_lga_that_does_not_belong_to_state(): void
+    {
+        Sanctum::actingAs($this->staffUser());
+
+        $response = $this->post('/api/applicants/import', [
+            'file' => $this->spreadsheet([
+                'email' => 'bad.lga@example.com',
+                'phone' => '08030000013',
+                'nin' => '12345678913',
+                'jamb_registration' => '12345678KL',
+                'state_id' => '28',
+                'lga_id' => '400',
+            ]),
+            'intake_id' => $this->intake->id,
+            'entry_mode' => 'utme',
+            'verify_nin' => '0',
+            'send_credentials' => '0',
+        ], ['Accept' => 'application/json']);
+        $response->assertOk()
+            ->assertJsonPath('data.created', 0)
+            ->assertJsonPath('data.skipped', 1);
+        $this->assertStringContainsString('does not belong to state_id', (string) $response->json('data.errors.0.message'));
     }
 
     public function test_provided_password_is_kept_and_not_emailed_unless_forced(): void
@@ -297,13 +419,13 @@ class ApplicantImportTest extends TestCase
         $this->assertTrue($application->user->portalAccess()['unpaid_application_fee']);
     }
 
-    public function test_applicant_import_fails_when_intake_missing_application_fee_amount(): void
+    public function test_applicant_import_succeeds_when_application_fee_cannot_be_generated(): void
     {
         Mail::fake();
         $this->intake->update(['application_fee_amount' => null]);
         Sanctum::actingAs($this->staffUser());
 
-        $response = $this->post('/api/applicants/import', [
+        $this->post('/api/applicants/import', [
             'file' => $this->spreadsheet([
                 'email' => 'app.fee.missing@example.com',
                 'phone' => '08030000013',
@@ -314,13 +436,14 @@ class ApplicantImportTest extends TestCase
             'entry_mode' => 'utme',
             'send_credentials' => '0',
         ], ['Accept' => 'application/json'])->assertOk()
-            ->assertJsonPath('data.created', 0)
-            ->assertJsonPath('data.skipped', 1);
+            ->assertJsonPath('data.created', 1)
+            ->assertJsonPath('data.skipped', 0)
+            ->assertJsonPath('data.application_fees_generated', 0);
 
-        $errors = $response->json('data.errors');
-        $this->assertNotEmpty($errors);
-        $this->assertStringContainsString('application fee', strtolower($errors[0]['message'] ?? ''));
-        $this->assertDatabaseMissing('users', ['email' => 'app.fee.missing@example.com']);
+        $application = Application::query()->where('jamb_registration', '55667788EF')->first();
+        $this->assertNotNull($application);
+        $this->assertNull($application->application_fee_invoice_id);
+        $this->assertDatabaseHas('users', ['email' => 'app.fee.missing@example.com']);
     }
 
     public function test_duplicate_email_is_skipped(): void
@@ -393,6 +516,8 @@ class ApplicantImportTest extends TestCase
         $columns = ApplicantImportColumns::forMode('utme');
         $row = array_merge(ApplicantImportColumns::sample('utme'), [
             'first_choice_programme_id' => (string) $this->program->id,
+            'sitting1_subject_1_id' => (string) $this->english->id,
+            'sitting1_subject_2_id' => (string) $this->maths->id,
         ], $overrides);
         $spreadsheet = new Spreadsheet;
         $sheet = $spreadsheet->getActiveSheet();

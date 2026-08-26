@@ -258,28 +258,9 @@ class InvoiceService
 
     public function resolveApplicationFeeAmount(Intake $intake): float
     {
-        $catalog = FeeItem::query()
-            ->where('category', 'application_fee')
-            ->where('is_active', true)
-            ->where('entry_mode', $intake->entry_mode)
-            ->orderBy('display_order')
-            ->orderBy('id')
-            ->first();
+        $catalog = $this->catalogFeeForEntryMode('application_fee', $intake->entry_mode);
         if ($catalog && (float) $catalog->amount > 0) {
             return (float) $catalog->amount;
-        }
-
-        $generic = FeeItem::query()
-            ->where('category', 'application_fee')
-            ->where('is_active', true)
-            ->where(function ($query) {
-                $query->whereNull('entry_mode')->orWhere('entry_mode', '');
-            })
-            ->orderBy('display_order')
-            ->orderBy('id')
-            ->first();
-        if ($generic && (float) $generic->amount > 0) {
-            return (float) $generic->amount;
         }
 
         if ($intake->application_fee_amount !== null) {
@@ -297,9 +278,9 @@ class InvoiceService
     ): Invoice {
         $amount = $amountOverride ?? $this->resolveAcceptanceFeeAmount($intake);
         if ($amount <= 0) {
-            throw new RuntimeException('Set an acceptance fee amount in the fee catalog or application session.');
+            throw new RuntimeException('Set an acceptance fee amount in the fee catalog for this entry mode, or on the application session.');
         }
-        $fee = FeeItem::query()->where('category', 'acceptance_fee')->where('is_active', true)->first();
+        $fee = $this->catalogFeeForEntryMode('acceptance_fee', $intake->entry_mode);
 
         $number = 'INV-'.now()->format('Ymd').'-'.str_pad((string) (Invoice::query()->count() + 1), 5, '0', STR_PAD_LEFT);
         $invoice = Invoice::query()->create([
@@ -333,7 +314,7 @@ class InvoiceService
             return $amount;
         }
 
-        $fee = FeeItem::query()->where('category', 'acceptance_fee')->where('is_active', true)->first();
+        $fee = $this->catalogFeeForEntryMode('acceptance_fee', $intake?->entry_mode);
         if ($fee && (float) $fee->amount > 0) {
             return (float) $fee->amount;
         }
@@ -343,7 +324,7 @@ class InvoiceService
             return $fromIntake;
         }
 
-        throw new RuntimeException('Set an acceptance fee amount in the fee catalog or application session before students can pay.');
+        throw new RuntimeException('Set an acceptance fee in the fee catalog for this entry mode, or on the application session, before students can pay.');
     }
 
     public function ensureAcceptanceFeeInvoice(Application $application, ?float $amountOverride = null): Invoice
@@ -368,9 +349,9 @@ class InvoiceService
         if ($intake) {
             $invoice = $this->createAcceptanceFeeInvoice($user, $intake, $application->id, $amount);
         } else {
-            $fee = FeeItem::query()->where('category', 'acceptance_fee')->where('is_active', true)->first();
+            $fee = $this->catalogFeeForEntryMode('acceptance_fee', $application->entry_mode);
             if (! $fee) {
-                throw new RuntimeException('Add an active Acceptance fee in the fee catalog.');
+                throw new RuntimeException('Add an active Acceptance fee in the fee catalog for this entry mode.');
             }
             $invoice = $this->createForFee($user, $fee, $application->id, null, $amount);
         }
@@ -408,6 +389,33 @@ class InvoiceService
         }
 
         return $invoice->fresh('items');
+    }
+
+    private function catalogFeeForEntryMode(string $category, ?string $entryMode): ?FeeItem
+    {
+        $base = FeeItem::query()
+            ->where('category', $category)
+            ->where('is_active', true)
+            ->orderBy('display_order')
+            ->orderBy('id');
+
+        if ($entryMode) {
+            $match = (clone $base)->where('entry_mode', $entryMode)->first();
+            if ($match && (float) $match->amount > 0) {
+                return $match;
+            }
+        }
+
+        $generic = (clone $base)
+            ->where(function ($query) {
+                $query->whereNull('entry_mode')->orWhere('entry_mode', '');
+            })
+            ->first();
+        if ($generic && (float) $generic->amount > 0) {
+            return $generic;
+        }
+
+        return null;
     }
 
     public function createTuitionInvoice(Student $student, int $percent = 100, ?string $semester = null): Invoice

@@ -6,9 +6,11 @@ use App\Mail\ApplicationCredentialsMail;
 use App\Models\Application;
 use App\Models\ApplicationStep;
 use App\Models\Intake;
+use App\Models\Lga;
 use App\Models\OlevelSubject;
 use App\Models\Program;
 use App\Models\Role;
+use App\Models\StateOfOrigin;
 use App\Models\User;
 use App\Support\ApplicantImportColumns;
 use App\Support\ApplicationReference;
@@ -19,6 +21,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -33,7 +36,6 @@ class ApplicantImportService
 
     public function __construct(
         private PremblyService $prembly,
-        private ApplicationAdmissionService $admissions,
         private InvoiceImportService $invoices,
         private InvoiceService $invoiceService,
         private AuditWriter $audit,
@@ -51,14 +53,16 @@ class ApplicantImportService
                 '',
                 '1. Keep the header row on the Applicants sheet. Do not rename columns. Do not paste data into Instructions or lookup sheets.',
                 '2. Fill one row per applicant. Leave password blank to generate a new password and email it.',
-                '3. Copy first_choice_programme_id from the Programmes sheet (id column). It must match a programme already set up for this entry mode.',
-                '4. Copy O-level subject names from the O-level subjects sheet. The application window (intake) is chosen on the import page, not in this file.',
-                '5. Lookup sheets (Campuses, Colleges, Departments, Programmes, Levels, O-level subjects) are for reference. Import reads only the Applicants sheet.',
-                '6. Documents are not imported from Excel. Import does not submit the application. Applicants must upload required documents and submit after they sign in.',
-                '7. If Verify NIN is checked on upload, Prembly is called for every NIN.',
-                '8. Login on the student portal uses application number (APP/YYYY/#####) or JAMB registration, not email.',
-                '9. Import invoices first when application fee was paid on the old portal (category application_fee, keyed by application_number or JAMB). Matching rows are posted and marked paid.',
-                '10. If no matching invoice is found, an unpaid application fee is generated from the fee catalog for this session’s entry mode (falling back to the session amount if no catalog line exists).',
+                '3. Copy ids from this workbook’s lookup sheets. Do not paste names from the old portal — spellings will not match. first_choice_programme_id / second_choice_programme_id from Programmes. state_id from States. lga_id from LGAs (must belong to that state). sitting*_subject_*_id from O-level subjects. Import stores this system’s official titles.',
+                '4. Country is Nigeria or Non-Nigeria (text). Do not enter college or department on the Applicants sheet — those lookup sheets are reference only. College and department come from the programme you pick.',
+                '5. O-level: maximum 2 sittings (sitting1_ and sitting2_ columns). Sitting 2 is optional.',
+                '6. UTME/JUPEB: exactly 2 JAMB institution choices (utme_institution_1 / utme_programme_1 and utme_institution_2 / utme_programme_2). Enter institution and programme names, not ids.',
+                '7. Lookup sheets (Campuses, Colleges, Departments, Programmes, Levels, States, LGAs, O-level subjects) are for reference. Import reads only the Applicants sheet.',
+                '8. Documents are not imported from Excel. Import does not submit the application. Applicants must upload required documents and submit after they sign in.',
+                '9. If Verify NIN is checked on upload, Prembly is called for every NIN.',
+                '10. Login on the student portal uses application number (APP/YYYY/#####) or JAMB registration, not email.',
+                '11. Import invoices first when application fee was paid on the old portal (category application_fee, keyed by application_number or JAMB). Matching rows are posted and marked paid.',
+                '12. If no matching invoice is found, an unpaid application fee is generated when a catalog or session amount exists. Import still succeeds if the fee cannot be generated — the student portal will ask the applicant to pay.',
                 '',
                 'Required columns: '.implode(', ', ApplicantImportColumns::required($entryMode)),
             ],
@@ -332,29 +336,32 @@ class ApplicantImportService
         $application = $application->fresh(['user', 'intake']);
         $applicationFeeGenerated = false;
         if (! $application->application_fee_invoice_id) {
-            $invoice = $this->invoiceService->createApplicationFeeInvoice(
-                $application->user,
-                $intake,
-                $application->id,
-            );
-            $application->update(['application_fee_invoice_id' => $invoice->id]);
-            $applicationFeeGenerated = true;
+            try {
+                $invoice = $this->invoiceService->createApplicationFeeInvoice(
+                    $application->user,
+                    $intake,
+                    $application->id,
+                );
+                $application->update(['application_fee_invoice_id' => $invoice->id]);
+                $applicationFeeGenerated = true;
+            } catch (RuntimeException $e) {
+                Log::info('applicant_import.application_fee_skipped', [
+                    'application_id' => $application->id,
+                    'message' => $e->getMessage(),
+                ]);
+            }
         }
 
         $emailed = false;
         if ($sendCredentials) {
-            $this->admissions->sendCredentialsEmail($application->fresh(['user']));
-            $emailed = (bool) $application->fresh()->credentials_emailed_at;
-            if (! $emailed) {
-                Mail::to($user->email)->send(new ApplicationCredentialsMail(
-                    $application->fresh(['user']),
-                    $jamb !== '' ? $jamb : $applicationNumber,
-                    $plainPassword,
-                ));
-                $application->update(['credentials_emailed_at' => now()]);
-                $user->update(['portal_credential_cipher' => null]);
-                $emailed = true;
-            }
+            Mail::to($user->email)->send(new ApplicationCredentialsMail(
+                $application->fresh(['user']),
+                $jamb !== '' ? $jamb : $applicationNumber,
+                $plainPassword,
+            ));
+            $application->update(['credentials_emailed_at' => now()]);
+            $user->update(['portal_credential_cipher' => null]);
+            $emailed = true;
         }
 
         return [
@@ -386,12 +393,15 @@ class ApplicantImportService
             'gender' => $data['gender'] ?? '',
             'nin_locked' => $verifyNin,
         ]);
+        [$state, $lga] = $this->resolveStateAndLga($data);
         $this->saveStep($application, 'personal_details', [
             'marital_status' => $data['marital_status'] ?? '',
             'religion' => $data['religion'] ?? '',
             'country' => $this->country($data['country'] ?? null),
-            'state' => $data['state'] ?? '',
-            'lga' => $data['lga'] ?? '',
+            'state' => $state?->state_title ?? '',
+            'state_id' => $state?->state_id,
+            'lga' => $lga?->lga_title ?? '',
+            'lga_id' => $lga?->lga_id,
         ]);
         $this->saveStep($application, 'health_information', [
             'blood_group' => $data['blood_group'] ?? '',
@@ -537,7 +547,7 @@ class ApplicantImportService
             ];
         }
         $choices = [];
-        for ($i = 1; $i <= 4; $i++) {
+        for ($i = 1; $i <= 2; $i++) {
             if (blank($data["utme_institution_{$i}"] ?? null)) {
                 continue;
             }
@@ -580,17 +590,18 @@ class ApplicantImportService
 
         $results = [];
         for ($i = 1; $i <= 9; $i++) {
-            $subjectName = trim((string) ($data["sitting{$sitting}_subject_{$i}"] ?? ''));
+            $subjectName = trim((string) ($data["sitting{$sitting}_subject_{$i}_id"] ?? ''));
             $grade = trim((string) ($data["sitting{$sitting}_grade_{$i}"] ?? ''));
             if ($subjectName === '' && $grade === '') {
                 continue;
             }
-            $subject = OlevelSubject::query()
-                ->whereRaw('LOWER(name) = ?', [strtolower($subjectName)])
-                ->first();
+            if ($subjectName === '') {
+                throw new RuntimeException("sitting{$sitting}_subject_{$i}_id is required when a grade is set. Copy the id from the O-level subjects sheet.");
+            }
+            $subject = $this->resolveOlevelSubject($subjectName, "sitting{$sitting}_subject_{$i}_id");
             $results[] = [
-                'subject_id' => $subject?->id,
-                'subject_name' => $subject?->name ?: $subjectName,
+                'subject_id' => $subject->id,
+                'subject_name' => $subject->name,
                 'grade' => $grade,
             ];
         }
@@ -610,7 +621,7 @@ class ApplicantImportService
      */
     private function rowLooksComplete(array $data, string $entryMode): bool
     {
-        if (blank($data['sitting1_exam_type'] ?? null) || blank($data['sitting1_subject_1'] ?? null)) {
+        if (blank($data['sitting1_exam_type'] ?? null) || blank($data['sitting1_subject_1_id'] ?? null)) {
             return false;
         }
         if ($entryMode === 'de' && blank($data['previous_institution'] ?? null)) {
@@ -642,6 +653,63 @@ class ApplicantImportService
         }
 
         return $program;
+    }
+
+    /**
+     * @param  array<string, string>  $data
+     * @return array{0: ?StateOfOrigin, 1: ?Lga}
+     */
+    private function resolveStateAndLga(array $data): array
+    {
+        $state = $this->resolveState($data['state_id'] ?? null);
+        $lga = $this->resolveLga($data['lga_id'] ?? null);
+        if ($state && $lga && (int) $lga->state_id !== (int) $state->state_id) {
+            throw new RuntimeException("lga_id {$lga->lga_id} does not belong to state_id {$state->state_id}. Copy both from the States and LGAs sheets.");
+        }
+        if (! $state && $lga) {
+            $state = $lga->state;
+        }
+
+        return [$state, $lga];
+    }
+
+    private function resolveState(?string $value): ?StateOfOrigin
+    {
+        $id = SpreadsheetImport::parseOptionalId($value, 'state_id');
+        if ($id === null) {
+            return null;
+        }
+        $state = StateOfOrigin::query()->find($id);
+        if (! $state) {
+            throw new RuntimeException("Unknown state_id: {$id}. Copy it from the States sheet.");
+        }
+
+        return $state;
+    }
+
+    private function resolveLga(?string $value): ?Lga
+    {
+        $id = SpreadsheetImport::parseOptionalId($value, 'lga_id');
+        if ($id === null) {
+            return null;
+        }
+        $lga = Lga::query()->find($id);
+        if (! $lga) {
+            throw new RuntimeException("Unknown lga_id: {$id}. Copy it from the LGAs sheet.");
+        }
+
+        return $lga;
+    }
+
+    private function resolveOlevelSubject(string $value, string $field): OlevelSubject
+    {
+        $id = SpreadsheetImport::parseId($value, $field);
+        $subject = OlevelSubject::query()->find($id);
+        if (! $subject) {
+            throw new RuntimeException("Unknown {$field}: {$id}. Copy it from the O-level subjects sheet.");
+        }
+
+        return $subject;
     }
 
     private function assertNotDuplicate(string $email, string $nin, string $jamb, string $oldNumber, int $intakeId): void

@@ -6,7 +6,10 @@ use App\Models\OfficeDepartment;
 use App\Models\OfficeNavLink;
 use App\Models\OfficeSubunit;
 use App\Models\OfficeUnit;
+use App\Models\Staff;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
 class OfficeNavOwnerResolver
@@ -21,54 +24,18 @@ class OfficeNavOwnerResolver
      *   approval_chain: string
      * }|null
      */
-    public function ownerForNavKey(string $navKey): ?array
+    public function ownerForNavKey(string $navKey, ?User $actor = null): ?array
     {
-        $links = OfficeNavLink::query()
-            ->with('linkable')
-            ->where('nav_key', $navKey)
-            ->get();
-
-        $department = null;
-        $unit = null;
-        $requireCreate = false;
-        $requireUpdate = false;
-        $requireDelete = false;
-        $chains = [];
-
-        foreach ($links as $link) {
-            $resolved = $this->departmentAndUnit($link->linkable);
-            if (! ($resolved['department'] ?? null)) {
-                continue;
+        if ($actor?->staff) {
+            $fromActor = $this->ownerFromStaff($actor->staff, $navKey);
+            if ($fromActor) {
+                return $fromActor;
             }
-            if ($department && (int) $department->id !== (int) $resolved['department']->id) {
-                throw ValidationException::withMessages([
-                    'nav_keys' => ["The module \"{$navKey}\" is linked to more than one office department."],
-                ]);
-            }
-            $department = $resolved['department'];
-            if ($resolved['unit'] && ! $unit) {
-                $unit = $resolved['unit'];
-            }
-            $requireCreate = $requireCreate || (bool) $link->require_create;
-            $requireUpdate = $requireUpdate || (bool) $link->require_update;
-            $requireDelete = $requireDelete || (bool) $link->require_delete;
-            $chains[] = in_array($link->approval_chain, OfficeNavLink::CHAINS, true)
-                ? $link->approval_chain
-                : OfficeNavLink::CHAIN_BOTH;
         }
 
-        if (! $department) {
-            return null;
-        }
-
-        return [
-            'department' => $department,
-            'unit' => $unit,
-            'require_create' => $requireCreate,
-            'require_update' => $requireUpdate,
-            'require_delete' => $requireDelete,
-            'approval_chain' => $this->mergeChains($chains),
-        ];
+        return $this->ownerFromLinks(
+            OfficeNavLink::query()->with('linkable')->where('nav_key', $navKey)->get()
+        );
     }
 
     public function assertKeysUniqueToDepartment(Model $model, array $keys): void
@@ -121,6 +88,105 @@ class OfficeNavOwnerResolver
         }
 
         return ['department' => null, 'unit' => null];
+    }
+
+    /**
+     * @return array{
+     *   department: OfficeDepartment,
+     *   unit: ?OfficeUnit,
+     *   require_create: bool,
+     *   require_update: bool,
+     *   require_delete: bool,
+     *   approval_chain: string
+     * }|null
+     */
+    private function ownerFromStaff(Staff $staff, string $navKey): ?array
+    {
+        $links = collect();
+
+        if ($staff->office_subunit_id) {
+            $subunit = OfficeSubunit::query()
+                ->with(['navLinks', 'unit.navLinks', 'unit.department.navLinks'])
+                ->find($staff->office_subunit_id);
+            if ($subunit) {
+                $links = $links
+                    ->concat($subunit->navLinks)
+                    ->concat($subunit->unit?->navLinks ?? [])
+                    ->concat($subunit->unit?->department?->navLinks ?? []);
+            }
+        } elseif ($staff->office_unit_id) {
+            $unit = OfficeUnit::query()
+                ->with(['navLinks', 'department.navLinks'])
+                ->find($staff->office_unit_id);
+            if ($unit) {
+                $links = $links
+                    ->concat($unit->navLinks)
+                    ->concat($unit->department?->navLinks ?? []);
+            }
+        } elseif ($staff->office_department_id) {
+            $department = OfficeDepartment::query()->with('navLinks')->find($staff->office_department_id);
+            if ($department) {
+                $links = $links->concat($department->navLinks);
+            }
+        }
+
+        return $this->ownerFromLinks($links->where('nav_key', $navKey)->values());
+    }
+
+    /**
+     * @param  Collection<int, OfficeNavLink>  $links
+     * @return array{
+     *   department: OfficeDepartment,
+     *   unit: ?OfficeUnit,
+     *   require_create: bool,
+     *   require_update: bool,
+     *   require_delete: bool,
+     *   approval_chain: string
+     * }|null
+     */
+    private function ownerFromLinks(Collection $links): ?array
+    {
+        $department = null;
+        $unit = null;
+        $requireCreate = false;
+        $requireUpdate = false;
+        $requireDelete = false;
+        $chains = [];
+
+        foreach ($links as $link) {
+            $resolved = $this->departmentAndUnit($link->linkable);
+            if (! ($resolved['department'] ?? null)) {
+                continue;
+            }
+            if ($department && (int) $department->id !== (int) $resolved['department']->id) {
+                throw ValidationException::withMessages([
+                    'nav_keys' => ["The module \"{$link->nav_key}\" is linked to more than one office department."],
+                ]);
+            }
+            $department = $resolved['department'];
+            if ($resolved['unit'] && ! $unit) {
+                $unit = $resolved['unit'];
+            }
+            $requireCreate = $requireCreate || (bool) $link->require_create;
+            $requireUpdate = $requireUpdate || (bool) $link->require_update;
+            $requireDelete = $requireDelete || (bool) $link->require_delete;
+            $chains[] = in_array($link->approval_chain, OfficeNavLink::CHAINS, true)
+                ? $link->approval_chain
+                : OfficeNavLink::CHAIN_BOTH;
+        }
+
+        if (! $department) {
+            return null;
+        }
+
+        return [
+            'department' => $department,
+            'unit' => $unit,
+            'require_create' => $requireCreate,
+            'require_update' => $requireUpdate,
+            'require_delete' => $requireDelete,
+            'approval_chain' => $this->mergeChains($chains),
+        ];
     }
 
     /**

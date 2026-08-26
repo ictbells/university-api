@@ -71,6 +71,34 @@ class OfferAcceptancePortalTest extends TestCase
         $this->assertSame('awaiting_acceptance_fee', $application->fresh()->stage);
     }
 
+    public function test_opening_the_file_uses_catalog_amount_for_entry_mode(): void
+    {
+        $user = $this->applicantWithOffer('offer_issued', 7000);
+        \App\Models\FeeItem::query()->create([
+            'name' => 'PG acceptance',
+            'category' => 'acceptance_fee',
+            'entry_mode' => 'pg',
+            'amount' => 15000,
+            'is_active' => true,
+            'wallet_allowed' => false,
+        ]);
+        \App\Models\FeeItem::query()->create([
+            'name' => 'UTME acceptance',
+            'category' => 'acceptance_fee',
+            'entry_mode' => 'utme',
+            'amount' => 9000,
+            'is_active' => true,
+            'wallet_allowed' => false,
+        ]);
+        $application = $user->latestApplication;
+
+        Sanctum::actingAs($user);
+
+        $response = $this->getJson("/api/applications/{$application->id}")->assertOk();
+        $this->assertEquals(9000, (float) $response->json('acceptance_fee_invoice.amount'));
+        $this->assertSame('unpaid', $response->json('acceptance_fee_invoice.status'));
+    }
+
     public function test_opening_the_file_uses_intake_default_when_catalog_is_missing(): void
     {
         $user = $this->applicantWithOffer('offer_issued', 7000);

@@ -35,7 +35,7 @@ class ApplicantImportColumns
             $olevel[] = "sitting{$sitting}_exam_number";
             $olevel[] = "sitting{$sitting}_exam_centre";
             for ($i = 1; $i <= 9; $i++) {
-                $olevel[] = "sitting{$sitting}_subject_{$i}";
+                $olevel[] = "sitting{$sitting}_subject_{$i}_id";
                 $olevel[] = "sitting{$sitting}_grade_{$i}";
             }
         }
@@ -53,8 +53,8 @@ class ApplicantImportColumns
             'marital_status',
             'religion',
             'country',
-            'state',
-            'lga',
+            'state_id',
+            'lga_id',
             'address',
             'blood_group',
             'genotype',
@@ -92,7 +92,7 @@ class ApplicantImportColumns
             $cols[] = "utme_subject_{$i}";
             $cols[] = "utme_score_{$i}";
         }
-        for ($i = 1; $i <= 4; $i++) {
+        for ($i = 1; $i <= 2; $i++) {
             $cols[] = "utme_institution_{$i}";
             $cols[] = "utme_programme_{$i}";
         }
@@ -194,14 +194,16 @@ class ApplicantImportColumns
         $row['date_of_birth'] = '2004-03-18';
         $row['gender'] = 'Female';
         $row['country'] = 'Nigeria';
+        $row['state_id'] = '28';
+        $row['lga_id'] = '560';
         $row['first_choice_programme_id'] = '1';
         $row['sitting1_exam_type'] = 'WAEC';
         $row['sitting1_exam_year'] = '2021';
         $row['sitting1_exam_number'] = '1234567890';
         $row['sitting1_exam_centre'] = 'Lagos';
-        $row['sitting1_subject_1'] = 'English Language';
+        $row['sitting1_subject_1_id'] = '1';
         $row['sitting1_grade_1'] = 'C6';
-        $row['sitting1_subject_2'] = 'Mathematics';
+        $row['sitting1_subject_2_id'] = '2';
         $row['sitting1_grade_2'] = 'B3';
 
         if (in_array($entryMode, ['utme', 'jupeb', 'de'], true)) {
@@ -222,6 +224,8 @@ class ApplicantImportColumns
             $row['utme_score_4'] = '57';
             $row['utme_institution_1'] = 'Bells University of Technology';
             $row['utme_programme_1'] = 'Computer Science';
+            $row['utme_institution_2'] = 'University of Lagos';
+            $row['utme_programme_2'] = 'Computer Science';
         }
         if ($entryMode === 'de') {
             $row['jamb_de_number'] = '12345678DE';

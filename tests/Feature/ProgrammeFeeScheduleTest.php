@@ -6,6 +6,7 @@ use App\Models\Campus;
 use App\Models\Department;
 use App\Models\Faculty;
 use App\Models\FeeItem;
+use App\Models\OfficeApprovalRequest;
 use App\Models\OfficeDepartment;
 use App\Models\Permission;
 use App\Models\Program;
@@ -56,6 +57,26 @@ class ProgrammeFeeScheduleTest extends TestCase
             ->assertOk()
             ->assertJsonPath('total_amount', 54500)
             ->assertJsonCount(2, 'data');
+    }
+
+    public function test_bulk_assign_waits_when_create_is_required_on_finance(): void
+    {
+        [$staff, $program, $tuition] = $this->seedSchedule(assign: false, gateCreate: true);
+        Sanctum::actingAs($staff);
+
+        $this->postJson('/api/programme-fees/bulk', [
+            'program_id' => $program->id,
+            'level_code' => '100',
+            'semester' => 'first',
+            'items' => [
+                ['fee_item_id' => $tuition->id],
+            ],
+        ])
+            ->assertStatus(202)
+            ->assertJsonPath('status', 'pending_approval');
+
+        $this->assertSame(0, $program->programmeFees()->count());
+        $this->assertSame(1, OfficeApprovalRequest::query()->where('action_key', 'finance.bulk_programme_fees')->count());
     }
 
     public function test_bulk_assign_reuses_one_fee_item_across_installment_slices(): void
@@ -117,6 +138,26 @@ class ProgrammeFeeScheduleTest extends TestCase
             'installment_tranche' => 1,
             'is_active' => true,
         ])->assertCreated()
+            ->assertJsonPath('installment_tranche', null)
+            ->assertJsonPath('entry_mode', 'utme');
+
+        $this->postJson('/api/fees', [
+            'name' => 'Acceptance',
+            'category' => 'acceptance_fee',
+            'amount' => 25000,
+            'is_active' => true,
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors(['entry_mode']);
+
+        $this->postJson('/api/fees', [
+            'name' => 'UTME acceptance',
+            'category' => 'acceptance_fee',
+            'entry_mode' => 'utme',
+            'amount' => 25000,
+            'installment_tranche' => 1,
+            'is_active' => true,
+        ])->assertCreated()
+            ->assertJsonPath('entry_mode', 'utme')
             ->assertJsonPath('installment_tranche', null);
     }
 
@@ -180,7 +221,7 @@ class ProgrammeFeeScheduleTest extends TestCase
     /**
      * @return array{0: User, 1: Program, 2: FeeItem, 3: FeeItem}
      */
-    private function seedSchedule(bool $assign = true, bool $syncNav = true): array
+    private function seedSchedule(bool $assign = true, bool $syncNav = true, bool $gateCreate = false): array
     {
         foreach (PermissionCatalog::all() as $perm) {
             Permission::query()->updateOrCreate(['key' => $perm['key']], $perm);
@@ -243,8 +284,21 @@ class ProgrammeFeeScheduleTest extends TestCase
             'is_active' => true,
         ]);
         if ($syncNav) {
-            $office->syncNavKeys(['finance']);
+            $office->syncNavLinks([[
+                'key' => 'finance',
+                'require_create' => $gateCreate,
+                'require_update' => false,
+                'require_delete' => false,
+                'approval_chain' => 'both',
+            ]]);
         }
+        $hod = User::factory()->create(['email' => 'bursary.hod@example.com']);
+        $hodStaff = Staff::query()->create([
+            'user_id' => $hod->id,
+            'staff_number' => 'ST-HOD-FEE',
+            'office_department_id' => $office->id,
+        ]);
+        $office->update(['head_staff_id' => $hodStaff->id]);
         $user = User::factory()->create();
         $user->roles()->attach($role->id);
         Staff::query()->create([

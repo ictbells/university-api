@@ -22,7 +22,7 @@ class ApplicationCredentialsMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Your Bells University application credentials',
+            subject: 'Your Bells University student portal account',
         );
     }
 

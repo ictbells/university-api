@@ -187,7 +187,7 @@ class FinanceController extends Controller
             'description' => 'nullable|string|max:255',
             'category' => ['required', 'string', Rule::in(FeeSchedule::staffEditableCategories())],
             'entry_mode' => [
-                Rule::requiredIf(fn () => $request->input('category') === 'application_fee'),
+                Rule::requiredIf(fn () => FeeSchedule::requiresEntryMode((string) $request->input('category'))),
                 'nullable',
                 Rule::in(AdmissionEntryRules::ENTRY_MODE_ORDER),
             ],
@@ -209,7 +209,7 @@ class FinanceController extends Controller
             'is_active' => 'boolean',
         ]);
         $data['wallet_allowed'] = FeeSchedule::walletAllowed($data['category']);
-        if ($data['category'] !== 'application_fee') {
+        if (! FeeSchedule::requiresEntryMode($data['category'])) {
             $data['entry_mode'] = null;
         }
         if ($data['category'] !== 'transcript') {
@@ -246,7 +246,7 @@ class FinanceController extends Controller
             'description' => 'nullable|string|max:255',
             'category' => ['sometimes', 'string', Rule::in(FeeSchedule::staffEditableCategories())],
             'entry_mode' => [
-                Rule::requiredIf(fn () => ($request->input('category') ?? $fee->category) === 'application_fee'),
+                Rule::requiredIf(fn () => FeeSchedule::requiresEntryMode((string) ($request->input('category') ?? $fee->category))),
                 'nullable',
                 Rule::in(AdmissionEntryRules::ENTRY_MODE_ORDER),
             ],
@@ -269,7 +269,7 @@ class FinanceController extends Controller
         ]);
         $category = $data['category'] ?? $fee->category;
         $data['wallet_allowed'] = FeeSchedule::walletAllowed($category);
-        if ($category !== 'application_fee') {
+        if (! FeeSchedule::requiresEntryMode($category)) {
             $data['entry_mode'] = null;
         }
         if ($category !== 'transcript') {

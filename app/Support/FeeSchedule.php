@@ -194,6 +194,11 @@ class FeeSchedule
         return in_array($category, ['application_fee', 'acceptance_fee', 'transcript'], true);
     }
 
+    public static function requiresEntryMode(string $category): bool
+    {
+        return in_array($category, ['application_fee', 'acceptance_fee'], true);
+    }
+
     /**
      * Programme-schedule lines (tuition, ICT, lab, infrastructure, …) can be tagged
      * 1st–4th 25% or Full 100%. Application, acceptance, and transcript fees cannot.

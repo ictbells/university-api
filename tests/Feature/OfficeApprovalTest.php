@@ -46,7 +46,13 @@ class OfficeApprovalTest extends TestCase
             'code' => 'SA',
             'is_active' => true,
         ]);
-        $this->department->syncNavKeys(['hostel']);
+        $this->department->syncNavLinks([[
+            'key' => 'hostel',
+            'require_create' => true,
+            'require_update' => true,
+            'require_delete' => true,
+            'approval_chain' => 'both',
+        ]]);
 
         $this->unit = OfficeUnit::query()->create([
             'office_department_id' => $this->department->id,
@@ -134,6 +140,16 @@ class OfficeApprovalTest extends TestCase
         ]);
 
         Sanctum::actingAs($admin->fresh(['roles', 'staff']));
+        $result = $this->approvals()->submitOrExecute('test.echo', null, ['ping' => 1], 'Test echo');
+
+        $this->assertIsArray($result);
+        $this->assertSame(1, $result['ping']);
+        $this->assertSame(0, OfficeApprovalRequest::query()->count());
+    }
+
+    public function test_hod_executes_immediately(): void
+    {
+        Sanctum::actingAs($this->hod);
         $result = $this->approvals()->submitOrExecute('test.echo', null, ['ping' => 1], 'Test echo');
 
         $this->assertIsArray($result);
@@ -382,6 +398,62 @@ class OfficeApprovalTest extends TestCase
 
         $this->assertFalse(OfficeDepartment::query()->where('name', 'Registry')->exists());
         $this->assertSame(1, OfficeApprovalRequest::query()->where('action_key', 'office.store_department')->count());
+    }
+
+    public function test_department_staff_wait_when_the_office_has_no_hod(): void
+    {
+        $this->department->update(['head_staff_id' => null]);
+        $desk = $this->staffInOffice('bursary.desk@example.com', [
+            'office_department_id' => $this->department->id,
+        ]);
+
+        Sanctum::actingAs($desk);
+        $pending = $this->approvals()->submitOrExecute('test.echo', null, ['ping' => 1], 'Test echo');
+
+        $this->assertSame(202, $pending->getStatusCode());
+        $this->assertSame('pending_approval', $pending->getData(true)['status']);
+        $this->assertSame(OfficeApprovalRequest::PENDING_HOD, $pending->getData(true)['approval_request']['status']);
+        $this->assertSame(1, OfficeApprovalRequest::query()->count());
+    }
+
+    public function test_saving_portal_links_applies_immediately_when_office_setup_requires_update(): void
+    {
+        $this->department->syncNavLinks([[
+            'key' => 'office-setup',
+            'require_create' => true,
+            'require_update' => true,
+            'require_delete' => true,
+            'approval_chain' => 'both',
+        ]]);
+
+        $role = Role::query()->create([
+            'name' => 'Office manager',
+            'slug' => 'office-manager-links',
+            'is_system' => false,
+            'is_active' => true,
+        ]);
+        $role->permissions()->sync(
+            Permission::query()->where('key', 'institution.manage')->pluck('id'),
+        );
+        $this->subunitStaff->roles()->attach($role->id);
+
+        Sanctum::actingAs($this->subunitStaff->fresh(['roles.permissions', 'staff']));
+        $this->putJson("/api/office-departments/{$this->department->id}/nav-links", [
+            'nav_links' => [[
+                'key' => 'roles',
+                'require_create' => true,
+                'require_update' => true,
+                'require_delete' => true,
+                'approval_chain' => 'both',
+            ]],
+        ])
+            ->assertOk()
+            ->assertJsonPath('nav_links.0.require_create', true);
+
+        $this->assertSame(0, OfficeApprovalRequest::query()->count());
+        $this->assertTrue(
+            $this->department->navLinks()->where('nav_key', 'roles')->where('require_create', true)->exists()
+        );
     }
 
     private function approvals(): OfficeApprovalService

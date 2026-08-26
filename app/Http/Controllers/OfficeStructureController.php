@@ -99,30 +99,15 @@ class OfficeStructureController extends Controller
 
         $this->navOwners->assertKeysUniqueToDepartment($model, $keys);
 
-        $actionKey = match (true) {
-            $model instanceof OfficeDepartment => 'office.sync_department_nav',
-            $model instanceof OfficeUnit => 'office.sync_unit_nav',
-            default => 'office.sync_subunit_nav',
-        };
-        $subjectKey = \Illuminate\Support\Str::snake(class_basename($model)).'_id';
+        $before = $model->navLinkConfigs();
+        $model->syncNavLinks($links);
+        $after = $model->navLinkConfigs();
+        $this->audit->record($action, 'Office navigation links updated', 'institution', $entityType, $entityId, $before, $after);
 
-        return $this->officeGate(
-            $actionKey,
-            $model,
-            [$subjectKey => $model->id, ...$data],
-            'Update office navigation links',
-            function () use ($model, $action, $entityType, $entityId, $links, $keys) {
-                $before = $model->navLinkConfigs();
-                $model->syncNavLinks($links);
-                $after = $model->navLinkConfigs();
-                $this->audit->record($action, 'Office navigation links updated', 'institution', $entityType, $entityId, $before, $after);
-
-                return [
-                    'nav_keys' => $keys,
-                    'nav_links' => $after,
-                ];
-            },
-        );
+        return [
+            'nav_keys' => $keys,
+            'nav_links' => $after,
+        ];
     }
 
     private function formatDepartment(OfficeDepartment $dept): array

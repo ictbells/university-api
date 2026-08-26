@@ -54,8 +54,8 @@ class ApplicationFormSteps
             'payload.utme.subjects' => ($required ? 'required' : 'nullable').'|array|max:4'.($required ? '|min:4' : ''),
             'payload.utme.subjects.*.subject' => ($required ? 'required' : 'nullable').'|string|max:120',
             'payload.utme.subjects.*.score' => ($required ? 'required' : 'nullable').'|numeric|min:0|max:400',
-            'payload.utme.institution_choices' => ($required ? 'required' : 'nullable').'|array|max:4',
-            'payload.utme.institution_choices.*.choice_order' => 'nullable|integer|min:1|max:4',
+            'payload.utme.institution_choices' => ($required ? 'required' : 'nullable').'|array|max:2',
+            'payload.utme.institution_choices.*.choice_order' => 'nullable|integer|min:1|max:2',
             'payload.utme.institution_choices.*.institution_name' => 'nullable|string|max:190',
             'payload.utme.institution_choices.*.programme_name' => 'nullable|string|max:190',
         ])['payload'] + $payload;
@@ -70,9 +70,9 @@ class ApplicationFormSteps
             }
             $choices = collect($payload['utme']['institution_choices'] ?? [])
                 ->filter(fn ($row) => filled($row['institution_name'] ?? null));
-            if ($choices->isEmpty()) {
+            if ($choices->count() < 2) {
                 throw ValidationException::withMessages([
-                    'payload.utme.institution_choices' => ['Provide at least your first JAMB institution choice.'],
+                    'payload.utme.institution_choices' => ['Provide both JAMB institution choices.'],
                 ]);
             }
         }
@@ -84,7 +84,7 @@ class ApplicationFormSteps
                 ->all();
             $payload['utme']['institution_choices'] = collect($payload['utme']['institution_choices'] ?? [])
                 ->values()
-                ->take(4)
+                ->take(2)
                 ->map(function ($row, $index) {
                     return [
                         'choice_order' => (int) ($row['choice_order'] ?? ($index + 1)),

@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.20  
+**Version:** 1.24  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -284,7 +284,11 @@ When assigning a portal link on **Department Setup → Links**, every assigned l
 2. **Create / Update / Delete** — which mutation types require office approval (Update also covers workflow actions such as allocate, publish, board clear).
 3. **Who must approve** — unit head only, department head only, or **both** (normal path: unit head → department head).
 
-New assigned links default to **no approval**. Existing links keep the Create/Update/Delete flags already saved. When a flag is on, staff mutations on that module wait for office approval the same way Roles does (HTTP 202 `pending_approval`), except the acting HOD and Super Admin, who still execute immediately.
+New assigned links default to **no approval**. Existing links keep the Create/Update/Delete flags already saved. When a flag is on, staff mutations on that module wait for office approval (HTTP 202 `pending_approval`). **Super Admin and the owning HOD still apply immediately** and do not need to submit their own work for review.
+
+Saving **portal links** (including the approval gear) applies immediately so those flags take effect. Creating or editing office departments, units, and subunits still waits when Office setup Create/Update/Delete is on.
+
+Assigning programme fees (the Assign fees POST) and copying a schedule wait when **Create or Update** is on for **Fees & payments**.
 
 When a mutation requires approval for an owned module:
 
@@ -293,7 +297,7 @@ When a mutation requires approval for an owned module:
 3. After unit-head approval, requests escalate to the HOD when the chain is **both**. With **unit head only**, the action executes after unit-head approval.
 4. The **acting HOD** of the owning department, and **Super Admin**, execute immediately on submit.
 5. **HOD seniority:** the department head may approve or reject a request that is still waiting on the unit head; that decision is final (unit-head step skipped).
-6. If the department has **no HOD** and the chain still needs one, any completed unit-head step executes so rollout is not frozen.
+6. If the department has **no HOD**, other staff still wait. Super Admin can decide the request in Approvals. After a unit head has already approved, a missing HOD no longer blocks execution of that reviewed request.
 
 Pending work returns HTTP **202** with status `pending_approval`. The staff portal shows a notice. Reviewers use **Overview → Approvals** (`/approvals`): **Needs my review**, **Submitted by me**, and **Decided**. Approve or reject with an optional comment. Designation is the review gate; Super Admin can decide any open request.
 
@@ -446,7 +450,7 @@ Leave the field blank unless the programme needs a different path. If none is se
 These are two calendars, not one record with a type flag.
 
 - **Admission session** — Academic → Admission Setup → Academic Sessions. Used by enrolled students (course registration, hostels, session close and promotion). A session becomes the live calendar only when one of its semesters is marked **Current**.
-- **Application session** — Academic → Application Setup → Application sessions (intake). Open when **Accepting applications** is on and today is within the open and close dates. Application form fees are **not** edited here; they live in **Fees & payments → Fee items** as `application_fee` lines **per entry mode** (UTME, DE, JUPEB, Transfer, PG). Invoices use the catalog amount and fall back to a stored session amount only if no catalog line exists.
+- **Application session** — Academic → Application Setup → Application sessions (intake). Open when **Accepting applications** is on and today is within the open and close dates. Application and acceptance fees are **not** edited here; they live in **Fees & payments → Fee items** as `application_fee` and `acceptance_fee` lines **per entry mode** (UTME, DE, JUPEB, Transfer, PG). Invoices use the catalog amount and fall back to a stored session amount only if no catalog line exists.
 
 **Lifecycle for a new year**
 
@@ -474,7 +478,7 @@ Upload JAMB candidate spreadsheets **before** new applicants register. Students 
 Use this when moving people from another admissions portal into this system.
 
 1. Select the **application session** (intake) and **category** (UTME, Direct Entry, JUPEB, Transfer, or Postgraduate). The session's entry mode must match the category.
-2. Download the **template** for that category and fill one row per applicant on the **Applicants** sheet. Do not rename columns. Extra sheets (**Campuses**, **Colleges**, **Departments**, **Programmes**, **Levels**, **O-level subjects**) are lookup lists — copy the programme **id** onto the Applicants sheet; do not paste rows into those sheets. The application session is selected on the page, not in the file.
+2. Download the **template** for that category and fill one row per applicant on the **Applicants** sheet. Do not rename columns. Extra sheets (**Campuses**, **Colleges**, **Departments**, **Programmes**, **Levels**, **States**, **LGAs**, **O-level subjects**) are lookup lists. Copy **ids** (not names from the old portal) for programme, state, LGA, and O-level subjects; import stores this system’s official titles. Do not enter college or department on the Applicants sheet. **Country** is Nigeria or Non-Nigeria. Maximum **two** O-level sittings (`sitting1_` / `sitting2_`; sitting 2 optional). UTME/JUPEB has **two** JAMB institution slots (`utme_institution_1` / `utme_programme_1` and `_2`) — enter institution and programme **names**, not ids. The application session is selected on the page, not in the file.
 3. Optionally tick **Verify NIN during upload (Prembly is called for every row)**. Failed NINs are skipped and no account is created. Leave this off to store NIN without live verification; the applicant can verify later in the form.
 4. Optionally tick **Email portal passwords** (default on). If the spreadsheet `password` column is filled, that plaintext is hashed and stored and is not emailed unless this box is checked. If the column is blank, a new password is generated and emailed when the box is on.
 5. Upload `.xlsx`, `.xls`, or `.csv`. The job is queued when NIN verification is on **or** the file has 40 or more data rows (unless the queue driver is `sync`). Wait for the result summary.
@@ -560,7 +564,7 @@ E-exam sync is not included in this release.
 
 ### 8.7 Services
 
-- **Fees & payments** — **Fee categories** (charge types, including programme-schedule vs operational) and **Fee items** (priced lines: **application fees per entry mode**, **official transcript fees per programme and transcript type**, **Clinic services** visit charges, and **school-fee installment shares**: any programme-schedule catalog line — tuition, ICT, laboratory, infrastructure, and the rest — can be tagged 1st/2nd/3rd/4th 25% or optional Full 100% pay-at-once; application, acceptance, and transcript fees stay online-only and cannot use shares), rebates, **Programme fees** (assign catalog lines to programmes with a naira override per line; copy a schedule to other programmes in the same college), invoice generation, invoices, student financial status, **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices and Generate invoice filter by session and level; Programme fees filter by level. When schedule lines are tagged with installment shares, student school-fee invoices bill those fixed amounts (already-paid fee items are skipped; 50% bills unpaid 1st + 2nd slices). Untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices. Hostel **Accommodation** on a school-fee sheet is a schedule catalog item, not a hostel-bed charge.
+- **Fees & payments** — **Fee categories** (charge types, including programme-schedule vs operational) and **Fee items** (priced lines: **application and acceptance fees per entry mode**, **official transcript fees per programme and transcript type**, **Clinic services** visit charges, and **school-fee installment shares**: any programme-schedule catalog line — tuition, ICT, laboratory, infrastructure, and the rest — can be tagged 1st/2nd/3rd/4th 25% or optional Full 100% pay-at-once; application, acceptance, and transcript fees stay online-only and cannot use shares), rebates, **Programme fees** (assign catalog lines to programmes with a naira override per line; copy a schedule to other programmes in the same college), invoice generation, invoices, student financial status, **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices and Generate invoice filter by session and level; Programme fees filter by level. When schedule lines are tagged with installment shares, student school-fee invoices bill those fixed amounts (already-paid fee items are skipped; 50% bills unpaid 1st + 2nd slices). Untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices. Hostel **Accommodation** on a school-fee sheet is a schedule catalog item, not a hostel-bed charge.
 
 #### Programme fees (25% matrix)
 
@@ -632,7 +636,7 @@ Use the audit trail for compliance reviews and incident investigation.
 
 1. Create the **Admission session** for the new year with at least two semesters. Do **not** mark any semester current yet — keep the previous year current for enrolled students.
 2. Confirm **Programmes** have the correct entry modes and are active.
-3. Open **Application sessions** for each category (UTME, DE, JUPEB, Transfer, PG). Set the matching **application fee** under **Fees & payments → Fee items** (one line per entry mode). Applicants must select the session they qualify for at signup; opening only UTME does not admit other categories.
+3. Open **Application sessions** for each category (UTME, DE, JUPEB, Transfer, PG). Set the matching **application fee** and **acceptance fee** under **Fees & payments → Fee items** (one line per entry mode for each). Applicants must select the session they qualify for at signup; opening only UTME does not admit other categories.
 4. Upload **Candidate data** for UTME/DE sessions before applicants register (if JAMB-list enforcement is required).
 5. If migrating from another portal, use **Import applicants** (see §8.5).
 6. When the window ends, **stop accepting** on those application sessions.
@@ -737,6 +741,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.17 | Aug 2026 | Platform team | Clinic visit charges come from Finance fee-catalog Clinic services lines; clinic staff attach quantity only; Medical levy remains the programme schedule |
 | 1.18 | Aug 2026 | Platform team | Programme-schedule fee items (not only tuition) use 1st–4th 25% installment shares; Programme fees assign per-line amounts and copy a schedule within a college |
 | 1.19 | Aug 2026 | Platform team | Every assigned office portal link shows Create/Update/Delete approval settings (not only modules that already have gated actions) |
+| 1.24 | Aug 2026 | Platform team | Acceptance fees are set in the fee catalog by entry mode, matching application fees |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 
