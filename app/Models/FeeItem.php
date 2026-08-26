@@ -4,7 +4,18 @@ namespace App\Models;
 
 class FeeItem extends BaseModel
 {
-    protected $fillable = ['name', 'description', 'category', 'entry_mode', 'amount', 'wallet_allowed', 'is_required', 'display_order', 'is_active'];
+    protected $fillable = [
+        'name',
+        'description',
+        'category',
+        'installment_tranche',
+        'entry_mode',
+        'amount',
+        'wallet_allowed',
+        'is_required',
+        'display_order',
+        'is_active',
+    ];
 
     protected function casts(): array
     {
@@ -14,6 +25,7 @@ class FeeItem extends BaseModel
             'is_active' => 'boolean',
             'amount' => 'decimal:2',
             'display_order' => 'integer',
+            'installment_tranche' => 'integer',
         ];
     }
 }

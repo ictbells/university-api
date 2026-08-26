@@ -3,13 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\UploadCandidateDataRequest;
-use App\Models\AcademicTerm;
 use App\Models\CandidateData;
+use App\Models\Intake;
 use App\Services\AuditWriter;
 use App\Services\CandidateDataImportService;
 use App\Support\CandidateEligibility;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CandidateDataController extends Controller
 {
@@ -50,9 +51,10 @@ class CandidateDataController extends Controller
     {
         abort_unless($request->user()->hasPermission('admissions.import'), 403);
 
-        $terms = AcademicTerm::query()
-            ->orderByDesc('starts_on')
-            ->get(['id', 'name', 'session_label', 'is_current']);
+        $intakes = Intake::query()
+            ->with('term:id,name,session_label')
+            ->orderByDesc('id')
+            ->get();
 
         $years = CandidateData::query()
             ->distinct()
@@ -60,10 +62,32 @@ class CandidateDataController extends Controller
             ->pluck('academic_year');
 
         return response()->json([
-            'terms' => $terms,
+            'intakes' => $intakes->map(function (Intake $intake) {
+                return [
+                    'id' => $intake->id,
+                    'name' => $intake->name,
+                    'entry_mode' => $intake->entry_mode,
+                    'is_open' => (bool) $intake->is_open,
+                    'is_accepting' => $intake->isAcceptingApplications(),
+                    'session_label' => $intake->term?->session_label,
+                    'term' => $intake->term
+                        ? [
+                            'id' => $intake->term->id,
+                            'name' => $intake->term->name,
+                            'session_label' => $intake->term->session_label,
+                        ]
+                        : null,
+                ];
+            })->values(),
             'uploaded_years' => $years,
-            'open_intake_sessions' => CandidateEligibility::openIntakeSessionLabels(),
         ]);
+    }
+
+    public function template(Request $request): StreamedResponse
+    {
+        abort_unless($request->user()->hasPermission('admissions.import'), 403);
+
+        return $this->importer->template();
     }
 
     public function upload(UploadCandidateDataRequest $request): JsonResponse
@@ -71,9 +95,15 @@ class CandidateDataController extends Controller
         abort_unless($request->user()->hasPermission('admissions.import'), 403);
 
         try {
+            $academicYear = $this->academicYearFromUpload($request);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        try {
             $result = $this->importer->import(
                 $request->file('file'),
-                (string) $request->input('academic_year'),
+                $academicYear,
             );
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -89,7 +119,8 @@ class CandidateDataController extends Controller
             null,
             null,
             array_merge($result, [
-                'academic_year' => $request->input('academic_year'),
+                'academic_year' => $academicYear,
+                'intake_id' => $request->input('intake_id'),
                 'file_name' => $request->file('file')->getClientOriginalName(),
             ]),
         );
@@ -123,5 +154,25 @@ class CandidateDataController extends Controller
                 'utme' => CandidateEligibility::utmeQualificationPayload($candidate),
             ],
         ]);
+    }
+
+    private function academicYearFromUpload(UploadCandidateDataRequest $request): string
+    {
+        if ($request->filled('intake_id')) {
+            $intake = Intake::query()->with('term:id,session_label')->find((int) $request->input('intake_id'));
+            $year = trim((string) ($intake?->term?->session_label ?? ''));
+            if ($year === '') {
+                throw new \InvalidArgumentException('This application session is not linked to an admission session.');
+            }
+
+            return $year;
+        }
+
+        $year = trim((string) $request->input('academic_year', ''));
+        if ($year === '') {
+            throw new \InvalidArgumentException('Select an application session.');
+        }
+
+        return $year;
     }
 }

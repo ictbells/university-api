@@ -118,8 +118,21 @@ class ApplicationController extends Controller
     {
         abort_unless($request->user()->hasPermission('admissions.view'), 403);
 
-        return Intake::query()
-            ->with('term.session')
+        $query = Intake::query()->with('term.session');
+
+        if ($request->filled('entry_mode')) {
+            $query->where('entry_mode', $request->entry_mode);
+        }
+        if ($request->filled('entry_modes')) {
+            $modes = is_array($request->entry_modes)
+                ? $request->entry_modes
+                : array_filter(array_map('trim', explode(',', (string) $request->entry_modes)));
+            if ($modes !== []) {
+                $query->whereIn('entry_mode', $modes);
+            }
+        }
+
+        return $query
             ->orderByDesc('id')
             ->get()
             ->map(function (Intake $intake) {

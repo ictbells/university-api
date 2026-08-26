@@ -425,7 +425,10 @@ class HostelService
             'hostel_category' => $hostel?->category,
             'block_name' => $room?->block?->name,
             'room_number' => $room?->number,
-            'bed_label' => $bed?->label,
+            'bed_label' => $bed?->displayLabel(),
+            'bunk_position' => $bed?->bunk_position,
+            'bunk_pair' => $bed?->bunk_pair,
+            'uses_bunks' => (bool) $room?->usesBunks(),
             'term' => $allocation->academicTerm?->name,
             'session' => $allocation->academicTerm?->session_label,
             'due_required' => (bool) ($hostel?->due_required),
@@ -471,7 +474,7 @@ class HostelService
                 return strtoupper($block->name);
             })->values()->map(function (HostelBlock $block) use ($student, $hostel) {
                 $rooms = $block->rooms->map(function (HostelRoom $room) use ($student, $hostel, $block) {
-                    $formatted = $this->rooms->formatRoom($room);
+                    $formatted = $this->rooms->formatRoom($room, true);
                     $genderOk = true;
                     try {
                         $this->rooms->assertRoomGenderMatch($student, $room, $hostel);
@@ -586,8 +589,8 @@ class HostelService
             ->with([
                 'student:id,first_name,last_name,current_level,matric_number,student_number,program_id',
                 'student.program:id,name',
-                'bed:id,label,hostel_room_id',
-                'bed.room:id,number,hostel_block_id',
+                'bed:id,label,bunk_position,bunk_pair,hostel_room_id',
+                'bed.room:id,number,hostel_block_id,bedding_type',
                 'bed.room.block:id,name,hostel_id',
                 'bed.room.block.hostel:id,name,category',
             ]);
@@ -639,7 +642,8 @@ class HostelService
             'hostel_name' => $hostel?->name,
             'hostel_category' => $hostel?->category,
             'block_name' => $allocation->bed?->room?->block?->name,
-            'bed_label' => $allocation->bed?->label,
+            'bed_label' => $allocation->bed?->displayLabel(),
+            'bunk_position' => $allocation->bed?->bunk_position,
             'room_number' => $allocation->bed?->room?->number,
         ];
     }

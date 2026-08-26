@@ -61,15 +61,39 @@ class ProgrammeFeeResolver
         ?string $levelCode = null,
         ?string $semester = null,
     ): float {
-        return round((float) self::forProgram($programId, $levelCode, $semester)->sum(
-            fn (ProgrammeFee $fee) => $fee->effective_amount
-        ), 2);
+        return self::scheduleFullAmount(self::forProgram($programId, $levelCode, $semester));
     }
 
     public static function totalForStudent(Student $student, ?string $semester = null): float
     {
-        return round((float) self::forStudent($student, $semester)->sum(
-            fn (ProgrammeFee $fee) => $fee->effective_amount
-        ), 2);
+        return self::scheduleFullAmount(self::forStudent($student, $semester));
+    }
+
+    /**
+     * Full-session schedule total. When finance tags installment tranches, sum the
+     * 1st–4th 25% slices (not the optional 100% pay-at-once package) so totals are not doubled.
+     *
+     * @param  Collection<int, ProgrammeFee>  $lines
+     */
+    public static function scheduleFullAmount(Collection $lines): float
+    {
+        $tagged = $lines->filter(fn (ProgrammeFee $fee) => $fee->feeItem?->installment_tranche !== null);
+        if ($tagged->isEmpty()) {
+            return round((float) $lines->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
+        }
+
+        $slices = $tagged->filter(
+            fn (ProgrammeFee $fee) => in_array((int) $fee->feeItem->installment_tranche, [1, 2, 3, 4], true)
+        );
+        if ($slices->isNotEmpty()) {
+            $untagged = $lines->filter(fn (ProgrammeFee $fee) => $fee->feeItem?->installment_tranche === null);
+
+            return round((float) $slices->sum(fn (ProgrammeFee $fee) => $fee->effective_amount)
+                + $untagged->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
+        }
+
+        return round((float) $tagged
+            ->filter(fn (ProgrammeFee $fee) => (int) $fee->feeItem->installment_tranche === 100)
+            ->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
     }
 }

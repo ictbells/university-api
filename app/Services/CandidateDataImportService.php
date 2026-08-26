@@ -3,10 +3,13 @@
 namespace App\Services;
 
 use App\Models\CandidateData;
+use App\Support\CandidateDataImportColumns;
+use App\Support\SpreadsheetImport;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\Exception as ReaderException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CandidateDataImportService
 {
@@ -47,6 +50,17 @@ class CandidateDataImportService
     ];
 
     private const NUMERIC_FIELDS = ['rg_aggr', 'rg_sub1scor', 'rg_sub2scor', 'rg_sub3scor', 'eng_score'];
+
+    public function template(): StreamedResponse
+    {
+        return SpreadsheetImport::templateDownload(
+            CandidateDataImportColumns::SHEET,
+            CandidateDataImportColumns::all(),
+            CandidateDataImportColumns::instructions(),
+            CandidateDataImportColumns::sample(),
+            CandidateDataImportColumns::FILENAME,
+        );
+    }
 
     /**
      * @return array{imported: int, skipped: int, total_rows: int}

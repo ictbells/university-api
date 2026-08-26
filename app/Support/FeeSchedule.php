@@ -10,7 +10,59 @@ class FeeSchedule
 {
     public const INSTALLMENT_PERCENTS = [25, 50, 75, 100];
 
+    /** Fee-item tranche codes: 1–4 = successive 25% slices; 100 = pay-in-full package. */
+    public const INSTALLMENT_TRANCHES = [1, 2, 3, 4, 100];
+
     public const SEMESTERS = ['first', 'second', 'both'];
+
+    /**
+     * @return list<array{value: int, label: string, percent: int}>
+     */
+    public static function installmentTrancheOptions(): array
+    {
+        return [
+            ['value' => 1, 'label' => '1st 25%', 'percent' => 25],
+            ['value' => 2, 'label' => '2nd 25%', 'percent' => 50],
+            ['value' => 3, 'label' => '3rd 25%', 'percent' => 75],
+            ['value' => 4, 'label' => '4th 25%', 'percent' => 100],
+            ['value' => 100, 'label' => 'Full 100% (pay at once)', 'percent' => 100],
+        ];
+    }
+
+    public static function installmentTrancheLabel(?int $tranche): ?string
+    {
+        if ($tranche === null) {
+            return null;
+        }
+
+        foreach (self::installmentTrancheOptions() as $option) {
+            if ($option['value'] === $tranche) {
+                return $option['label'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Which fee-item tranches belong on a student installment invoice.
+     *
+     * @return list<int>
+     */
+    public static function tranchesForInstallmentPercent(int $percent, bool $hasFullPackage = false): array
+    {
+        if ($percent === 100 && $hasFullPackage) {
+            return [100];
+        }
+
+        return match ($percent) {
+            25 => [1],
+            50 => [1, 2],
+            75 => [1, 2, 3],
+            100 => [1, 2, 3, 4],
+            default => [1, 2, 3, 4],
+        };
+    }
 
     /**
      * @return list<string>

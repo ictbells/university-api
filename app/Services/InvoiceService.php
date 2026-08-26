@@ -6,6 +6,7 @@ use App\Models\Application;
 use App\Models\FeeItem;
 use App\Models\Intake;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\MedicalBill;
 use App\Models\ProgrammeFee;
 use App\Models\Student;
@@ -13,6 +14,7 @@ use App\Models\User;
 use App\Support\FeeSchedule;
 use App\Support\ProgrammeFeeResolver;
 use App\Support\Studentship;
+use Illuminate\Support\Collection;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -124,9 +126,15 @@ class InvoiceService
         foreach ($fees as $fee) {
             $amount = round((float) $fee->amount, 2);
             $description = $fee->name;
-            if ($fee->category === 'tuition' && $percent < 100) {
+            // Tranche-tagged items already represent a fixed share; do not pro-rate again.
+            if ($fee->category === 'tuition' && $percent < 100 && $fee->installment_tranche === null) {
                 $amount = round($amount * ($percent / 100), 2);
                 $description .= " ({$percent}%)";
+            } elseif ($fee->installment_tranche !== null) {
+                $label = FeeSchedule::installmentTrancheLabel((int) $fee->installment_tranche);
+                if ($label) {
+                    $description .= " ({$label})";
+                }
             }
             if ($amount <= 0) {
                 throw new RuntimeException($fee->name.' has no amount set.');
@@ -356,10 +364,15 @@ class InvoiceService
 
         $student->loadMissing(['user', 'program']);
         $lines = ProgrammeFeeResolver::forStudent($student, $semester);
-        $fullAmount = round((float) $lines->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
+        $fullAmount = ProgrammeFeeResolver::scheduleFullAmount($lines);
 
         if ($lines->isEmpty() || $fullAmount <= 0) {
             throw new RuntimeException('Programme school fees have not been set for this programme and level. Contact the bursary.');
+        }
+
+        $hasTranches = $lines->contains(fn (ProgrammeFee $fee) => $fee->feeItem?->installment_tranche !== null);
+        if ($hasTranches) {
+            return $this->createTuitionInvoiceFromTranches($student, $lines, $percent, $fullAmount);
         }
 
         $amount = round($fullAmount * ($percent / 100), 2);
@@ -391,6 +404,102 @@ class InvoiceService
                     $line->feeItem?->name ?: FeeSchedule::label((string) ($line->feeItem?->category ?? 'other')),
                     $percent < 100 ? " ({$percent}%)" : ''
                 ),
+                'amount' => $lineAmount,
+            ]);
+        }
+
+        return $invoice->fresh('items');
+    }
+
+    /**
+     * Bill fixed fee-item amounts for the chosen installment (1st/2nd/3rd/4th 25%, or full package).
+     *
+     * @param  Collection<int, ProgrammeFee>  $lines
+     */
+    private function createTuitionInvoiceFromTranches(
+        Student $student,
+        Collection $lines,
+        int $percent,
+        float $fullAmount,
+    ): Invoice {
+        $paidFeeItemIds = InvoiceItem::query()
+            ->whereNotNull('fee_item_id')
+            ->whereHas('invoice', function ($query) use ($student) {
+                $query->where('student_id', $student->id)
+                    ->where('category', 'tuition')
+                    ->where('status', 'paid');
+            })
+            ->pluck('fee_item_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->all();
+
+        $hasFullPackage = $lines->contains(
+            fn (ProgrammeFee $fee) => (int) ($fee->feeItem?->installment_tranche ?? 0) === 100
+        );
+        $hasPriorPaidSlice = $lines->contains(function (ProgrammeFee $fee) use ($paidFeeItemIds) {
+            $tranche = $fee->feeItem?->installment_tranche;
+            if ($tranche === null || (int) $tranche === 100) {
+                return false;
+            }
+
+            return in_array((int) $fee->fee_item_id, $paidFeeItemIds, true);
+        });
+
+        $useFullPackage = $percent === 100 && $hasFullPackage && ! $hasPriorPaidSlice;
+        $wanted = FeeSchedule::tranchesForInstallmentPercent($percent, $useFullPackage);
+
+        $billable = $lines->filter(function (ProgrammeFee $line) use ($wanted, $paidFeeItemIds) {
+            if (in_array((int) $line->fee_item_id, $paidFeeItemIds, true)) {
+                return false;
+            }
+
+            $tranche = $line->feeItem?->installment_tranche;
+            if ($tranche === null) {
+                // Untagged schedule lines ride with the first installment or the full package.
+                return in_array(1, $wanted, true) || in_array(100, $wanted, true);
+            }
+
+            return in_array((int) $tranche, $wanted, true);
+        });
+
+        if ($billable->isEmpty()) {
+            throw new RuntimeException('No unpaid fee items remain for this installment. You may already have paid this share.');
+        }
+
+        $amount = round((float) $billable->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
+        if ($amount <= 0) {
+            throw new RuntimeException('No unpaid fee items remain for this installment. You may already have paid this share.');
+        }
+
+        $number = 'INV-'.now()->format('Ymd').'-'.str_pad((string) (Invoice::query()->count() + 1), 5, '0', STR_PAD_LEFT);
+        $invoice = Invoice::query()->create([
+            'number' => $number,
+            'user_id' => $student->user_id,
+            'student_id' => $student->id,
+            'application_id' => $student->application_id,
+            'category' => 'tuition',
+            'installment_percent' => $percent,
+            'amount' => $amount,
+            'full_amount' => $fullAmount,
+            'balance' => $amount,
+            'status' => 'unpaid',
+            'wallet_allowed' => true,
+        ]);
+
+        foreach ($billable as $line) {
+            $lineAmount = round((float) $line->effective_amount, 2);
+            if ($lineAmount <= 0) {
+                continue;
+            }
+            $name = $line->feeItem?->name ?: FeeSchedule::label((string) ($line->feeItem?->category ?? 'other'));
+            $tranche = $line->feeItem?->installment_tranche;
+            $suffix = $tranche !== null
+                ? FeeSchedule::installmentTrancheLabel((int) $tranche)
+                : ($percent < 100 ? "{$percent}%" : null);
+            $invoice->items()->create([
+                'fee_item_id' => $line->fee_item_id,
+                'description' => $suffix ? "{$name} ({$suffix})" : $name,
                 'amount' => $lineAmount,
             ]);
         }

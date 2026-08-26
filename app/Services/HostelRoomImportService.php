@@ -117,9 +117,18 @@ class HostelRoomImportService
             throw new RuntimeException('gender must be male or female.');
         }
 
+        $beddingType = strtolower(trim((string) ($data['bedding_type'] ?? 'single')));
+        if ($beddingType === '') {
+            $beddingType = 'single';
+        }
+        if (! in_array($beddingType, ['single', 'bunk'], true)) {
+            throw new RuntimeException('bedding_type must be single or bunk.');
+        }
+
         $this->rooms->storeRoom($block, [
             'number' => $number,
             'capacity' => $capacity,
+            'bedding_type' => $beddingType,
             'gender' => $gender !== '' ? $gender : null,
             'is_active' => array_key_exists('is_active', $data) && $data['is_active'] !== ''
                 ? $this->boolish($data['is_active'])

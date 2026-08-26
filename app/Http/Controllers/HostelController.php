@@ -284,7 +284,7 @@ class HostelController extends Controller
         ]);
 
         return HostelRoom::query()
-            ->with(['block.hostel'])
+            ->with(['block.hostel', 'beds'])
             ->withCount([
                 'beds as bed_count',
                 'beds as occupied_beds' => fn ($query) => $query->where('status', 'occupied'),
@@ -367,6 +367,7 @@ class HostelController extends Controller
         $data = $request->validate([
             'number' => 'required|string|max:50',
             'capacity' => 'required|integer|min:1|max:20',
+            'bedding_type' => 'nullable|in:single,bunk',
             'gender' => 'nullable|in:male,female',
             'is_active' => 'boolean',
         ]);
@@ -375,7 +376,7 @@ class HostelController extends Controller
             $room = $this->rooms->storeRoom($hostelBlock, $data);
             $this->audit->record('hostel.room.created', 'Hostel room created', 'hostel', 'hostel_room', $room->id, null, $room);
 
-            return $this->rooms->formatRoom($room);
+            return $this->rooms->formatRoom($room, true);
         });
     }
 
@@ -384,6 +385,7 @@ class HostelController extends Controller
         $data = $request->validate([
             'number' => 'sometimes|string|max:50',
             'capacity' => 'sometimes|integer|min:1|max:20',
+            'bedding_type' => 'nullable|in:single,bunk',
             'gender' => 'nullable|in:male,female',
             'is_active' => 'boolean',
             'is_reserved' => 'boolean',
@@ -395,7 +397,7 @@ class HostelController extends Controller
             $room = $this->rooms->updateRoom($hostelRoom, $data);
             $this->audit->record('hostel.room.updated', 'Hostel room updated', 'hostel', 'hostel_room', $room->id, $before, $room->toArray());
 
-            return $this->rooms->formatRoom($room);
+            return $this->rooms->formatRoom($room, true);
         });
     }
 
@@ -470,12 +472,13 @@ class HostelController extends Controller
                             ->when($filters['hostel_id'] ?? null, fn ($inner, int $hostelId) => $inner->where('id', $hostelId));
                     });
             })
-            ->with(['room:id,number,hostel_block_id', 'room.block:id,hostel_id,name', 'room.block.hostel:id,name,category'])
+            ->with(['room:id,number,hostel_block_id,bedding_type', 'room.block:id,hostel_id,name', 'room.block.hostel:id,name,category'])
             ->orderBy('id')
             ->get()
             ->map(fn (HostelBed $bed) => [
                 'id' => $bed->id,
-                'label' => $bed->label,
+                'label' => $bed->displayLabel(),
+                'bunk_position' => $bed->bunk_position,
                 'hostel' => $bed->room?->block?->hostel?->name,
                 'category' => $bed->room?->block?->hostel?->category,
                 'room' => $bed->room?->number,

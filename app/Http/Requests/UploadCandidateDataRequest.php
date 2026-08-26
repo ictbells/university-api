@@ -15,7 +15,8 @@ class UploadCandidateDataRequest extends FormRequest
     {
         return [
             'file' => 'required|file|mimes:xlsx,xls,csv|max:10240',
-            'academic_year' => 'required|string|max:20',
+            'intake_id' => 'required_without:academic_year|nullable|integer|exists:intakes,id',
+            'academic_year' => 'required_without:intake_id|nullable|string|max:20',
         ];
     }
 
@@ -25,7 +26,10 @@ class UploadCandidateDataRequest extends FormRequest
             'file.required' => 'Spreadsheet file is required.',
             'file.mimes' => 'The file must be Excel (.xlsx, .xls) or CSV.',
             'file.max' => 'The file must not exceed 10MB.',
-            'academic_year.required' => 'Academic session is required.',
+            'academic_year.required' => 'Application session is required.',
+            'academic_year.required_without' => 'Select an application session.',
+            'intake_id.required_without' => 'Select an application session.',
+            'intake_id.exists' => 'Select a valid application session.',
         ];
     }
 }

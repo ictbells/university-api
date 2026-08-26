@@ -98,7 +98,7 @@ class ProgrammeFeeController extends Controller
             if ($levelCode !== '' && $levelCode !== 'all') {
                 $lines = $lines->filter(fn (ProgrammeFee $fee) => $fee->level_code === 'all' || $fee->level_code === $levelCode);
             }
-            $total = round((float) $lines->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
+            $total = ProgrammeFeeResolver::scheduleFullAmount($lines);
 
             return [
                 'id' => $program->id,
@@ -150,7 +150,7 @@ class ProgrammeFeeController extends Controller
         return [
             'program' => $program->only(['id', 'name', 'code', 'tuition_amount']),
             'data' => $fees->map(fn (ProgrammeFee $fee) => $this->serialize($fee))->values(),
-            'total_amount' => round((float) $fees->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2),
+            'total_amount' => ProgrammeFeeResolver::scheduleFullAmount($fees),
         ];
     }
 
@@ -315,6 +315,10 @@ class ProgrammeFeeController extends Controller
                 'name' => $fee->feeItem->name,
                 'category' => $fee->feeItem->category,
                 'amount' => $fee->feeItem->amount,
+                'installment_tranche' => $fee->feeItem->installment_tranche,
+                'installment_tranche_label' => FeeSchedule::installmentTrancheLabel(
+                    $fee->feeItem->installment_tranche !== null ? (int) $fee->feeItem->installment_tranche : null
+                ),
             ] : null,
         ];
     }

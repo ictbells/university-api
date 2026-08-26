@@ -73,7 +73,8 @@ Route::get('/lgas', [LocationController::class, 'lgas']);
 Route::get('/candidate-list/required', function () {
     return response()->json(['required' => CandidateEligibility::enforcementEnabled()]);
 });
-Route::get('/candidate-data/{jambRegistration}', [CandidateDataController::class, 'lookup']);
+Route::get('/candidate-data/{jambRegistration}', [CandidateDataController::class, 'lookup'])
+    ->where('jambRegistration', '^(?!sessions$|import-template$).+');
 
 Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
@@ -93,6 +94,8 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/announcements', [AnnouncementController::class, 'index']);
 
     Route::get('/candidate-data/sessions', [CandidateDataController::class, 'sessions'])
+        ->middleware('permission:admissions.import');
+    Route::get('/candidate-data/import-template', [CandidateDataController::class, 'template'])
         ->middleware('permission:admissions.import');
     Route::get('/candidate-data', [CandidateDataController::class, 'index'])
         ->middleware('permission:admissions.import');

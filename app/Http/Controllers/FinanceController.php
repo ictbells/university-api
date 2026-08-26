@@ -64,6 +64,7 @@ class FinanceController extends Controller
             'categories' => FeeSchedule::staffEditableCategoryOptions(),
             'schedule_categories' => FeeSchedule::scheduleCategories(),
             'installment_percents' => FeeSchedule::INSTALLMENT_PERCENTS,
+            'installment_tranches' => FeeSchedule::installmentTrancheOptions(),
             'semesters' => FeeSchedule::SEMESTERS,
         ];
     }
@@ -187,6 +188,7 @@ class FinanceController extends Controller
                 'nullable',
                 Rule::in(AdmissionEntryRules::ENTRY_MODE_ORDER),
             ],
+            'installment_tranche' => ['nullable', 'integer', Rule::in(FeeSchedule::INSTALLMENT_TRANCHES)],
             'amount' => 'required|numeric|min:0',
             'is_required' => 'boolean',
             'display_order' => 'nullable|integer|min:0',
@@ -195,6 +197,11 @@ class FinanceController extends Controller
         $data['wallet_allowed'] = FeeSchedule::walletAllowed($data['category']);
         if ($data['category'] !== 'application_fee') {
             $data['entry_mode'] = null;
+        }
+        if (! FeeSchedule::isScheduleCategory($data['category'])) {
+            $data['installment_tranche'] = null;
+        } else {
+            $data['installment_tranche'] = $data['installment_tranche'] ?? null;
         }
         $data['is_required'] = $request->boolean('is_required', true);
         $data['is_active'] = $request->boolean('is_active', true);
@@ -220,6 +227,7 @@ class FinanceController extends Controller
                 'nullable',
                 Rule::in(AdmissionEntryRules::ENTRY_MODE_ORDER),
             ],
+            'installment_tranche' => ['nullable', 'integer', Rule::in(FeeSchedule::INSTALLMENT_TRANCHES)],
             'amount' => 'sometimes|numeric|min:0',
             'is_required' => 'boolean',
             'display_order' => 'nullable|integer|min:0',
@@ -229,6 +237,11 @@ class FinanceController extends Controller
         $data['wallet_allowed'] = FeeSchedule::walletAllowed($category);
         if ($category !== 'application_fee') {
             $data['entry_mode'] = null;
+        }
+        if (! FeeSchedule::isScheduleCategory($category)) {
+            $data['installment_tranche'] = null;
+        } elseif ($request->exists('installment_tranche') && $request->input('installment_tranche') === null) {
+            $data['installment_tranche'] = null;
         }
         if ($request->has('is_required')) {
             $data['is_required'] = $request->boolean('is_required');
