@@ -248,6 +248,23 @@ class ApplicationSignupGateTest extends TestCase
         $this->assertSame('validated', Application::query()->value('jamb_status'));
     }
 
+    public function test_applicant_session_badge_uses_year_not_intake_category(): void
+    {
+        $intake = $this->openApplicationSession();
+        $intake->update(['name' => 'UTME']);
+        $this->ensureApplicantRole();
+        $this->demoPrembly();
+        Http::fake();
+
+        $this->postJson('/api/register', $this->registerPayload([
+            'intake_id' => $intake->id,
+            'jamb_registration' => '20261234AB',
+        ]))->assertOk()
+            ->assertJsonPath('current_session_kind', 'application')
+            ->assertJsonPath('current_session', '2025/2026')
+            ->assertJsonMissing(['current_session' => 'UTME']);
+    }
+
     private function openApplicationSession(): Intake
     {
         $session = AcademicSession::query()->create(['label' => '2025/2026']);

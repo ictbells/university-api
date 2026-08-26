@@ -172,8 +172,11 @@ class ApplicantImportTest extends TestCase
         $plain = null;
         Mail::assertSent(ApplicationCredentialsMail::class, function (ApplicationCredentialsMail $mail) use (&$plain) {
             $plain = $mail->plainPassword;
+            [$label, $value] = $mail->signInIdentity();
 
             return $mail->loginId === '12345678AB'
+                && $label === 'JAMB number'
+                && $value === '12345678AB'
                 && $mail->envelope()->subject === 'Your Bells University student portal account';
         });
         $this->assertNotNull($plain);
@@ -195,6 +198,60 @@ class ApplicantImportTest extends TestCase
             ->assertJsonFragment(['missing' => ['required_documents']]);
         $this->assertSame('form_in_progress', $application->fresh()->stage);
         $this->assertNull($application->fresh()->submitted_at);
+    }
+
+    public function test_credentials_mail_sends_jamb_or_application_number_by_entry_mode(): void
+    {
+        $role = Role::query()->firstOrCreate(
+            ['slug' => 'applicant'],
+            ['name' => 'Applicant', 'is_system' => true, 'is_active' => true],
+        );
+
+        $utmeUser = User::factory()->create(['name' => 'UTME Applicant', 'jamb_registration' => '12345678AB']);
+        $utmeUser->roles()->attach($role->id);
+        $utmeApp = Application::query()->create([
+            'application_number' => 'APP/2026/01001',
+            'user_id' => $utmeUser->id,
+            'intake_id' => $this->intake->id,
+            'entry_mode' => 'utme',
+            'jamb_registration' => '12345678AB',
+            'stage' => 'form_in_progress',
+        ]);
+        $utmeMail = new ApplicationCredentialsMail($utmeApp->load('user'), '12345678AB', 'Secret1!');
+        $this->assertSame(['JAMB number', '12345678AB'], $utmeMail->signInIdentity());
+        $utmeHtml = $utmeMail->render();
+        $this->assertStringContainsString('JAMB number', $utmeHtml);
+        $this->assertStringContainsString('12345678AB', $utmeHtml);
+        $this->assertStringNotContainsString('Application number', $utmeHtml);
+
+        $pgUser = User::factory()->create(['name' => 'PG Applicant']);
+        $pgUser->roles()->attach($role->id);
+        $pgApp = Application::query()->create([
+            'application_number' => 'APP/2026/01002',
+            'user_id' => $pgUser->id,
+            'intake_id' => $this->intake->id,
+            'entry_mode' => 'pg',
+            'stage' => 'form_in_progress',
+        ]);
+        $pgMail = new ApplicationCredentialsMail($pgApp->load('user'), 'APP/2026/01002', 'Secret1!');
+        $this->assertSame(['Application number', 'APP/2026/01002'], $pgMail->signInIdentity());
+        $pgHtml = $pgMail->render();
+        $this->assertStringContainsString('Application number', $pgHtml);
+        $this->assertStringContainsString('APP/2026/01002', $pgHtml);
+        $this->assertStringNotContainsString('JAMB number', $pgHtml);
+
+        $jupebUser = User::factory()->create(['name' => 'JUPEB Applicant', 'jamb_registration' => '87654321CD']);
+        $jupebUser->roles()->attach($role->id);
+        $jupebApp = Application::query()->create([
+            'application_number' => 'APP/2026/01003',
+            'user_id' => $jupebUser->id,
+            'intake_id' => $this->intake->id,
+            'entry_mode' => 'jupeb',
+            'jamb_registration' => '87654321CD',
+            'stage' => 'form_in_progress',
+        ]);
+        $jupebMail = new ApplicationCredentialsMail($jupebApp->load('user'), '87654321CD', 'Secret1!');
+        $this->assertSame(['Application number', 'APP/2026/01003'], $jupebMail->signInIdentity());
     }
 
     public function test_import_stores_canonical_state_lga_and_olevel_from_ids(): void

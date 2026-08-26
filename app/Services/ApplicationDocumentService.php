@@ -6,6 +6,7 @@ use App\Models\Application;
 use App\Models\Campus;
 use App\Models\Program;
 use App\Models\Setting;
+use App\Support\AdmissionEntryRules;
 use App\Support\ApplicantPassport;
 use App\Support\InstitutionLogo;
 use App\Support\NairaWords;
@@ -112,7 +113,6 @@ class ApplicationDocumentService
         }
 
         $issuedAt = $application->updated_at ?? now();
-        $deadline = $issuedAt->copy()->addWeeks(2);
         $session = $application->intake?->term?->session_label
             ?: Setting::getValue('current_session_label', now()->format('Y').'/'.(now()->format('Y') + 1));
 
@@ -120,12 +120,9 @@ class ApplicationDocumentService
             ? 'POSTGRADUATE DEGREE PROGRAMME'
             : 'UNDERGRADUATE DEGREE PROGRAMME';
 
-        $award = strtolower((string) ($application->program?->award_type ?? ''));
         $programmeKind = $application->program?->study_level === 'postgraduate'
             ? 'a Postgraduate Degree Programme'
-            : (str_contains($award, 'bachelor') || str_contains($award, 'b.sc') || str_contains($award, 'b.eng') || str_contains($award, 'b.tech')
-                ? 'a Bachelor Degree Programme'
-                : 'a Degree Programme');
+            : 'a Bachelor Degree Programme';
 
         return view('documents.admission-letter', [
             'institution' => $this->institution(),
@@ -134,7 +131,7 @@ class ApplicationDocumentService
             'full_name' => Str::upper($fullName),
             'salutation_name' => Str::upper((string) $firstName),
             'address' => $contact['address'] ?? $biodata['address'] ?? null,
-            'college' => $application->program?->department?->faculty?->name ?: 'the College',
+            'college' => $application->program?->department?->faculty?->name ?: 'College',
             'programme' => $application->program?->name ?: 'your chosen programme',
             'programme_kind' => $programmeKind,
             'session' => $session,
@@ -143,7 +140,7 @@ class ApplicationDocumentService
             'letter_date' => $issuedAt->format('jS F, Y'),
             'acceptance_amount' => $amount,
             'acceptance_amount_words' => NairaWords::phrase($amount, only: false),
-            'deadline' => $deadline->format('jS F, Y'),
+            'show_jamb_documents' => in_array((string) $application->entry_mode, AdmissionEntryRules::JAMB_ENTRY_MODES, true),
             'portal_url' => (string) Setting::getValue(
                 'application_portal_url',
                 'https://apply.bellsuniversityportal.com'
@@ -185,7 +182,7 @@ class ApplicationDocumentService
                 $campus?->address,
                 $campus?->city,
             ])->filter()->implode(', '))
-                ?: 'KM 8, Idiroko Road, Benja Village, P.M.B 1015, Ota, Ogun State',
+                ?: 'KM 8, Idiroko Road, Benja Village P.M.B 1015, Ota, Ogun State',
             'contact' => (string) Setting::getValue('university_contact', 'Telephone: 07087138753'),
         ];
     }

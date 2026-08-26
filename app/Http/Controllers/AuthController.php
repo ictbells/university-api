@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\Password;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AuthController extends Controller
 {
@@ -238,7 +239,7 @@ class AuthController extends Controller
         return $this->payload($request->user());
     }
 
-    public function myPassport(Request $request): BinaryFileResponse
+    public function myPassport(Request $request): BinaryFileResponse|StreamedResponse
     {
         return ApplicantPassport::fileResponseForUser($request->user());
     }
@@ -338,7 +339,7 @@ class AuthController extends Controller
             'staff',
             'latestApplication.applicationFeeInvoice',
             'latestApplication.acceptanceFeeInvoice',
-            'latestApplication.intake.term',
+            'latestApplication.intake.term.session',
             'latestNinVerification',
         ]);
         $nav = $this->navResolver->resolve($user);
@@ -421,7 +422,11 @@ class AuthController extends Controller
     private function currentSessionLabel(User $user): ?string
     {
         if ($this->currentSessionKind($user) === 'application') {
-            return $user->latestApplication?->intake?->name;
+            $term = $user->latestApplication?->intake?->term;
+
+            return $term?->session?->label
+                ?: $term?->session_label
+                ?: null;
         }
 
         $current = $this->currentTerm();

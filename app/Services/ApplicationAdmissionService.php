@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Mail\ApplicationCredentialsMail;
 use App\Models\Application;
 use App\Models\Invoice;
+use App\Support\AdmissionEntryRules;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -68,7 +69,10 @@ class ApplicationAdmissionService
             return;
         }
 
-        $loginId = $user->jamb_registration ?: $application->application_number;
+        $jamb = trim((string) ($user->jamb_registration ?: $application->jamb_registration));
+        $loginId = AdmissionEntryRules::requiresJambRegistration((string) $application->entry_mode) && $jamb !== ''
+            ? $jamb
+            : (string) $application->application_number;
         $plainPassword = $this->resolveRegistrationPassword($user);
 
         try {

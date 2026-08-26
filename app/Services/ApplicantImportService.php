@@ -12,6 +12,7 @@ use App\Models\Program;
 use App\Models\Role;
 use App\Models\StateOfOrigin;
 use App\Models\User;
+use App\Support\AdmissionEntryRules;
 use App\Support\ApplicantImportColumns;
 use App\Support\ApplicationReference;
 use App\Support\ImportLookupSheets;
@@ -356,7 +357,9 @@ class ApplicantImportService
         if ($sendCredentials) {
             Mail::to($user->email)->send(new ApplicationCredentialsMail(
                 $application->fresh(['user']),
-                $jamb !== '' ? $jamb : $applicationNumber,
+                AdmissionEntryRules::requiresJambRegistration($entryMode) && $jamb !== ''
+                    ? $jamb
+                    : $applicationNumber,
                 $plainPassword,
             ));
             $application->update(['credentials_emailed_at' => now()]);

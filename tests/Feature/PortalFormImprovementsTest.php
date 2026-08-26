@@ -17,6 +17,8 @@ use App\Models\Program;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\InvoiceService;
+use App\Support\ApplicantPassport;
+use App\Support\AppStorage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
@@ -125,6 +127,27 @@ class PortalFormImprovementsTest extends TestCase
         $this->assertStringContainsString('Ibadan', $html);
         $this->assertStringContainsString('2019', $html);
         $this->assertStringContainsString('12345678AB', $html);
+    }
+
+    public function test_applicant_can_stream_passport_photograph(): void
+    {
+        $application = $this->formInProgressApplication();
+        $jpeg = base64_decode('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMCQwNCw0NDQ0PDwsODQ4NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDf/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==');
+        $this->assertNotFalse($jpeg);
+        AppStorage::disk()->put('passports/test.jpg', $jpeg);
+        $application->steps()->where('step_key', 'biodata')->update([
+            'payload' => [
+                'nin_locked' => true,
+                'nin' => '12345678901',
+                'photo_path' => 'passports/test.jpg',
+            ],
+        ]);
+
+        Sanctum::actingAs($application->user);
+        $this->get("/api/applications/{$application->id}/passport")
+            ->assertOk()
+            ->assertHeader('content-type', 'image/jpeg');
+        $this->assertNotNull(ApplicantPassport::dataUriForApplication($application->fresh(['steps', 'documents'])));
     }
 
     public function test_staff_update_keeps_olevel_exam_meta(): void

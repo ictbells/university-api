@@ -170,7 +170,11 @@ class StudentImportTest extends TestCase
         $this->assertEqualsWithDelta(50000, (float) $student->wallet->fresh()->balance, 0.01);
 
         Mail::assertSent(ApplicationCredentialsMail::class, function (ApplicationCredentialsMail $mail) {
-            return $mail->loginId === 'BUT/2019/M/0001';
+            [$label, $value] = $mail->signInIdentity();
+
+            return $mail->loginId === 'BUT/2019/M/0001'
+                && $label === 'Matric number'
+                && $value === 'BUT/2019/M/0001';
         });
 
         $this->postJson('/api/login', [

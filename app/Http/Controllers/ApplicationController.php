@@ -617,7 +617,7 @@ class ApplicationController extends Controller
         ]);
     }
 
-    public function streamPassport(Request $request, Application $application): BinaryFileResponse
+    public function streamPassport(Request $request, Application $application): BinaryFileResponse|StreamedResponse
     {
         $this->authorizeView($request, $application);
 

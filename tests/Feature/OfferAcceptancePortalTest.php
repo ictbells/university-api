@@ -129,6 +129,28 @@ class OfferAcceptancePortalTest extends TestCase
             ->assertJsonPath('unpaid_acceptance_fee', false);
     }
 
+    public function test_admission_letter_uses_official_offer_wording(): void
+    {
+        $user = $this->applicantWithOffer('offer_issued', 100000);
+        Sanctum::actingAs($user);
+        $application = $user->latestApplication;
+
+        $html = $this->get("/api/applications/{$application->id}/offer-letter")
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('OFFER OF ADMISSION FOR THE 2026/2027 ACADEMIC SESSION', $html);
+        $this->assertStringContainsString('With reference to your application for admission', $html);
+        $this->assertStringContainsString('having fulfilled the admission requirements', $html);
+        $this->assertStringContainsString('https://apply.bellsuniversityportal.com', $html);
+        $this->assertStringContainsString('N100,000', $html);
+        $this->assertStringContainsString('One Hundred Thousand Naira', $html);
+        $this->assertStringContainsString('Pay-As-You-Eat (PAYE)', $html);
+        $this->assertStringContainsString('Student Information Handbook', $html);
+        $this->assertStringContainsString('Admission letter as issued by JAMB', $html);
+        $this->assertStringContainsString('Only the best is good for Bells', $html);
+    }
+
     private function applicantWithOffer(string $stage, float $intakeAmount = 7000): User
     {
         $role = Role::query()->firstOrCreate(
