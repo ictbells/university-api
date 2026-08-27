@@ -508,7 +508,9 @@ class InvoiceService
                 'description' => sprintf(
                     '%s%s',
                     $line->feeItem?->name ?: FeeSchedule::label((string) ($line->feeItem?->category ?? 'other')),
-                    $percent < 100 ? " ({$deltaPercent}% remaining)" : ''
+                    $percent < 100
+                        ? ($paidPercent > 0 ? " ({$deltaPercent}% remaining)" : " ({$percent}%)")
+                        : ''
                 ),
                 'amount' => $lineAmount,
             ]);
@@ -557,7 +559,7 @@ class InvoiceService
             fn (ProgrammeFee $fee) => FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
                 && (int) ($fee->effective_installment_tranche ?? 0) === 100
         );
-        $hasPriorPaidSlice = $lines->contains(function (ProgrammeFee $fee) use ($paidProgrammeFeeIds, $legacyPaidFeeItemIds) {
+        $hasPriorPaidSlice = $paidPercent >= 25 || $lines->contains(function (ProgrammeFee $fee) use ($paidProgrammeFeeIds, $legacyPaidFeeItemIds) {
             $tranche = $fee->effective_installment_tranche;
             if (! FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
                 || $tranche === null || (int) $tranche === 100) {

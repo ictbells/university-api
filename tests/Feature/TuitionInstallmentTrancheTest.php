@@ -50,6 +50,56 @@ class TuitionInstallmentTrancheTest extends TestCase
         $this->assertEquals($items[2]->id, $second->items->first()->fee_item_id);
     }
 
+    public function test_second_installment_omits_first_slice_when_paid_row_ids_no_longer_match(): void
+    {
+        [$student, $items] = $this->studentWithTrancheSchedule();
+        $service = app(InvoiceService::class);
+        $first = $service->createTuitionInvoice($student, 25);
+        $staleProgrammeFeeId = $student->program->programmeFees()
+            ->where('fee_item_id', $items[4]->id)
+            ->value('id');
+        $first->items()->update(['programme_fee_id' => $staleProgrammeFeeId]);
+        $first->update(['status' => 'paid', 'balance' => 0]);
+
+        $second = $service->createTuitionInvoice($student->fresh(['program']), 50);
+
+        $this->assertEquals(10000.0, (float) $second->amount);
+        $this->assertCount(1, $second->items);
+        $this->assertEquals($items[2]->id, $second->items->first()->fee_item_id);
+        $this->assertFalse($second->items->contains(
+            fn ($item) => (int) $item->fee_item_id === (int) $items[1]->id
+        ));
+    }
+
+    public function test_untagged_second_installment_bills_only_the_remaining_share(): void
+    {
+        $student = $this->activeStudent();
+        $fee = FeeItem::query()->create([
+            'name' => 'Tuition',
+            'category' => 'tuition',
+            'amount' => 20000,
+            'is_active' => true,
+        ]);
+        $student->program->programmeFees()->create([
+            'fee_item_id' => $fee->id,
+            'amount' => null,
+            'level_code' => 'all',
+            'semester' => 'both',
+            'is_active' => true,
+        ]);
+
+        $service = app(InvoiceService::class);
+        $first = $service->createTuitionInvoice($student->fresh(['program']), 25);
+        $first->update(['status' => 'paid', 'balance' => 0]);
+
+        $second = $service->createTuitionInvoice($student->fresh(['program']), 50);
+
+        $this->assertEquals(50, (int) $second->installment_percent);
+        $this->assertEquals(20000.0, (float) $second->full_amount);
+        $this->assertEquals(5000.0, (float) $second->amount);
+        $this->assertEquals(5000.0, (float) $second->items->first()->amount);
+    }
+
     public function test_full_payment_uses_pay_at_once_package_when_present(): void
     {
         [$student, $items] = $this->studentWithTrancheSchedule(withFullPackage: true);
