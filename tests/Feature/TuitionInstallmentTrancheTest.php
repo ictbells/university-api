@@ -12,6 +12,8 @@ use App\Models\User;
 use App\Models\Wallet;
 use App\Services\InvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Sanctum\Sanctum;
+use RuntimeException;
 use Tests\TestCase;
 
 class TuitionInstallmentTrancheTest extends TestCase
@@ -82,6 +84,41 @@ class TuitionInstallmentTrancheTest extends TestCase
         $this->assertEquals(20000.0, (float) $invoice->full_amount);
         $this->assertEquals(5000.0, (float) $invoice->amount);
         $this->assertEquals(5000.0, (float) $invoice->items->first()->amount);
+    }
+
+    public function test_cannot_create_first_installment_again_after_it_is_paid(): void
+    {
+        [$student] = $this->studentWithTrancheSchedule();
+        $service = app(InvoiceService::class);
+        $first = $service->createTuitionInvoice($student, 25);
+        $first->update(['status' => 'paid', 'balance' => 0]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('This installment has already been paid');
+        $service->createTuitionInvoice($student->fresh(['program']), 25);
+    }
+
+    public function test_student_api_hides_paid_first_installment_and_rejects_recreate(): void
+    {
+        [$student] = $this->studentWithTrancheSchedule();
+        $service = app(InvoiceService::class);
+        $first = $service->createTuitionInvoice($student, 25);
+        $first->update(['status' => 'paid', 'balance' => 0]);
+
+        Sanctum::actingAs($student->user);
+
+        $this->getJson('/api/my-programme-fees')
+            ->assertOk()
+            ->assertJsonPath('tuition_percent_paid', 25)
+            ->assertJsonPath('available_installment_percents', [50, 75, 100]);
+
+        $this->postJson('/api/invoices/tuition-installment', ['installment_percent' => 25])
+            ->assertStatus(422)
+            ->assertJsonFragment(['message' => 'This installment has already been paid. Choose the next unpaid share.']);
+
+        $this->postJson('/api/invoices/tuition-installment', ['installment_percent' => 50])
+            ->assertOk()
+            ->assertJsonPath('installment_percent', 50);
     }
 
     public function test_non_tuition_schedule_lines_bill_with_their_slice(): void

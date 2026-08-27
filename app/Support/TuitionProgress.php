@@ -22,6 +22,21 @@ class TuitionProgress
         return round($best, 2);
     }
 
+    /**
+     * Installment options still available after already-paid tuition (e.g. hide 25% once 1st is paid).
+     *
+     * @return list<int>
+     */
+    public static function availableInstallmentPercents(Student $student): array
+    {
+        $paid = self::percentPaid($student);
+
+        return array_values(array_filter(
+            FeeSchedule::INSTALLMENT_PERCENTS,
+            static fn (int $percent) => $percent > $paid
+        ));
+    }
+
     public static function meetsMinimum(Student $student, float $minimum = 25): bool
     {
         return self::percentPaid($student) >= $minimum;

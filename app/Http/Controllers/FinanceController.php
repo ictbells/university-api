@@ -29,6 +29,7 @@ use App\Support\InvoiceSettlement;
 use App\Support\ListSessionLevelFilter;
 use App\Support\NairaWords;
 use App\Support\ProgrammeFeeResolver;
+use App\Support\TuitionProgress;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -1216,6 +1217,8 @@ class FinanceController extends Controller
                 'total_amount' => null,
                 'line_count' => 0,
                 'program' => null,
+                'tuition_percent_paid' => 0,
+                'available_installment_percents' => FeeSchedule::INSTALLMENT_PERCENTS,
             ];
         }
 
@@ -1227,6 +1230,8 @@ class FinanceController extends Controller
             'total_amount' => $total > 0 ? $total : null,
             'line_count' => $lines->count(),
             'program' => $student->program?->only(['id', 'name', 'code']),
+            'tuition_percent_paid' => TuitionProgress::percentPaid($student),
+            'available_installment_percents' => TuitionProgress::availableInstallmentPercents($student),
         ];
     }
 
@@ -1249,8 +1254,18 @@ class FinanceController extends Controller
             return response()->json(['message' => 'Pay or clear your open tuition invoice before creating another installment.'], 422);
         }
 
+        $percent = (int) $data['installment_percent'];
+        $available = TuitionProgress::availableInstallmentPercents($student);
+        if (! in_array($percent, $available, true)) {
+            return response()->json([
+                'message' => $available === []
+                    ? 'Tuition is already paid in full.'
+                    : 'This installment has already been paid. Choose the next unpaid share.',
+            ], 422);
+        }
+
         try {
-            $invoice = $this->invoices->createTuitionInvoice($student->load(['user', 'program']), (int) $data['installment_percent']);
+            $invoice = $this->invoices->createTuitionInvoice($student->load(['user', 'program']), $percent);
         } catch (RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }

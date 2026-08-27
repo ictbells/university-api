@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Support\FeeSchedule;
 use App\Support\ProgrammeFeeResolver;
 use App\Support\Studentship;
+use App\Support\TuitionProgress;
 use Illuminate\Support\Collection;
 use InvalidArgumentException;
 use RuntimeException;
@@ -449,6 +450,13 @@ class InvoiceService
             throw new RuntimeException($student->status === Studentship::STATUS_GRADUATED
                 ? 'Graduated students cannot generate a new tuition invoice.'
                 : 'Studentship is not current; tuition billing is closed.');
+        }
+
+        $paidPercent = TuitionProgress::percentPaid($student);
+        if ($percent <= $paidPercent) {
+            throw new RuntimeException($paidPercent >= 100
+                ? 'Tuition is already paid in full.'
+                : 'This installment has already been paid. Choose the next unpaid share.');
         }
 
         $student->loadMissing(['user', 'program']);

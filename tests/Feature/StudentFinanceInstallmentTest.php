@@ -161,6 +161,14 @@ class StudentFinanceInstallmentTest extends TestCase
         $this->assertEquals(0.0, TuitionProgress::invoicePercent($unpaid));
     }
 
+    public function test_paid_first_installment_is_removed_from_available_options(): void
+    {
+        [$student] = $this->studentWithPaidQuarterTuition();
+
+        $this->assertEquals(25.0, TuitionProgress::percentPaid($student));
+        $this->assertSame([50, 75, 100], TuitionProgress::availableInstallmentPercents($student));
+    }
+
     private function financeStaff(): User
     {
         foreach (PermissionCatalog::all() as $perm) {
