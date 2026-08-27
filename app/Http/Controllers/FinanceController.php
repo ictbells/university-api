@@ -13,6 +13,7 @@ use App\Models\FeeItem;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\Program;
+use App\Models\ProgrammeFee;
 use App\Models\Setting;
 use App\Models\Student;
 use App\Models\Wallet;
@@ -29,6 +30,7 @@ use App\Support\InvoiceSettlement;
 use App\Support\ListSessionLevelFilter;
 use App\Support\NairaWords;
 use App\Support\ProgrammeFeeResolver;
+use App\Support\StudentFinanceStatus;
 use App\Support\TuitionProgress;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -710,17 +712,12 @@ class FinanceController extends Controller
             ->latest()
             ->get();
 
-        $active = $invoices->whereNotIn('status', ['cancelled', 'disabled']);
-
         $settlements = [];
         foreach ($invoices as $invoice) {
             $settlements[$invoice->id] = InvoiceSettlement::sync($invoice, $invoice->payments);
         }
 
-        $billed = round((float) $active->sum(fn (Invoice $invoice) => $settlements[$invoice->id]['billed']), 2);
-        $rebateTotal = round((float) $active->sum(fn (Invoice $invoice) => $settlements[$invoice->id]['rebate']), 2);
-        $paid = round((float) $active->sum(fn (Invoice $invoice) => $settlements[$invoice->id]['paid']), 2);
-        $outstanding = round((float) $active->sum(fn (Invoice $invoice) => $settlements[$invoice->id]['balance']), 2);
+        $finance = StudentFinanceStatus::summarize($student, $invoices);
         $walletBalance = round((float) ($student->wallet?->balance ?? 0), 2);
 
         $invoiceIds = $invoices->pluck('id')->filter()->values();
@@ -765,12 +762,15 @@ class FinanceController extends Controller
             ],
             'summary' => [
                 'wallet_balance' => $walletBalance,
-                'billed' => $billed,
-                'rebate_total' => $rebateTotal,
-                'paid' => $paid,
-                'outstanding' => $outstanding,
-                'invoice_count' => $invoices->count(),
-                'open_count' => $active->filter(fn (Invoice $invoice) => in_array($settlements[$invoice->id]['status'], ['unpaid', 'partial'], true))->count(),
+                'billed' => $finance['billed'],
+                'rebate_total' => $finance['rebate_total'],
+                'paid' => $finance['paid'],
+                'outstanding' => $finance['outstanding'],
+                'school_fees' => $finance['school_fees'],
+                'tuition_outstanding' => $finance['tuition_outstanding'],
+                'clearance' => $finance['clearance'],
+                'invoice_count' => $finance['invoice_count'],
+                'open_count' => $finance['open_count'],
             ],
             'invoices' => $invoices->map(function (Invoice $invoice) use ($settlements) {
                 $settlement = $settlements[$invoice->id];
@@ -916,7 +916,7 @@ class FinanceController extends Controller
         $session = $this->resolveRosterSession($request);
         $query = $this->studentRosterQuery($request, $session['id']);
         $page = $query->paginate($perPage);
-
+        $this->hydrateFinanceSummaries(collect($page->items()));
         $page->through(fn (Student $student) => $this->mapStudentFinanceRow($student));
 
         return [
@@ -944,6 +944,7 @@ class FinanceController extends Controller
         $students = $this->studentRosterQuery($request, $session['id'])
             ->limit(StudentFinanceExportService::MAX_ROWS)
             ->get();
+        $this->hydrateFinanceSummaries($students);
 
         $rows = $students->map(function (Student $student) {
             $row = $this->mapStudentFinanceRow($student);
@@ -1013,38 +1014,6 @@ class FinanceController extends Controller
 
     private function studentRosterQuery(Request $request, ?int $sessionId): Builder
     {
-        $billed = Invoice::query()
-            ->selectRaw('COALESCE(SUM(COALESCE(full_amount, amount)), 0)')
-            ->whereNotIn('status', ['cancelled', 'disabled'])
-            ->where(function (Builder $query) {
-                $query->whereColumn('invoices.student_id', 'students.id')
-                    ->orWhereColumn('invoices.user_id', 'students.user_id');
-            });
-        $outstanding = Invoice::query()
-            ->selectRaw(
-                'COALESCE(SUM(CASE WHEN ('
-                .'COALESCE(full_amount, amount) - COALESCE(rebate_total, 0) - COALESCE(('
-                .'SELECT SUM(p.amount) FROM payments p '
-                .'WHERE p.invoice_id = invoices.id '
-                .'AND p.deleted_at IS NULL '
-                .'AND p.status IN (\'successful\', \'paid\') '
-                .'AND (p.purpose IS NULL OR p.purpose NOT IN (\'wallet_topup\', \'wallet_funding\'))'
-                .'), 0)'
-                .') > 0 THEN ('
-                .'COALESCE(full_amount, amount) - COALESCE(rebate_total, 0) - COALESCE(('
-                .'SELECT SUM(p.amount) FROM payments p '
-                .'WHERE p.invoice_id = invoices.id '
-                .'AND p.deleted_at IS NULL '
-                .'AND p.status IN (\'successful\', \'paid\') '
-                .'AND (p.purpose IS NULL OR p.purpose NOT IN (\'wallet_topup\', \'wallet_funding\'))'
-                .'), 0)'
-                .') ELSE 0 END), 0)'
-            )
-            ->whereNotIn('status', ['cancelled', 'disabled'])
-            ->where(function (Builder $query) {
-                $query->whereColumn('invoices.student_id', 'students.id')
-                    ->orWhereColumn('invoices.user_id', 'students.user_id');
-            });
         $wallet = Wallet::query()
             ->select('balance')
             ->whereColumn('wallets.student_id', 'students.id')
@@ -1052,8 +1021,6 @@ class FinanceController extends Controller
 
         $query = Student::query()
             ->select('students.*')
-            ->selectSub($billed, 'billed')
-            ->selectSub($outstanding, 'outstanding')
             ->selectSub($wallet, 'wallet_balance')
             ->with(['user:id,name,email', 'program.department.faculty'])
             ->orderBy('last_name')
@@ -1103,21 +1070,126 @@ class FinanceController extends Controller
 
         $clearance = (string) $request->input('clearance', '');
         if ($clearance === 'outstanding' || $clearance === 'cleared') {
-            $sql = '('.$outstanding->toSql().')';
-            $query->whereRaw(
-                $clearance === 'outstanding' ? $sql.' > 0' : 'COALESCE('.$sql.', 0) <= 0',
-                $outstanding->getBindings(),
-            );
+            [$schoolFeesSql, $schoolBindings] = $this->rosterSchoolFeesSql();
+            [$paidSql, $paidBindings] = $this->rosterTuitionPaidSql();
+            if ($clearance === 'cleared') {
+                $query->whereRaw(
+                    $schoolFeesSql.' > 0.009 AND '.$paidSql.' >= '.$schoolFeesSql.' - 0.009',
+                    array_merge($schoolBindings, $paidBindings, $schoolBindings)
+                );
+            } else {
+                $query->whereRaw(
+                    $schoolFeesSql.' <= 0.009 OR '.$paidSql.' < '.$schoolFeesSql.' - 0.009',
+                    array_merge($schoolBindings, $paidBindings, $schoolBindings)
+                );
+            }
         }
 
         return $query;
     }
 
+    /**
+     * @return array{0: string, 1: list<mixed>}
+     */
+    private function rosterSchoolFeesSql(): array
+    {
+        $invoiceFull = Invoice::query()
+            ->selectRaw('COALESCE(MAX(COALESCE(full_amount, amount)), 0)')
+            ->where('category', 'tuition')
+            ->whereNotIn('status', ['cancelled', 'disabled'])
+            ->where(function (Builder $query) {
+                $query->whereColumn('invoices.student_id', 'students.id')
+                    ->orWhereColumn('invoices.user_id', 'students.user_id');
+            });
+        $schedule = ProgrammeFee::query()
+            ->join('fee_items', 'fee_items.id', '=', 'programme_fees.fee_item_id')
+            ->whereColumn('programme_fees.program_id', 'students.program_id')
+            ->where('programme_fees.is_active', true)
+            ->where('fee_items.is_active', true)
+            ->where(function (Builder $query) {
+                $query->where('programme_fees.level_code', 'all')
+                    ->orWhereColumn('programme_fees.level_code', 'students.current_level')
+                    ->orWhereRaw("programme_fees.level_code = REPLACE(CAST(students.current_level AS CHAR), 'L', '')");
+            })
+            ->where(function (Builder $query) {
+                $query->where(function (Builder $inner) {
+                    $inner->whereNull('programme_fees.installment_tranche')
+                        ->orWhereIn('programme_fees.installment_tranche', [1, 2, 3, 4]);
+                })->where(function (Builder $inner) {
+                    $inner->whereNull('fee_items.installment_tranche')
+                        ->orWhereIn('fee_items.installment_tranche', [1, 2, 3, 4]);
+                });
+            })
+            ->selectRaw('COALESCE(SUM(COALESCE(programme_fees.amount, fee_items.amount, 0)), 0)');
+
+        return [
+            'GREATEST(COALESCE(('.$invoiceFull->toSql().'), 0), COALESCE(('.$schedule->toSql().'), 0))',
+            array_merge($invoiceFull->getBindings(), $schedule->getBindings()),
+        ];
+    }
+
+    /**
+     * @return array{0: string, 1: list<mixed>}
+     */
+    private function rosterTuitionPaidSql(): array
+    {
+        $paid = Invoice::query()
+            ->join('payments', 'payments.invoice_id', '=', 'invoices.id')
+            ->where('invoices.category', 'tuition')
+            ->whereNotIn('invoices.status', ['cancelled', 'disabled'])
+            ->whereIn('payments.status', ['successful', 'paid'])
+            ->where(function (Builder $query) {
+                $query->whereNull('payments.purpose')
+                    ->orWhereNotIn('payments.purpose', ['wallet_topup', 'wallet_funding']);
+            })
+            ->where(function (Builder $query) {
+                $query->whereColumn('invoices.student_id', 'students.id')
+                    ->orWhereColumn('invoices.user_id', 'students.user_id');
+            })
+            ->selectRaw('COALESCE(SUM(payments.amount), 0)');
+
+        return ['COALESCE(('.$paid->toSql().'), 0)', $paid->getBindings()];
+    }
+
+    /**
+     * @param  Collection<int, Student>  $students
+     */
+    private function hydrateFinanceSummaries(Collection $students): void
+    {
+        if ($students->isEmpty()) {
+            return;
+        }
+
+        $students->loadMissing('program');
+        $studentIds = $students->pluck('id')->all();
+        $userIds = $students->pluck('user_id')->filter()->unique()->values()->all();
+
+        $invoices = Invoice::query()
+            ->with(['payments' => fn ($query) => $query->whereNotIn('status', ['failed', 'cancelled'])])
+            ->where(function (Builder $query) use ($studentIds, $userIds) {
+                $query->whereIn('student_id', $studentIds);
+                if ($userIds !== []) {
+                    $query->orWhereIn('user_id', $userIds);
+                }
+            })
+            ->get();
+
+        $byStudent = $invoices->groupBy('student_id');
+        $byUser = $invoices->groupBy('user_id');
+
+        foreach ($students as $student) {
+            $rows = collect($byStudent->get($student->id, []))
+                ->concat($student->user_id ? $byUser->get($student->user_id, []) : [])
+                ->unique('id')
+                ->values();
+            $student->setAttribute('finance_summary', StudentFinanceStatus::summarize($student, $rows));
+        }
+    }
+
     private function mapStudentFinanceRow(Student $student): array
     {
-        $billed = round((float) ($student->billed ?? 0), 2);
-        $outstanding = round((float) ($student->outstanding ?? 0), 2);
-        $paid = round(max(0, $billed - $outstanding), 2);
+        $summary = $student->getAttribute('finance_summary')
+            ?? StudentFinanceStatus::summarize($student);
 
         return [
             'id' => $student->id,
@@ -1131,11 +1203,11 @@ class FinanceController extends Controller
             'college' => $student->program?->department?->faculty?->name,
             'current_level' => $student->current_level,
             'status' => $student->status,
-            'wallet_balance' => round((float) ($student->wallet_balance ?? 0), 2),
-            'billed' => $billed,
-            'paid' => $paid,
-            'outstanding' => $outstanding,
-            'clearance' => $outstanding > 0 ? 'outstanding' : 'cleared',
+            'wallet_balance' => round((float) ($student->wallet_balance ?? $student->wallet?->balance ?? 0), 2),
+            'billed' => $summary['billed'],
+            'paid' => $summary['paid'],
+            'outstanding' => $summary['outstanding'],
+            'clearance' => $summary['clearance'],
         ];
     }
 

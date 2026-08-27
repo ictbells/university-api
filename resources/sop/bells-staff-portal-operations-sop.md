@@ -207,7 +207,7 @@ When a section (for example Administration) contains a single dropdown whose lab
 
 **Results** contains: Results dashboard, Result entry, CSV import, Department uploads, Faculty Approval, Board, Release, Grading scale. Grade changes appear under System → Audit (module `results`).
 
-**Fees & payments** contains: Fee categories, Fee items, Rebates, Programme fees, Generate invoice, Invoices, Students Financial Status, Import invoices, Import wallet history.
+**Fees & payments** contains: Fee categories, Fee items, Rebates, Programme fees, Generate invoice, Invoices, Students Financial Status, Import invoices, Import wallet history. On Students Financial Status, **Billed** is 100% school fees plus other invoices; **Cleared** only when 100% of school fees is paid.
 
 ### 6.3 Office hierarchy
 
