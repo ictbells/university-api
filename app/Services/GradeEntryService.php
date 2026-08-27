@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\Course;
+use App\Models\CourseOffering;
 use App\Models\Enrollment;
 use App\Models\Grade;
 use App\Models\Student;
@@ -11,6 +13,7 @@ use App\Support\GradeLetterResolver;
 use App\Support\GradeScoreComposer;
 use App\Support\GradeStatus;
 use App\Support\ResultImportColumns;
+use App\Support\ResultOfficerScope;
 use App\Support\SpreadsheetImport;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -26,13 +29,15 @@ class GradeEntryService
      */
     public function upsert(array $data, User $actor): Grade
     {
-        $enrollment = Enrollment::query()
-            ->with(['offering.course.department', 'student'])
-            ->findOrFail($data['enrollment_id']);
-
         $sitting = $data['sitting'] ?? GradeStatus::SITTING_MAIN;
+        [$studentId, $offeringId, $enrollment, $course] = $this->resolveTarget($data);
+
+        $org = GradeWorkflowService::orgSnapshotFromCourse($course);
+        ResultOfficerScope::assertLaneAccess($actor, $org);
+
         $grade = Grade::query()
-            ->where('enrollment_id', $enrollment->id)
+            ->where('student_id', $studentId)
+            ->where('course_offering_id', $offeringId)
             ->where('sitting', $sitting)
             ->first();
 
@@ -67,11 +72,12 @@ class GradeEntryService
             $points = $resolved['grade_point'] ?? null;
         }
 
-        $org = GradeWorkflowService::orgSnapshotFromCourse($enrollment->offering->course);
         $before = $grade?->only(['ca_score', 'exam_score', 'score', 'letter', 'points', 'status']);
 
         $payload = [
-            'enrollment_id' => $enrollment->id,
+            'student_id' => $studentId,
+            'course_offering_id' => $offeringId,
+            'enrollment_id' => $enrollment?->id,
             'sitting' => $sitting,
             'ca_score' => $composed['ca_score'],
             'exam_score' => $composed['exam_score'],
@@ -92,13 +98,13 @@ class GradeEntryService
                 $grade->fill($payload)->save();
                 GradeAuditLogger::updated($grade, $actor, $before ?? [], $grade->only(['ca_score', 'exam_score', 'score', 'letter', 'points', 'status']));
 
-                return $grade->fresh(['enrollment.offering.course', 'enrollment.student']);
+                return $grade->fresh()->loadMissing(['student', 'offering.course', 'offering.term', 'enrollment.offering.course', 'enrollment.student']);
             }
 
             $created = Grade::query()->create($payload);
             GradeAuditLogger::created($created, $actor);
 
-            return $created->fresh(['enrollment.offering.course', 'enrollment.student']);
+            return $created->fresh()->loadMissing(['student', 'offering.course', 'offering.term', 'enrollment.offering.course', 'enrollment.student']);
         });
     }
 
@@ -110,6 +116,7 @@ class GradeEntryService
             ]);
         }
 
+        ResultOfficerScope::assertCanMutate($actor, $grade);
         GradeAuditLogger::deleted($grade, $actor);
         $grade->delete();
     }
@@ -148,6 +155,9 @@ class GradeEntryService
      */
     public function importCsv(string $csv, int $courseOfferingId, string $scoreComponent, User $actor, string $sitting = GradeStatus::SITTING_MAIN): array
     {
+        $offering = CourseOffering::query()->with('course.department')->findOrFail($courseOfferingId);
+        ResultOfficerScope::assertOfferingAccess($actor, $offering);
+
         $lines = preg_split('/\r\n|\r|\n/', trim($csv)) ?: [];
         if ($lines === []) {
             throw ValidationException::withMessages(['file' => 'CSV is empty.']);
@@ -178,25 +188,14 @@ class GradeEntryService
 
             $student = Student::query()->where('matric_number', $matric)->first();
             if (! $student) {
-                $errors[] = "Row ".($index + 2).": student {$matric} not found.";
-
-                continue;
-            }
-
-            $enrollment = Enrollment::query()
-                ->where('student_id', $student->id)
-                ->where('course_offering_id', $courseOfferingId)
-                ->enrolled()
-                ->first();
-
-            if (! $enrollment) {
-                $errors[] = "Row ".($index + 2).": {$matric} is not enrolled in this offering.";
+                $errors[] = 'Row '.($index + 2).": student {$matric} not found.";
 
                 continue;
             }
 
             $data = [
-                'enrollment_id' => $enrollment->id,
+                'student_id' => $student->id,
+                'course_offering_id' => $courseOfferingId,
                 'sitting' => $sitting,
                 'source' => 'import',
             ];
@@ -219,7 +218,8 @@ class GradeEntryService
 
             try {
                 $existing = Grade::query()
-                    ->where('enrollment_id', $enrollment->id)
+                    ->where('student_id', $student->id)
+                    ->where('course_offering_id', $courseOfferingId)
                     ->where('sitting', $data['sitting'])
                     ->exists();
                 $this->upsert($data, $actor);
@@ -230,6 +230,44 @@ class GradeEntryService
         }
 
         return compact('created', 'updated', 'errors');
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{0: int, 1: int, 2: ?Enrollment, 3: Course}
+     */
+    private function resolveTarget(array $data): array
+    {
+        if (! empty($data['enrollment_id'])) {
+            $enrollment = Enrollment::query()
+                ->with(['offering.course.department', 'student'])
+                ->findOrFail($data['enrollment_id']);
+
+            return [
+                (int) $enrollment->student_id,
+                (int) $enrollment->course_offering_id,
+                $enrollment->status === 'enrolled' ? $enrollment : null,
+                $enrollment->offering->course,
+            ];
+        }
+
+        $studentId = (int) ($data['student_id'] ?? 0);
+        $offeringId = (int) ($data['course_offering_id'] ?? 0);
+        if ($studentId <= 0 || $offeringId <= 0) {
+            throw ValidationException::withMessages([
+                'course_offering_id' => 'Provide a course offering and student, or an enrollment.',
+            ]);
+        }
+
+        Student::query()->findOrFail($studentId);
+        $offering = CourseOffering::query()->with('course.department')->findOrFail($offeringId);
+        $enrollment = Enrollment::query()
+            ->where('student_id', $studentId)
+            ->where('course_offering_id', $offeringId)
+            ->enrolled()
+            ->first();
+
+        return [$studentId, $offeringId, $enrollment, $offering->course];
     }
 
     private function spreadsheetToCsv(string $path): string

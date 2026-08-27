@@ -22,6 +22,7 @@ use App\Models\User;
 use App\Support\GradeLetterResolver;
 use App\Support\GradeStatus;
 use App\Support\InstitutionLogo;
+use App\Support\Studentship;
 use App\Support\StudyLevel;
 use App\Support\TuitionProgress;
 use Illuminate\Support\Collection;
@@ -347,6 +348,8 @@ class CourseRegistrationService
                 'is_carry_over' => $isCarryOver,
             ])->load(['offering.course', 'grade']);
         });
+
+        Grade::attachEnrollment($enrollment);
 
         $this->audit->record(
             'enrollment.registered',
@@ -885,7 +888,7 @@ class CourseRegistrationService
         return $count;
     }
 
-    /** @return \Illuminate\Support\Collection<int, array{id: int, name: string, session_label: string, academic_session_id: int|null, is_current: bool}> */
+    /** @return Collection<int, array{id: int, name: string, session_label: string, academic_session_id: int|null, is_current: bool}> */
     public function printableTerms(Student $student): Collection
     {
         $termIds = Enrollment::query()
@@ -1108,8 +1111,8 @@ class CourseRegistrationService
 
     private function assertStudentMayMutate(Student $student, AcademicTerm $term, ?RegistrationExtension $extension): void
     {
-        if (! \App\Support\Studentship::canRegisterCourses($student)) {
-            $this->fail('studentship', $student->status === \App\Support\Studentship::STATUS_GRADUATED
+        if (! Studentship::canRegisterCourses($student)) {
+            $this->fail('studentship', $student->status === Studentship::STATUS_GRADUATED
                 ? 'Graduated students cannot register for a new session.'
                 : 'Studentship is not current; course registration is closed.');
         }
@@ -1247,7 +1250,7 @@ class CourseRegistrationService
                 continue;
             }
             $grades = $row->grades
-                ->filter(fn ($g) => \App\Support\GradeStatus::isReleased((string) $g->status))
+                ->filter(fn ($g) => GradeStatus::isReleased((string) $g->status))
                 ->sortByDesc(fn ($g) => $g->sitting === 'supplementary' ? 1 : 0);
             $grade = $grades->first();
             if (! $grade) {

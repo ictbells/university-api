@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\AcademicTerm;
+use App\Models\AuditLog;
+use App\Models\CourseOffering;
 use App\Models\Department;
 use App\Models\Faculty;
 use App\Models\Grade;
@@ -11,9 +13,11 @@ use App\Models\GradingScale;
 use App\Models\Student;
 use App\Services\GradeEntryService;
 use App\Services\GradeWorkflowService;
+use App\Support\GpaCalculator;
 use App\Support\GradeAuditLogger;
 use App\Support\GradeStatus;
 use App\Support\ListSessionLevelFilter;
+use App\Support\ResultOfficerScope;
 use App\Support\SubmissionListReportBuilder;
 use App\Support\TranscriptBuilder;
 use Dompdf\Dompdf;
@@ -35,7 +39,9 @@ class ResultsController extends Controller
     {
         abort_unless($request->user()->hasPermission('results.read'), 403);
 
-        $counts = Grade::query()
+        $countsQuery = Grade::query();
+        ResultOfficerScope::constrainGrades($countsQuery, $request->user());
+        $counts = $countsQuery
             ->selectRaw('status, count(*) as total')
             ->groupBy('status')
             ->pluck('total', 'status');
@@ -53,43 +59,60 @@ class ResultsController extends Controller
     {
         abort_unless($request->user()->hasPermission('results.read'), 403);
 
-        $query = Grade::query()
-            ->with([
-                'enrollment.student:id,first_name,last_name,matric_number',
-                'enrollment.offering.course:id,code,title,units',
-                'enrollment.offering.term:id,name,session_label',
-            ])
-            ->latest('id');
+        $query = Grade::query()->withResolved()->latest('id');
+        ResultOfficerScope::constrainGrades($query, $request->user());
 
         if ($request->filled('status')) {
             $query->where('status', $request->input('status'));
         }
         if ($request->filled('academic_term_id')) {
-            $termId = (int) $request->input('academic_term_id');
-            $query->whereHas('enrollment.offering', fn ($q) => $q->where('academic_term_id', $termId));
+            $query->forTerm((int) $request->input('academic_term_id'));
         }
-        ListSessionLevelFilter::applySessionToTermRelation($query, $request, 'enrollment.offering.term');
-        ListSessionLevelFilter::applyToStudentRelation($query, $request, 'enrollment.student');
+        ListSessionLevelFilter::applySessionToTermRelation($query, $request, 'offering.term');
+        ListSessionLevelFilter::applyToStudentRelation($query, $request, 'student');
         if ($request->filled('faculty_id')) {
             $query->where('faculty_id', (int) $request->input('faculty_id'));
         }
         if ($request->filled('department_id')) {
             $query->where('department_id', (int) $request->input('department_id'));
         }
+        if ($request->filled('sitting') && in_array($request->input('sitting'), GradeStatus::sittings(), true)) {
+            $query->where('sitting', $request->input('sitting'));
+        }
         if ($request->filled('student_id')) {
-            $studentId = (int) $request->input('student_id');
-            $query->whereHas('enrollment', fn ($q) => $q->where('student_id', $studentId));
+            $query->forStudent((int) $request->input('student_id'));
+        }
+        if ($request->filled('course_id')) {
+            $courseId = (int) $request->input('course_id');
+            $query->whereHas('offering', fn ($q) => $q->where('course_id', $courseId));
+        }
+        if ($request->filled('course')) {
+            $code = '%'.$request->input('course').'%';
+            $query->whereHas('offering.course', fn ($q) => $q->where('code', 'like', $code)->orWhere('title', 'like', $code));
+        }
+        if ($request->filled('matric')) {
+            $matric = '%'.$request->input('matric').'%';
+            $query->where(function ($q) use ($matric) {
+                $q->whereHas('student', fn ($s) => $s->where('matric_number', 'like', $matric))
+                    ->orWhereHas('enrollment.student', fn ($s) => $s->where('matric_number', 'like', $matric));
+            });
         }
         if ($request->filled('search')) {
             $search = '%'.$request->input('search').'%';
-            $query->whereHas('enrollment.student', function ($q) use ($search) {
-                $q->where('matric_number', 'like', $search)
-                    ->orWhere('first_name', 'like', $search)
-                    ->orWhere('last_name', 'like', $search);
+            $query->where(function ($outer) use ($search) {
+                $outer->whereHas('student', function ($q) use ($search) {
+                    $q->where('matric_number', 'like', $search)
+                        ->orWhere('first_name', 'like', $search)
+                        ->orWhere('last_name', 'like', $search);
+                })->orWhereHas('enrollment.student', function ($q) use ($search) {
+                    $q->where('matric_number', 'like', $search)
+                        ->orWhere('first_name', 'like', $search)
+                        ->orWhere('last_name', 'like', $search);
+                });
             });
         }
 
-        return $query->paginate(min(100, max(10, (int) $request->input('per_page', 25))));
+        return $query->paginate(min(5000, max(10, (int) $request->input('per_page', 25))));
     }
 
     public function store(Request $request)
@@ -97,7 +120,9 @@ class ResultsController extends Controller
         abort_unless($request->user()->hasPermission('results.write'), 403);
 
         $data = $request->validate([
-            'enrollment_id' => 'required|integer|exists:enrollments,id',
+            'enrollment_id' => 'nullable|integer|exists:enrollments,id|required_without:course_offering_id',
+            'student_id' => 'nullable|integer|exists:students,id|required_with:course_offering_id',
+            'course_offering_id' => 'nullable|integer|exists:course_offerings,id|required_without:enrollment_id',
             'sitting' => ['nullable', Rule::in(GradeStatus::sittings())],
             'ca_score' => 'nullable|numeric|min:0|max:100',
             'exam_score' => 'nullable|numeric|min:0|max:100',
@@ -121,6 +146,9 @@ class ResultsController extends Controller
             'points' => 'nullable|numeric|min:0|max:5',
             'sitting' => ['nullable', Rule::in(GradeStatus::sittings())],
         ]);
+        ResultOfficerScope::assertCanMutate($request->user(), $grade);
+        $data['student_id'] = $grade->student_id ?: $grade->enrollment?->student_id;
+        $data['course_offering_id'] = $grade->course_offering_id ?: $grade->enrollment?->course_offering_id;
         $data['enrollment_id'] = $grade->enrollment_id;
         $data['sitting'] = $data['sitting'] ?? $grade->sitting;
 
@@ -136,6 +164,7 @@ class ResultsController extends Controller
     public function destroy(Request $request, Grade $grade)
     {
         abort_unless($request->user()->hasPermission('results.write'), 403);
+        ResultOfficerScope::assertCanMutate($request->user(), $grade);
 
         return $this->officeGate('results.destroy', $grade, ['grade_id' => $grade->id], 'Delete result', function () use ($request, $grade) {
             $this->entry->destroy($grade, $request->user());
@@ -148,6 +177,7 @@ class ResultsController extends Controller
     {
         abort_unless($request->user()->hasPermission('results.submit'), 403);
         $data = $request->validate(['ids' => 'required|array|min:1', 'ids.*' => 'integer|exists:grades,id']);
+        ResultOfficerScope::assertCanActOnGrades($request->user(), $data['ids']);
 
         return $this->officeGate('results.submit', null, $data, 'Submit results', fn () => $this->workflow->submit($data['ids'], $request->user()));
     }
@@ -156,6 +186,7 @@ class ResultsController extends Controller
     {
         abort_unless($request->user()->hasPermission('results.faculty_approve'), 403);
         $data = $request->validate(['ids' => 'required|array|min:1', 'ids.*' => 'integer|exists:grades,id']);
+        ResultOfficerScope::assertFacultyApprove($request->user(), $data['ids']);
 
         return $this->officeGate('results.faculty_approve', null, $data, 'Faculty approve results', fn () => $this->workflow->facultyApprove($data['ids'], $request->user()));
     }
@@ -168,6 +199,7 @@ class ResultsController extends Controller
             'ids.*' => 'integer|exists:grades,id',
             'note' => 'nullable|string|max:2000',
         ]);
+        ResultOfficerScope::assertFacultyApprove($request->user(), $data['ids']);
 
         return $this->officeGate(
             'results.faculty_return',
@@ -324,15 +356,32 @@ class ResultsController extends Controller
         abort_unless($request->user()->hasPermission('results.read'), 403);
 
         $grades = Grade::query()
-            ->with(['enrollment.offering.course', 'enrollment.offering.term'])
-            ->whereHas('enrollment', fn ($q) => $q->where('student_id', $student->id))
+            ->withResolved()
+            ->forStudent($student->id)
             ->orderByDesc('id')
+            ->get();
+
+        $termId = $request->filled('academic_term_id') ? (int) $request->input('academic_term_id') : null;
+        $termGrades = $termId
+            ? $grades->filter(fn (Grade $g) => (int) ($g->resolvedOffering()?->academic_term_id ?? 0) === $termId)
+            : $grades;
+
+        $gradeIds = $grades->pluck('id')->all();
+        $audit = AuditLog::query()
+            ->where('module', 'results')
+            ->where('entity_type', Grade::class)
+            ->whereIn('entity_id', $gradeIds ?: [0])
+            ->orderByDesc('id')
+            ->limit(50)
             ->get();
 
         return [
             'student' => $student->only(['id', 'first_name', 'last_name', 'matric_number', 'current_level']),
             'grades' => $grades,
+            'gpa' => GpaCalculator::compute($termGrades, false),
+            'cgpa' => GpaCalculator::compute($grades, false),
             'transcript' => TranscriptBuilder::forStudent($student, false),
+            'audit' => $audit,
         ];
     }
 
@@ -411,6 +460,8 @@ class ResultsController extends Controller
         );
         abort_unless(in_array($scope, ['department', 'faculty', 'board'], true), 404);
 
+        $reportScope = str_contains($request->path(), 'board-lists') ? 'board' : $scope;
+
         $data = $request->validate([
             'academic_term_id' => 'required|integer|exists:academic_terms,id',
             'academic_session_id' => 'nullable|integer|exists:academic_sessions,id',
@@ -418,48 +469,68 @@ class ResultsController extends Controller
             'department_id' => 'nullable|integer|exists:departments,id',
             'status' => 'nullable|string',
             'level' => 'nullable|string',
-            'format' => 'nullable|in:json,html,pdf',
+            'sitting' => ['nullable', Rule::in(GradeStatus::sittings())],
+            'format' => 'nullable|in:json,html,pdf,doc,docx',
         ]);
+
+        $format = $data['format'] ?? 'json';
+        if (in_array($format, ['pdf', 'doc', 'docx'], true) && empty($data['level'])) {
+            abort(422, 'Select a level to download the list.');
+        }
 
         $term = AcademicTerm::query()->with('session')->findOrFail($data['academic_term_id']);
         $faculty = isset($data['faculty_id']) ? Faculty::query()->find($data['faculty_id']) : null;
         $department = isset($data['department_id']) ? Department::query()->with('faculty')->find($data['department_id']) : null;
 
         $query = Grade::query()
-            ->with([
-                'enrollment.student',
-                'enrollment.offering.course',
-                'department.faculty',
-            ])
-            ->whereHas('enrollment.offering', fn ($q) => $q->where('academic_term_id', $term->id));
+            ->withResolved()
+            ->with(['department.faculty'])
+            ->forTerm($term->id);
+        ResultOfficerScope::constrainGrades($query, $request->user());
 
-        if (! empty($data['status'])) {
+        if (! empty($data['status']) && $data['status'] !== 'all') {
             $query->where('status', $data['status']);
+        }
+        if (! empty($data['sitting'])) {
+            $query->where('sitting', $data['sitting']);
         }
         if ($department) {
             $query->where('department_id', $department->id);
         } elseif ($faculty) {
-            $query->where('faculty_id', $faculty->id);
+            $query->where(function ($q) use ($faculty, $reportScope) {
+                $q->where('faculty_id', $faculty->id);
+                if ($reportScope === 'board') {
+                    $q->orWhere('upload_lane', GradeStatus::LANE_GENERAL);
+                }
+            });
         }
 
         $report = SubmissionListReportBuilder::build(
             $query->get(),
             $term,
-            $scope,
+            $reportScope,
             $data['status'] ?? null,
             $faculty,
             $department,
             $data['level'] ?? null,
         );
 
-        $format = $data['format'] ?? 'json';
         if ($format === 'json') {
             return $report;
         }
 
         $html = view('reports.submission-list', ['report' => $report])->render();
+        $basename = $this->submissionListFilename($reportScope, $term, $report);
+
         if ($format === 'html') {
             return response($html, 200, ['Content-Type' => 'text/html; charset=UTF-8']);
+        }
+
+        if (in_array($format, ['doc', 'docx'], true)) {
+            return response($html, 200, [
+                'Content-Type' => 'application/msword; charset=UTF-8',
+                'Content-Disposition' => 'attachment; filename="'.$basename.'.doc"',
+            ]);
         }
 
         $options = new Options;
@@ -471,7 +542,52 @@ class ResultsController extends Controller
 
         return response($dompdf->output(), 200, [
             'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'attachment; filename="submission-list-'.$scope.'.pdf"',
+            'Content-Disposition' => 'attachment; filename="'.$basename.'.pdf"',
         ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $report
+     */
+    private function submissionListFilename(string $scope, AcademicTerm $term, array $report): string
+    {
+        $session = str_replace(['/', ' '], '-', (string) ($term->session?->label ?: $term->session_label ?: $term->id));
+        $semester = str_contains(strtolower((string) $term->name), 'second') ? 'second' : 'first';
+        $suffix = ! empty($report['is_supplementary']) ? '-supplementary' : '';
+
+        $label = match ($scope) {
+            'department' => 'department-results',
+            'faculty' => 'faculty-results',
+            default => 'senate-list',
+        };
+
+        return $label.'-'.$session.'-'.$semester.$suffix;
+    }
+
+    public function offerings(Request $request)
+    {
+        abort_unless(
+            $request->user()->hasPermission('results.read')
+                || $request->user()->hasPermission('results.write')
+                || $request->user()->hasPermission('results.import'),
+            403,
+        );
+
+        $query = CourseOffering::query()
+            ->with(['course.department', 'term'])
+            ->withCount(['enrollments as enrolled_count' => fn ($q) => $q->enrolled()]);
+        ResultOfficerScope::constrainOfferings($query, $request->user());
+
+        if ($request->filled('academic_term_id')) {
+            $query->where('academic_term_id', (int) $request->input('academic_term_id'));
+        }
+        if ($request->filled('search')) {
+            $search = '%'.$request->input('search').'%';
+            $query->whereHas('course', function ($q) use ($search) {
+                $q->where('code', 'like', $search)->orWhere('title', 'like', $search);
+            });
+        }
+
+        return $query->orderByDesc('id')->limit(500)->get();
     }
 }

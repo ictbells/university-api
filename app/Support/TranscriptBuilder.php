@@ -3,9 +3,8 @@
 namespace App\Support;
 
 use App\Models\Grade;
+use App\Models\Program;
 use App\Models\Student;
-use App\Services\GradeWorkflowService;
-use Illuminate\Support\Collection;
 
 final class TranscriptBuilder
 {
@@ -19,11 +18,11 @@ final class TranscriptBuilder
         ?int $programId = null,
     ): array {
         $gradesQuery = Grade::query()
-            ->with(['enrollment.offering.course', 'enrollment.offering.term.session'])
-            ->whereHas('enrollment', fn ($q) => $q->where('student_id', $student->id));
+            ->withResolved()
+            ->forStudent($student->id);
 
         if ($programId) {
-            $courseIds = \App\Models\Program::query()
+            $courseIds = Program::query()
                 ->whereKey($programId)
                 ->first()
                 ?->courses()
@@ -31,10 +30,10 @@ final class TranscriptBuilder
                 ->all() ?? [];
 
             if ($courseIds !== []) {
-                $gradesQuery->whereHas(
-                    'enrollment.offering',
-                    fn ($q) => $q->whereIn('course_id', $courseIds),
-                );
+                $gradesQuery->where(function ($q) use ($courseIds) {
+                    $q->whereHas('offering', fn ($o) => $o->whereIn('course_id', $courseIds))
+                        ->orWhereHas('enrollment.offering', fn ($o) => $o->whereIn('course_id', $courseIds));
+                });
             }
         }
 
@@ -43,14 +42,14 @@ final class TranscriptBuilder
         $allEligible = GpaCalculator::eligibleRows($grades, $releasedOnly);
         $cgpaSummary = GpaCalculator::summary($grades, $releasedOnly);
 
-        $byTerm = $allEligible->groupBy(fn (Grade $g) => (int) ($g->enrollment?->offering?->academic_term_id ?? 0));
+        $byTerm = $allEligible->groupBy(fn (Grade $g) => (int) ($g->resolvedOffering()?->academic_term_id ?? 0));
         $terms = [];
         foreach ($byTerm as $termId => $termGrades) {
             if (! $termId) {
                 continue;
             }
             $first = $termGrades->first();
-            $term = $first?->enrollment?->offering?->term;
+            $term = $first?->resolvedOffering()?->term;
             $summary = GpaCalculator::summary($termGrades, false);
             $terms[] = [
                 'academic_term_id' => (int) $termId,
@@ -89,8 +88,9 @@ final class TranscriptBuilder
      */
     public static function serializeGrade(Grade $grade): array
     {
-        $course = $grade->enrollment?->offering?->course;
-        $term = $grade->enrollment?->offering?->term;
+        $offering = $grade->resolvedOffering();
+        $course = $offering?->course;
+        $term = $offering?->term;
 
         return [
             'id' => $grade->id,
@@ -102,6 +102,7 @@ final class TranscriptBuilder
             'ca_score' => $grade->ca_score,
             'exam_score' => $grade->exam_score,
             'status' => $grade->status,
+            'registration_held' => (bool) $grade->registration_held,
             'released_at' => optional($grade->released_at)?->toIso8601String(),
             'course' => $course ? $course->only(['id', 'code', 'title', 'units']) : null,
             'term' => $term ? [

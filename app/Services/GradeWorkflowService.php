@@ -205,10 +205,10 @@ class GradeWorkflowService
     {
         return $grades
             ->groupBy(function (Grade $g) {
-                $enrollment = $g->relationLoaded('enrollment') ? $g->enrollment : $g->enrollment;
-                $termId = $enrollment?->offering?->academic_term_id ?? 0;
-                $courseId = $enrollment?->offering?->course_id ?? 0;
-                $studentId = $enrollment?->student_id ?? 0;
+                $offering = $g->resolvedOffering();
+                $termId = $offering?->academic_term_id ?? 0;
+                $courseId = $offering?->course_id ?? 0;
+                $studentId = $g->resolvedStudentId();
 
                 return implode('|', [$studentId, $courseId, $termId]);
             })
@@ -231,12 +231,15 @@ class GradeWorkflowService
     {
         $query = Grade::query()
             ->whereIn('status', $statuses)
-            ->whereHas('enrollment.offering', fn ($q) => $q->where('academic_term_id', $academicTermId));
+            ->forTerm($academicTermId);
 
         if ($departmentId) {
             $query->where('department_id', $departmentId);
         } elseif ($facultyId) {
-            $query->where('faculty_id', $facultyId);
+            $query->where(function ($q) use ($facultyId) {
+                $q->where('faculty_id', $facultyId)
+                    ->orWhere('upload_lane', GradeStatus::LANE_GENERAL);
+            });
         }
 
         return $query->pluck('id')->map(fn ($id) => (int) $id)->all();
@@ -261,7 +264,7 @@ class GradeWorkflowService
         $errors = [];
 
         $rows = Grade::query()
-            ->with(['enrollment'])
+            ->with(['enrollment', 'offering', 'student'])
             ->whereIn('id', $ids)
             ->get();
 

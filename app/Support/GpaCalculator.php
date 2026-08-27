@@ -30,7 +30,7 @@ final class GpaCalculator
         $totalCredits = 0;
 
         foreach ($rows as $grade) {
-            $credits = (int) ($grade->enrollment?->offering?->course?->units ?? 0);
+            $credits = $grade->courseUnits();
             if ($credits <= 0) {
                 continue;
             }

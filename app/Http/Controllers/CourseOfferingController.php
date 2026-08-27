@@ -10,6 +10,7 @@ use App\Models\Staff;
 use App\Services\AuditWriter;
 use App\Services\CourseRegistrationService;
 use App\Support\ListSessionLevelFilter;
+use App\Support\ResultOfficerScope;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -27,6 +28,10 @@ class CourseOfferingController extends Controller
         $query = CourseOffering::query()
             ->with(['course.department', 'course.programs:id,name,code', 'term', 'lecturer.user'])
             ->withCount(['enrollments as enrolled_count' => fn ($q) => $q->enrolled()]);
+
+        if ($request->boolean('upload_lane_only')) {
+            ResultOfficerScope::constrainOfferings($query, $request->user());
+        }
 
         if ($request->filled('academic_term_id')) {
             $query->where('academic_term_id', (int) $request->academic_term_id);
@@ -169,6 +174,7 @@ class CourseOfferingController extends Controller
         if (array_key_exists('capacity', $data)) {
             $data['capacity'] = $this->normalizedCapacity($data['capacity']);
         }
+
         return $this->officeGate('academic.update_offering', $offering, ['offering_id' => $offering->id, ...$data], 'Update course offering', function () use ($offering, $data, $before) {
             $offering->update($data);
             $this->audit->record('offering.updated', 'Course offering updated', 'academic', 'course_offering', $offering->id, $before, $offering);
@@ -183,6 +189,7 @@ class CourseOfferingController extends Controller
             return response()->json(['message' => 'Remove enrolled students before deleting this offering.'], 422);
         }
         $before = $offering->toArray();
+
         return $this->officeGate('academic.destroy_offering', $offering, ['offering_id' => $offering->id], 'Delete course offering', function () use ($offering, $before) {
             $offering->delete();
             $this->audit->record('offering.deleted', 'Course offering deleted', 'academic', 'course_offering', $offering->id, $before, null);

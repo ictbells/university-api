@@ -41,7 +41,7 @@ final class GradeAuditLogger
                 ? $grade->enrollment
                 : $grade?->enrollment()->with('offering.course')->first();
 
-            $course = $enrollment?->offering?->course;
+            $course = $grade?->resolvedOffering()?->course ?? $enrollment?->offering?->course;
             $summary = match ($action) {
                 self::ACTION_CREATED => 'Created grade draft'.($course ? " for {$course->code}" : ''),
                 self::ACTION_UPDATED => 'Updated grade'.($course ? " for {$course->code}" : ''),

@@ -507,30 +507,43 @@ Import students lives under **Admission Setup** (§8.4).
 
 ### 8.6a Academic — Results processing
 
-Result entry follows a controlled workflow before students can see grades on the student portal.
+Result entry follows a controlled workflow before students can see grades on the student portal. **E-exam sync is out of scope** for this portal.
 
 **Statuses:** `draft` → `submitted` → `board_ready` (via faculty approval) → `board_cleared` → `released`. Returns use `correction_required`. Only `draft` and `correction_required` rows are editable. Students see only **released** grades; CGPA uses released rows only. Carry-over detection also ignores unreleased grades.
 
+**Exam-officer roles** (seeded; assign the matching Academic portal links):
+
+| Role | Upload lane | Org scope | Board / Release |
+|------|-------------|-----------|-----------------|
+| Exam Officer (`exam-officer`) | All | Campus | Yes |
+| Faculty Exam Officer (`faculty-exam-officer`) | Faculty courses in their academic faculty | `staff.department_id` → faculty | No |
+| Department Exam Officer (`department-exam-officer`) | Departmental courses in their academic department | `staff.department_id` | No |
+| GS Exam Officer (`gs-exam-officer`) | General courses only | Campus general lane | No |
+
+Registrar and Super Admin remain campus-wide. Faculty approval of **general-lane** rows is not limited to the officer’s faculty. Create/update/import/submit/approve/board/release still go through the **HOD office inbox** (`officeGate`) when that office requires approval.
+
+**Hold until registered:** Staff may enter or import a draft by student + course offering **before** the student registers. The row is tagged held (`registration_held`) until an enrolled registration exists; submit, approve, release, and GPA skip held rows. When the student later registers, the existing grade is attached to the enrollment.
+
 | Page | Purpose | Permission |
 |------|---------|------------|
-| Results dashboard | Counts by status | `results.read` |
-| Result entry | Search students, enter CA/exam/total | `results.read` + `results.write` / `results.submit` |
-| CSV import | Bulk draft import (`matric,score` or ca/exam columns) | `results.import` |
+| Results dashboard | Counts by status (scoped to the officer’s lane) | `results.read` |
+| Result entry | Search students, pick a course offering, enter CA/exam/total; edit/delete drafts; transcript and results audit on the student record | `results.read` + `results.write` / `results.submit` |
+| CSV import | Bulk draft import (`matric,score` or ca/exam columns). Registration is optional. Offerings are lane-filtered. | `results.import` |
 | Department uploads | Department grade list, submit drafts, print department list. **Grade** is the A–F letter from the total score and grading scale (staff do not type it). Print requires a semester. | `results.submit` |
-| Faculty Approval | Faculty approve/return submitted grades; print faculty list | `results.faculty_approve` |
-| Board | Board-ready/cleared records list; board clear / request corrections; printable board list | `results.board` |
-| Release | Release board-cleared grades to students | `results.release` |
+| Faculty Approval | Faculty approve/return submitted grades (free-text return note); print faculty list | `results.faculty_approve` |
+| Board | Board-ready/cleared records list; board clear / request corrections; printable board list (faculty scope includes general-lane rows) | `results.board` |
+| Release | Release board-cleared grades to students (scope-based; no force option in the UI) | `results.release` |
 | Grading scale | Edit letter boundaries (seeded default 5.0 scale) | `scales.manage` |
 
-Grade create/update/import/status changes are written to the platform **Audit** trail (`module = results`), not a separate Results audit screen. Result entry, approvals, board, and release lists accept **session** and **level** filters (term pickers stay where the list is term-based).
+Grade create/update/import/status changes are written to the platform **Audit** trail (`module = results`), not a separate Results audit screen. Result entry, approvals, board, and release lists accept **session**, **level**, **sitting**, **course**, and **matric** filters (term pickers stay where the list is term-based). Department / Faculty / Board lists download as HTML, PDF, or Word.
 
 **Typical flow**
 
-1. Assign Results portal links under Department Setup (`results`, `results-students`, `results-department`, `results-approvals`, `results-board`, `results-release`, etc.) and grant the matching permissions.
+1. Assign Results portal links under Department Setup (`results`, `results-students`, `results-department`, `results-approvals`, `results-board`, `results-release`, etc.) and grant the matching exam-officer role (or equivalent permissions). Faculty, department, and GS officers should not receive Board or Release links.
 2. Review **Grading scale** before first use.
-3. Enter or import drafts on Result entry / CSV import.
+3. Enter or import drafts on Result entry / CSV import (registration may follow later).
 4. On **Department uploads**, review drafts and submit; print the department list as needed.
-5. On **Faculty Approval**, approve (or return). Print the faculty list as needed.
+5. On **Faculty Approval**, approve (or return with a note). Print the faculty list as needed. HOD inbox may still apply.
 6. On **Board**, review the records list, then board clear (may require office approval).
 7. Release on Release (may require office approval). Students then see letter grades and CGPA.
 

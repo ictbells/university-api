@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Models\AcademicTerm;
+use App\Models\Enrollment;
 use App\Models\Grade;
 use App\Models\Setting;
 use App\Models\Student;
@@ -16,50 +18,134 @@ final class StudentProgressMetrics
      */
     public static function forStudents(array $studentIds, int $academicTermId, ?string $status = null): array
     {
+        $studentIds = array_values(array_unique(array_filter($studentIds)));
         if ($studentIds === []) {
             return [];
         }
 
-        $all = Grade::query()
-            ->with(['enrollment.offering.course', 'enrollment.student'])
-            ->whereHas('enrollment', fn ($q) => $q->whereIn('student_id', $studentIds))
-            ->when($status, fn ($q) => $q->where('status', $status))
-            ->get();
+        $term = AcademicTerm::query()->with('session')->find($academicTermId);
+        if (! $term) {
+            return [];
+        }
+
+        $query = Grade::query()
+            ->withResolved()
+            ->where(function ($q) use ($studentIds) {
+                $q->whereIn('student_id', $studentIds)
+                    ->orWhereHas('enrollment', fn ($e) => $e->whereIn('student_id', $studentIds));
+            });
+
+        $status = $status !== null ? trim($status) : '';
+        if ($status !== '' && $status !== 'all') {
+            $query->where('status', $status);
+        }
+
+        $all = $query->get()->groupBy(fn (Grade $g) => $g->resolvedStudentId());
+
+        $registrations = self::enrollmentsToDate($studentIds, $term);
+        $semesterRegistrations = self::enrollmentsForTerm($studentIds, $academicTermId);
 
         $out = [];
         foreach ($studentIds as $studentId) {
-            $studentGrades = $all->filter(fn (Grade $g) => (int) $g->enrollment?->student_id === (int) $studentId);
-            $semester = $studentGrades->filter(
-                fn (Grade $g) => (int) $g->enrollment?->offering?->academic_term_id === $academicTermId
+            /** @var Collection<int, Grade> $rows */
+            $rows = $all->get($studentId, collect());
+            $semesterRows = $rows->filter(
+                fn (Grade $g) => (int) ($g->resolvedOffering()?->academic_term_id ?? 0) === $academicTermId
             );
-            $eligibleSem = GradeWorkflowService::preferSupplementary(
-                $semester->filter(fn (Grade $g) => ! $g->registration_held)
+            $rowsToDate = $rows->filter(function (Grade $g) use ($term) {
+                $rowTerm = $g->resolvedOffering()?->term;
+                if (! $rowTerm) {
+                    return false;
+                }
+
+                return self::isOnOrBeforeTerm($rowTerm, $term);
+            });
+
+            $eligibleSemester = GradeWorkflowService::preferSupplementary(
+                $semesterRows->filter(fn (Grade $g) => ! $g->registration_held)
+            );
+            $eligibleToDate = GradeWorkflowService::preferSupplementary(
+                $rowsToDate->filter(fn (Grade $g) => ! $g->registration_held)
             );
             $eligibleAll = GradeWorkflowService::preferSupplementary(
-                $studentGrades->filter(fn (Grade $g) => ! $g->registration_held)
+                $rows->filter(fn (Grade $g) => ! $g->registration_held)
             );
 
-            $semSummary = self::summarize($eligibleSem);
-            $toDateSummary = self::summarize($eligibleAll);
-            $failed = $eligibleAll
-                ->filter(fn (Grade $g) => strtoupper((string) $g->letter) === 'F' || (float) $g->points === 0.0)
-                ->map(fn (Grade $g) => $g->enrollment?->offering?->course?->code)
+            $semesterSummary = GpaCalculator::summary($semesterRows, false);
+            $toDateSummary = GpaCalculator::summary($rowsToDate, false);
+
+            $tur = (int) (($semesterRegistrations[$studentId]['total_units'] ?? 0));
+            if ($tur <= 0) {
+                $tur = (int) $semesterSummary['total_credits'];
+            }
+            $wgp = (float) $semesterSummary['total_quality_points'];
+            $tup = 0;
+            $failedCodes = [];
+            foreach ($eligibleSemester as $row) {
+                $units = self::units($row);
+                $letter = strtoupper((string) ($row->letter ?? ''));
+                if ($letter === 'F') {
+                    $code = (string) (self::courseCode($row) ?? '');
+                    if ($code !== '') {
+                        $failedCodes[] = $code;
+                    }
+
+                    continue;
+                }
+                if ($units > 0) {
+                    $tup += $units;
+                }
+            }
+            $failedCodes = array_values(array_unique($failedCodes));
+
+            $tupToDate = 0;
+            foreach ($eligibleToDate as $row) {
+                $units = self::units($row);
+                $letter = strtoupper((string) ($row->letter ?? ''));
+                if ($letter === 'F' || $units <= 0) {
+                    continue;
+                }
+                $tupToDate += $units;
+            }
+
+            $registered = $registrations[$studentId] ?? ['total_units' => 0, 'courses' => []];
+            $resultCourseIds = $eligibleToDate
+                ->map(fn (Grade $g) => (int) ($g->resolvedOffering()?->course_id ?? 0))
                 ->filter()
                 ->unique()
-                ->values()
                 ->all();
+            $notIn = [];
+            $unitsNotIn = 0;
+            foreach ($registered['courses'] as $courseId => $info) {
+                if (! in_array((int) $courseId, $resultCourseIds, true)) {
+                    $notIn[] = $info['code'];
+                    $unitsNotIn += (int) ($info['units'] ?? 0);
+                }
+            }
+            sort($notIn);
 
-            $cgpa = $toDateSummary['gpa'];
+            $turToDate = (int) ($registered['total_units'] ?? 0);
+            if ($turToDate <= 0) {
+                $turToDate = (int) $toDateSummary['total_credits'];
+            }
+
+            $cgpa = GpaCalculator::compute($eligibleAll, false);
+
             $out[$studentId] = [
-                'gpa' => $semSummary['gpa'],
+                'gpa' => $semesterSummary['gpa'],
                 'cgpa' => $cgpa,
-                'tur' => $semSummary['credits'],
-                'tup' => $semSummary['passed_credits'],
-                'wgp' => $semSummary['quality_points'],
-                'tur_to_date' => $toDateSummary['credits'],
-                'tup_to_date' => $toDateSummary['passed_credits'],
-                'wgp_to_date' => $toDateSummary['quality_points'],
-                'courses_failed' => $failed,
+                'tur' => $tur,
+                'tup' => $tup,
+                'wgp' => $wgp,
+                'tur_to_date' => $turToDate,
+                'tup_to_date' => $tupToDate,
+                'wgp_to_date' => (float) $toDateSummary['total_quality_points'],
+                'units_not_in_to_date' => $unitsNotIn,
+                'courses_failed' => count($failedCodes),
+                'courses_failed_codes' => $failedCodes,
+                'courses_not_in_to_date' => $notIn,
+                'units_registered' => $tur,
+                'units_passed' => $tup,
                 'remark' => self::remark($cgpa),
             ];
         }
@@ -73,8 +159,21 @@ final class StudentProgressMetrics
      */
     public static function sheetProfiles(array $studentIds): array
     {
+        $defaults = [
+            'matric_number' => null,
+            'name' => '',
+            'level' => '—',
+            'programme' => '—',
+            'year_of_entry' => '—',
+            'mode_of_entry' => '—',
+        ];
+        $studentIds = array_values(array_unique(array_filter($studentIds)));
+        if ($studentIds === []) {
+            return [];
+        }
+
         $students = Student::query()
-            ->with('program:id,name,code')
+            ->with(['program:id,name,code,award_type', 'application.intake.term'])
             ->whereIn('id', $studentIds)
             ->get()
             ->keyBy('id');
@@ -82,14 +181,30 @@ final class StudentProgressMetrics
         $out = [];
         foreach ($studentIds as $id) {
             $s = $students->get($id);
+            $programme = (string) ($s?->program?->name ?? '');
+            $award = (string) ($s?->program?->award_type ?? '');
+            if ($programme !== '' && $award !== '') {
+                $programme = $programme.' ['.$award.']';
+            }
+
+            $year = (string) ($s?->application?->intake?->term?->session_label ?: '');
+            if ($year === '') {
+                $year = self::yearFromMatric((string) ($s?->matric_number ?? ''));
+            }
+
+            $mode = (string) ($s?->application?->entry_mode ?: '');
             $out[$id] = [
                 'matric_number' => $s?->matric_number,
-                'name' => trim(($s?->first_name ?? '').' '.($s?->last_name ?? '')),
-                'level' => $s?->current_level,
-                'programme' => $s?->program?->name,
-                'year_of_entry' => $s?->year_of_entry ?? null,
-                'mode_of_entry' => $s?->entry_mode ?? null,
+                'name' => trim(($s?->last_name ?? '').' '.($s?->first_name ?? '').' '.($s?->middle_name ?? '')),
+                'level' => $s?->current_level !== null && $s?->current_level !== '' ? (string) $s->current_level : '—',
+                'programme' => $programme !== '' ? $programme : '—',
+                'year_of_entry' => $year !== '' ? $year : '—',
+                'mode_of_entry' => $mode !== '' ? strtoupper($mode) : '—',
             ];
+        }
+
+        foreach ($studentIds as $id) {
+            $out[$id] = $out[$id] ?? $defaults;
         }
 
         return $out;
@@ -98,6 +213,15 @@ final class StudentProgressMetrics
     public static function format(?float $value): string
     {
         return $value === null ? '—' : number_format($value, 2);
+    }
+
+    public static function formatInt(int|float|null $value): string
+    {
+        if ($value === null) {
+            return '—';
+        }
+
+        return (string) (int) round((float) $value);
     }
 
     public static function remark(?float $cgpa): string
@@ -115,38 +239,115 @@ final class StudentProgressMetrics
         return 'Pass';
     }
 
-    /**
-     * @param  Collection<int, Grade>  $grades
-     * @return array{gpa: ?float, credits: int, passed_credits: int, quality_points: float}
-     */
-    private static function summarize(Collection $grades): array
-    {
-        $credits = 0;
-        $passed = 0;
-        $qp = 0.0;
-        foreach ($grades as $grade) {
-            $units = (int) ($grade->enrollment?->offering?->course?->units ?? 0);
-            if ($units <= 0) {
-                continue;
-            }
-            $credits += $units;
-            $point = (float) ($grade->points ?? 0);
-            $qp += $point * $units;
-            if (strtoupper((string) $grade->letter) !== 'F' && $point > 0) {
-                $passed += $units;
-            }
-        }
-
-        return [
-            'gpa' => $credits > 0 ? round($qp / $credits, 2) : null,
-            'credits' => $credits,
-            'passed_credits' => $passed,
-            'quality_points' => round($qp, 2),
-        ];
-    }
-
     public static function universityName(): string
     {
         return (string) Setting::getValue('university_name', 'Bells University of Technology');
+    }
+
+    /**
+     * @param  list<int>  $studentIds
+     * @return array<int, array{total_units: int, courses: array<int, array{code: string, units: int}>}>
+     */
+    private static function enrollmentsForTerm(array $studentIds, int $academicTermId): array
+    {
+        $map = [];
+        Enrollment::query()
+            ->enrolled()
+            ->with(['offering.course'])
+            ->whereIn('student_id', $studentIds)
+            ->whereHas('offering', fn ($q) => $q->where('academic_term_id', $academicTermId))
+            ->get()
+            ->each(function (Enrollment $row) use (&$map) {
+                self::accumulateEnrollment($map, $row);
+            });
+
+        return $map;
+    }
+
+    /**
+     * @param  list<int>  $studentIds
+     * @return array<int, array{total_units: int, courses: array<int, array{code: string, units: int}>}>
+     */
+    private static function enrollmentsToDate(array $studentIds, AcademicTerm $cutoff): array
+    {
+        $map = [];
+        Enrollment::query()
+            ->enrolled()
+            ->with(['offering.course', 'offering.term.session'])
+            ->whereIn('student_id', $studentIds)
+            ->get()
+            ->filter(function (Enrollment $row) use ($cutoff) {
+                $term = $row->offering?->term;
+                if (! $term) {
+                    return false;
+                }
+
+                return self::isOnOrBeforeTerm($term, $cutoff);
+            })
+            ->each(function (Enrollment $row) use (&$map) {
+                self::accumulateEnrollment($map, $row);
+            });
+
+        return $map;
+    }
+
+    /**
+     * @param  array<int, array{total_units: int, courses: array<int, array{code: string, units: int}>}>  $map
+     */
+    private static function accumulateEnrollment(array &$map, Enrollment $row): void
+    {
+        $sid = (int) $row->student_id;
+        $cid = (int) ($row->offering?->course_id ?? 0);
+        $code = (string) ($row->offering?->course?->code ?? '');
+        if ($code === '' || $cid <= 0) {
+            return;
+        }
+        $units = (int) ($row->offering?->course?->units ?? 0);
+
+        if (! isset($map[$sid])) {
+            $map[$sid] = ['total_units' => 0, 'courses' => []];
+        }
+        if (! isset($map[$sid]['courses'][$cid])) {
+            $map[$sid]['courses'][$cid] = ['code' => $code, 'units' => $units];
+            $map[$sid]['total_units'] += max(0, $units);
+        }
+    }
+
+    public static function isOnOrBeforeTerm(AcademicTerm $row, AcademicTerm $cutoff): bool
+    {
+        return self::termSortKey($row) <= self::termSortKey($cutoff);
+    }
+
+    /**
+     * @return array{0: string, 1: string, 2: int}
+     */
+    private static function termSortKey(AcademicTerm $term): array
+    {
+        $sessionStart = $term->session?->starts_on?->format('Y-m-d')
+            ?? (string) ($term->session_label ?? '');
+        $termStart = $term->starts_on?->format('Y-m-d') ?? '';
+
+        return [$sessionStart, $termStart, (int) $term->id];
+    }
+
+    private static function units(Grade $grade): int
+    {
+        return $grade->courseUnits();
+    }
+
+    private static function courseCode(Grade $grade): ?string
+    {
+        $code = (string) ($grade->resolvedOffering()?->course?->code ?? '');
+
+        return $code !== '' ? $code : null;
+    }
+
+    private static function yearFromMatric(string $matric): string
+    {
+        if (preg_match('/(20\d{2})/', $matric, $match)) {
+            return $match[1];
+        }
+
+        return '';
     }
 }
