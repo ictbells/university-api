@@ -116,6 +116,106 @@ class FeeArrearsTest extends TestCase
         );
     }
 
+    public function test_remaining_invoice_uses_3rd_and_4th_shares_when_paid_invoices_have_no_session(): void
+    {
+        [$student] = $this->studentWithLevelSchedules();
+        $old = AcademicSession::query()->create([
+            'label' => '2024/2025',
+            'starts_on' => '2024-10-01',
+            'ends_on' => '2025-09-30',
+        ]);
+        AcademicTerm::query()->create([
+            'academic_session_id' => $old->id,
+            'name' => 'First',
+            'session_label' => '2024/2025',
+            'is_current' => true,
+        ]);
+
+        $service = app(InvoiceService::class);
+        $first = $service->createTuitionInvoice($student->fresh(['program']), 25);
+        $first->update(['status' => 'paid', 'balance' => 0, 'academic_session_id' => null, 'level_code' => null]);
+        $second = $service->createTuitionInvoice($student->fresh(['program']), 50);
+        $second->update(['status' => 'paid', 'balance' => 0, 'academic_session_id' => null, 'level_code' => null]);
+
+        AcademicTerm::query()->update(['is_current' => false]);
+        $old->update(['closed_at' => now()]);
+        $student->update(['current_level' => 200]);
+        StudentLevelProgression::query()->insert([
+            'student_id' => $student->id,
+            'academic_session_id' => $old->id,
+            'program_id' => $student->program_id,
+            'from_level' => 100,
+            'to_level' => 200,
+            'created_at' => now(),
+        ]);
+        $new = AcademicSession::query()->create([
+            'label' => '2025/2026',
+            'starts_on' => '2025-10-01',
+            'ends_on' => '2026-09-30',
+        ]);
+        AcademicTerm::query()->create([
+            'academic_session_id' => $new->id,
+            'name' => 'First',
+            'session_label' => '2025/2026',
+            'is_current' => true,
+        ]);
+
+        Invoice::query()->create([
+            'number' => 'INV-DUP-1',
+            'user_id' => $student->user_id,
+            'student_id' => $student->id,
+            'category' => 'tuition',
+            'installment_percent' => 100,
+            'amount' => 625874,
+            'full_amount' => 1437250,
+            'balance' => 625874,
+            'status' => 'unpaid',
+            'wallet_allowed' => true,
+            'academic_session_id' => $old->id,
+            'level_code' => '100',
+        ]);
+        Invoice::query()->create([
+            'number' => 'INV-DUP-2',
+            'user_id' => $student->user_id,
+            'student_id' => $student->id,
+            'category' => 'tuition',
+            'installment_percent' => 100,
+            'amount' => 625874,
+            'full_amount' => 1437250,
+            'balance' => 625874,
+            'status' => 'unpaid',
+            'wallet_allowed' => true,
+            'academic_session_id' => $old->id,
+            'level_code' => '100',
+        ]);
+
+        Sanctum::actingAs($student->user);
+        $this->getJson('/api/wallet')->assertOk();
+        $this->getJson('/api/wallet')->assertOk();
+        $this->getJson('/api/transactions')->assertOk();
+
+        $arrears = Invoice::query()
+            ->with('items')
+            ->where('student_id', $student->id)
+            ->where('status', 'unpaid')
+            ->where('level_code', '100')
+            ->get();
+        $this->assertCount(1, $arrears);
+        $this->assertEquals(20000.0, (float) $arrears->first()->amount);
+        $this->assertEqualsCanonicalizing(
+            ['3rd 25%', '4th 25%'],
+            $arrears->first()->items->map(function ($item) {
+                if (str_contains((string) $item->description, '3rd 25%')) {
+                    return '3rd 25%';
+                }
+
+                return str_contains((string) $item->description, '4th 25%') ? '4th 25%' : (string) $item->description;
+            })->unique()->values()->all()
+        );
+        $this->assertSame(2, Invoice::query()->where('student_id', $student->id)->where('status', 'cancelled')->count());
+        $this->assertSame('3rd 25% + 4th 25%', $arrears->first()->shareLabel());
+    }
+
     /**
      * @return array{0: Student, 1: AcademicSession, 2: AcademicSession}
      */

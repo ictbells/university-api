@@ -462,6 +462,7 @@ class FinanceController extends Controller
                 $row['kind'] = 'invoice';
                 $row['invoice_id'] = $invoice->id;
                 $row['payment_id'] = $invoice->payments->first()?->id;
+                $row['installment_label'] = $invoice->shareLabel();
                 $row['sort_at'] = optional($invoice->created_at)->timestamp ?? 0;
 
                 return $row;

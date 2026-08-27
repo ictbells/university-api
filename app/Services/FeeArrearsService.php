@@ -8,6 +8,7 @@ use App\Models\Student;
 use App\Models\StudentLevelProgression;
 use App\Support\TuitionProgress;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 class FeeArrearsService
@@ -16,21 +17,27 @@ class FeeArrearsService
 
     public function ensureForStudent(Student $student): void
     {
-        $student->loadMissing(['program', 'application']);
-        $this->backfillInvoiceSessions($student);
-
-        $progressions = StudentLevelProgression::query()
-            ->with('session')
-            ->where('student_id', $student->id)
-            ->orderBy('id')
-            ->get();
-
-        foreach ($progressions as $row) {
-            if (! $row->session) {
-                continue;
+        DB::transaction(function () use ($student) {
+            $locked = Student::query()->whereKey($student->id)->lockForUpdate()->first();
+            if (! $locked) {
+                return;
             }
-            $this->invoiceRemaining($student, $row->session, (string) $row->from_level);
-        }
+            $locked->loadMissing(['program', 'application']);
+            $this->backfillInvoiceSessions($locked);
+
+            $progressions = StudentLevelProgression::query()
+                ->with('session')
+                ->where('student_id', $locked->id)
+                ->orderBy('id')
+                ->get();
+
+            foreach ($progressions as $row) {
+                if (! $row->session) {
+                    continue;
+                }
+                $this->invoiceRemaining($locked, $row->session, (string) $row->from_level);
+            }
+        });
     }
 
     public function invoiceRemaining(Student $student, AcademicSession $session, string $levelCode): ?Invoice
@@ -39,8 +46,37 @@ class FeeArrearsService
             return null;
         }
 
-        $paid = TuitionProgress::percentPaid($student, (int) $session->id);
-        if ($paid >= 100) {
+        $expected = $this->invoices->remainingTuitionAmount($student, $session, $levelCode);
+        $open = Invoice::query()
+            ->where('student_id', $student->id)
+            ->where('category', 'tuition')
+            ->where('academic_session_id', $session->id)
+            ->where('level_code', $levelCode)
+            ->whereIn('status', ['unpaid', 'partial'])
+            ->orderBy('id')
+            ->get();
+
+        $kept = null;
+        foreach ($open as $invoice) {
+            $hasPayment = $invoice->payments()->where('status', 'successful')->exists();
+            $matches = $expected > 0.009 && abs((float) $invoice->amount - $expected) <= 0.009;
+            if ($hasPayment) {
+                $kept ??= $invoice;
+                continue;
+            }
+            if ($matches && $kept === null) {
+                $kept = $invoice;
+                continue;
+            }
+            if ($invoice->status === 'unpaid') {
+                $this->invoices->disable($invoice, 'Replaced with the remaining 3rd and 4th 25% for this level.');
+            }
+        }
+        if ($kept) {
+            return $kept;
+        }
+
+        if ($expected <= 0.009) {
             return null;
         }
 

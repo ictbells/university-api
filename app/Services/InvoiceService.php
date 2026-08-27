@@ -464,17 +464,22 @@ class InvoiceService
         }
 
         $sessionId = $forSession?->id ?? $this->currentSessionId();
-        $paidPercent = TuitionProgress::percentPaid($student, $sessionId);
+        $includeLegacy = $forSession !== null;
+        $student->loadMissing(['user', 'program']);
+        $resolvedLevel = $levelCode !== null && $levelCode !== ''
+            ? $levelCode
+            : ($student->current_level !== null ? (string) $student->current_level : null);
+        $paidPercent = TuitionProgress::percentPaid(
+            $student,
+            $sessionId,
+            $includeLegacy,
+            $includeLegacy ? $resolvedLevel : null,
+        );
         if ($percent <= $paidPercent) {
             throw new RuntimeException($paidPercent >= 100
                 ? 'Tuition is already paid in full.'
                 : 'This installment has already been paid. Choose the next unpaid share.');
         }
-
-        $student->loadMissing(['user', 'program']);
-        $resolvedLevel = $levelCode !== null && $levelCode !== ''
-            ? $levelCode
-            : ($student->current_level !== null ? (string) $student->current_level : null);
         $lines = $student->program_id && $resolvedLevel
             ? ProgrammeFeeResolver::forProgram((int) $student->program_id, $resolvedLevel, $semester)
             : ProgrammeFeeResolver::forStudent($student, $semester);
@@ -496,6 +501,7 @@ class InvoiceService
                 $sessionId,
                 $resolvedLevel,
                 $forSession,
+                $includeLegacy,
             );
         }
 
@@ -563,65 +569,17 @@ class InvoiceService
         ?int $sessionId = null,
         ?string $levelCode = null,
         ?AcademicSession $forSession = null,
+        bool $includeLegacy = false,
     ): Invoice {
-        $paidProgrammeFeeIds = InvoiceItem::query()
-            ->whereNotNull('programme_fee_id')
-            ->whereHas('invoice', function ($query) use ($student, $sessionId) {
-                $query->where('student_id', $student->id)
-                    ->where('category', 'tuition')
-                    ->whereIn('status', ['paid', 'partial', 'unpaid']);
-                $this->constrainInvoiceSession($query, $sessionId);
-            })
-            ->pluck('programme_fee_id')
-            ->map(fn ($id) => (int) $id)
-            ->unique()
-            ->all();
-        $legacyPaidFeeItemIds = InvoiceItem::query()
-            ->whereNull('programme_fee_id')
-            ->whereNotNull('fee_item_id')
-            ->whereHas('invoice', function ($query) use ($student, $sessionId) {
-                $query->where('student_id', $student->id)
-                    ->where('category', 'tuition')
-                    ->whereIn('status', ['paid', 'partial', 'unpaid']);
-                $this->constrainInvoiceSession($query, $sessionId);
-            })
-            ->pluck('fee_item_id')
-            ->map(fn ($id) => (int) $id)
-            ->unique()
-            ->all();
-
-        $hasFullPackage = $lines->contains(
-            fn (ProgrammeFee $fee) => FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
-                && (int) ($fee->effective_installment_tranche ?? 0) === 100
+        $billable = $this->billableTrancheLines(
+            $student,
+            $lines,
+            $percent,
+            $paidPercent,
+            $sessionId,
+            $includeLegacy,
+            ['paid', 'partial', 'unpaid'],
         );
-        $hasPriorPaidSlice = $paidPercent >= 25 || $lines->contains(function (ProgrammeFee $fee) use ($paidProgrammeFeeIds, $legacyPaidFeeItemIds) {
-            $tranche = $fee->effective_installment_tranche;
-            if (! FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
-                || $tranche === null || (int) $tranche === 100) {
-                return false;
-            }
-
-            return $this->trancheLineAlreadyPaid($fee, $paidProgrammeFeeIds, $legacyPaidFeeItemIds);
-        });
-
-        $useFullPackage = $percent === 100 && $hasFullPackage && ! $hasPriorPaidSlice;
-        $wanted = FeeSchedule::remainingTranchesForInstallmentPercent($percent, $paidPercent, $useFullPackage);
-
-        $billable = $lines->filter(function (ProgrammeFee $line) use ($wanted, $paidProgrammeFeeIds, $legacyPaidFeeItemIds) {
-            if ($this->trancheLineAlreadyPaid($line, $paidProgrammeFeeIds, $legacyPaidFeeItemIds)) {
-                return false;
-            }
-
-            $tranche = $line->effective_installment_tranche;
-            $isTaggedSlice = FeeSchedule::allowsInstallmentTranche((string) ($line->feeItem?->category ?? ''))
-                && $tranche !== null;
-            if (! $isTaggedSlice) {
-                // Untagged schedule lines ride with the first installment or the full package.
-                return in_array(1, $wanted, true) || in_array(100, $wanted, true);
-            }
-
-            return in_array((int) $tranche, $wanted, true);
-        });
 
         if ($billable->isEmpty()) {
             throw new RuntimeException('No unpaid fee items remain for this installment. You may already have paid this share.');
@@ -673,6 +631,120 @@ class InvoiceService
         }
 
         return $invoice->fresh('items');
+    }
+
+    /**
+     * Remaining 100-level (or other prior level) school-fee amount after paid installments.
+     */
+    public function remainingTuitionAmount(Student $student, AcademicSession $session, string $levelCode): float
+    {
+        if ($levelCode === '' || ! $student->program_id) {
+            return 0.0;
+        }
+
+        $student->loadMissing('program');
+        $paidPercent = TuitionProgress::percentPaid($student, (int) $session->id, true, $levelCode);
+        if ($paidPercent >= 100) {
+            return 0.0;
+        }
+
+        $lines = ProgrammeFeeResolver::forProgram((int) $student->program_id, $levelCode);
+        if ($lines->isEmpty()) {
+            return 0.0;
+        }
+
+        $hasTranches = $lines->contains(fn (ProgrammeFee $fee) => FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
+            && $fee->effective_installment_tranche !== null);
+        if ($hasTranches) {
+            $billable = $this->billableTrancheLines(
+                $student,
+                $lines,
+                100,
+                $paidPercent,
+                (int) $session->id,
+                true,
+                ['paid', 'partial'],
+            );
+
+            return round((float) $billable->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
+        }
+
+        $fullAmount = ProgrammeFeeResolver::scheduleFullAmount($lines);
+
+        return round($fullAmount * ((100 - $paidPercent) / 100), 2);
+    }
+
+    /**
+     * @param  Collection<int, ProgrammeFee>  $lines
+     * @param  list<string>  $billedStatuses
+     * @return Collection<int, ProgrammeFee>
+     */
+    private function billableTrancheLines(
+        Student $student,
+        Collection $lines,
+        int $percent,
+        float $paidPercent,
+        ?int $sessionId,
+        bool $includeLegacy,
+        array $billedStatuses,
+    ): Collection {
+        $paidProgrammeFeeIds = InvoiceItem::query()
+            ->whereNotNull('programme_fee_id')
+            ->whereHas('invoice', function ($query) use ($student, $sessionId, $includeLegacy, $billedStatuses) {
+                $query->where('student_id', $student->id)
+                    ->where('category', 'tuition')
+                    ->whereIn('status', $billedStatuses);
+                $this->constrainInvoiceSession($query, $sessionId, $includeLegacy);
+            })
+            ->pluck('programme_fee_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->all();
+        $legacyPaidFeeItemIds = InvoiceItem::query()
+            ->whereNull('programme_fee_id')
+            ->whereNotNull('fee_item_id')
+            ->whereHas('invoice', function ($query) use ($student, $sessionId, $includeLegacy, $billedStatuses) {
+                $query->where('student_id', $student->id)
+                    ->where('category', 'tuition')
+                    ->whereIn('status', $billedStatuses);
+                $this->constrainInvoiceSession($query, $sessionId, $includeLegacy);
+            })
+            ->pluck('fee_item_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->all();
+
+        $hasFullPackage = $lines->contains(
+            fn (ProgrammeFee $fee) => FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
+                && (int) ($fee->effective_installment_tranche ?? 0) === 100
+        );
+        $hasPriorPaidSlice = $paidPercent >= 25 || $lines->contains(function (ProgrammeFee $fee) use ($paidProgrammeFeeIds, $legacyPaidFeeItemIds) {
+            $tranche = $fee->effective_installment_tranche;
+            if (! FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
+                || $tranche === null || (int) $tranche === 100) {
+                return false;
+            }
+
+            return $this->trancheLineAlreadyPaid($fee, $paidProgrammeFeeIds, $legacyPaidFeeItemIds);
+        });
+
+        $useFullPackage = $percent === 100 && $hasFullPackage && ! $hasPriorPaidSlice;
+        $wanted = FeeSchedule::remainingTranchesForInstallmentPercent($percent, $paidPercent, $useFullPackage);
+
+        return $lines->filter(function (ProgrammeFee $line) use ($wanted, $paidProgrammeFeeIds, $legacyPaidFeeItemIds) {
+            if ($this->trancheLineAlreadyPaid($line, $paidProgrammeFeeIds, $legacyPaidFeeItemIds)) {
+                return false;
+            }
+
+            $tranche = $line->effective_installment_tranche;
+            $isTaggedSlice = FeeSchedule::allowsInstallmentTranche((string) ($line->feeItem?->category ?? ''))
+                && $tranche !== null;
+            if (! $isTaggedSlice) {
+                return in_array(1, $wanted, true) || in_array(100, $wanted, true);
+            }
+
+            return in_array((int) $tranche, $wanted, true);
+        })->values();
     }
 
     /**
@@ -773,11 +845,20 @@ class InvoiceService
         return $level !== null && $level !== '' ? (string) $level : null;
     }
 
-    private function constrainInvoiceSession($query, ?int $sessionId): void
+    private function constrainInvoiceSession($query, ?int $sessionId, bool $includeLegacy = false): void
     {
-        if ($sessionId) {
-            $query->where('academic_session_id', $sessionId);
+        if (! $sessionId) {
+            return;
         }
+        if ($includeLegacy) {
+            $query->where(function ($builder) use ($sessionId) {
+                $builder->where('academic_session_id', $sessionId)
+                    ->orWhereNull('academic_session_id');
+            });
+
+            return;
+        }
+        $query->where('academic_session_id', $sessionId);
     }
 
     private function arrearsDescriptionSuffix(?AcademicSession $session, ?string $levelCode, Student $student): ?string

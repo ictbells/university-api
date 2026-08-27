@@ -15,14 +15,26 @@ class TuitionProgress
         return $id ? (int) $id : null;
     }
 
-    public static function percentPaid(Student $student, ?int $sessionId = null): float
+    public static function percentPaid(Student $student, ?int $sessionId = null, bool $includeLegacy = false, ?string $levelCode = null): float
     {
-        $sessionId ??= self::currentSessionId();
+        $sessionId ??= $includeLegacy ? null : self::currentSessionId();
         $query = $student->invoices()
             ->where('category', 'tuition')
             ->whereIn('status', ['paid', 'partial']);
         if ($sessionId) {
-            $query->where('academic_session_id', $sessionId);
+            $query->where(function ($builder) use ($sessionId, $includeLegacy) {
+                $builder->where('academic_session_id', $sessionId);
+                if ($includeLegacy) {
+                    $builder->orWhereNull('academic_session_id');
+                }
+            });
+        }
+        if ($includeLegacy && $levelCode) {
+            $query->where(function ($builder) use ($levelCode) {
+                $builder->whereNull('level_code')
+                    ->orWhere('level_code', 'all')
+                    ->orWhere('level_code', $levelCode);
+            });
         }
 
         $invoices = $query->get();

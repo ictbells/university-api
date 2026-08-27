@@ -64,4 +64,37 @@ class Invoice extends BaseModel
     {
         return in_array($this->status, ['unpaid', 'partial'], true);
     }
+
+    public function shareLabel(): ?string
+    {
+        if ($this->relationLoaded('items')) {
+            $order = ['1st 25%', '2nd 25%', '3rd 25%', '4th 25%', 'Full 100% (pay at once)'];
+            $found = [];
+            foreach ($this->items as $item) {
+                $text = (string) $item->description;
+                foreach ($order as $label) {
+                    $short = $label === 'Full 100% (pay at once)' ? 'Full 100%' : $label;
+                    if (str_contains($text, $short) || str_contains($text, $label)) {
+                        $found[$short] = $short;
+                    }
+                }
+            }
+            if ($found !== []) {
+                $labels = [];
+                foreach (['1st 25%', '2nd 25%', '3rd 25%', '4th 25%', 'Full 100%'] as $label) {
+                    if (isset($found[$label])) {
+                        $labels[] = $label;
+                    }
+                }
+
+                return implode(' + ', $labels);
+            }
+        }
+
+        if ($this->installment_percent) {
+            return ((int) $this->installment_percent).'% installment';
+        }
+
+        return null;
+    }
 }
