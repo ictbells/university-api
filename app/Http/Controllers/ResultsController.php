@@ -272,6 +272,7 @@ class ResultsController extends Controller
         $data = $request->validate([
             'course_offering_id' => 'required|integer|exists:course_offerings,id',
             'score_component' => 'nullable|in:ca,exam,total',
+            'sitting' => ['nullable', Rule::in(GradeStatus::sittings())],
             'csv' => 'required_without:file|string',
             'file' => 'required_without:csv|file',
         ]);
@@ -280,6 +281,7 @@ class ResultsController extends Controller
         $payload = [
             'course_offering_id' => (int) $data['course_offering_id'],
             'score_component' => $data['score_component'] ?? 'total',
+            'sitting' => $data['sitting'] ?? GradeStatus::SITTING_MAIN,
             'csv' => $csv,
         ];
 
@@ -293,6 +295,7 @@ class ResultsController extends Controller
                 (int) $payload['course_offering_id'],
                 $payload['score_component'],
                 $request->user(),
+                $payload['sitting'],
             ),
         );
     }

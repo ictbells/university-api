@@ -18,8 +18,6 @@ class ResultImportColumns
             'ca',
             'exam',
             'score',
-            'letter',
-            'sitting',
         ];
     }
 
@@ -42,16 +40,12 @@ class ResultImportColumns
                 'ca' => '28',
                 'exam' => '44',
                 'score' => '',
-                'letter' => '',
-                'sitting' => 'main',
             ],
             [
                 'matric' => 'BUT/2024/002',
                 'ca' => '',
                 'exam' => '',
                 'score' => '72',
-                'letter' => '',
-                'sitting' => 'main',
             ],
         ];
     }
@@ -69,8 +63,8 @@ class ResultImportColumns
             '3. matric is required (matric_number is also accepted). The student must already be registered on that offering.',
             '4. Use ca and exam together for continuous assessment and exam, or score (or total) for a single mark.',
             '5. When only score/total is provided, the page setting “Score column maps to” sends it to Total, CA, or Exam.',
-            '6. letter is optional. Leave it blank to let the grading scale assign the letter from the total.',
-            '7. sitting is optional: main or supplementary. Default is main.',
+            '6. Choose sitting (main or supplementary) on the import page. It applies to every row in the file.',
+            '7. Letter grades are assigned from the grading scale. Do not put them in the file.',
             '8. Do not rename the header row. Extra columns are ignored.',
             '',
             'Required columns: '.implode(', ', self::required()).'.',

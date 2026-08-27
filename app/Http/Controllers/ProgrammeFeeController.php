@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AcademicLevel;
 use App\Models\Department;
 use App\Models\Faculty;
 use App\Models\FeeItem;
@@ -137,6 +138,18 @@ class ProgrammeFeeController extends Controller
             'filters' => [
                 'faculties' => Faculty::query()->orderBy('name')->get(['id', 'name']),
                 'departments' => $departments,
+                'levels' => AcademicLevel::query()
+                    ->where('is_active', true)
+                    ->orderBy('study_level')
+                    ->orderBy('sort_order')
+                    ->get(['code', 'name', 'study_level'])
+                    ->map(fn (AcademicLevel $level) => [
+                        'value' => (string) ($level->code ?: $level->name),
+                        'label' => (string) ($level->name ?: $level->code),
+                        'study_level' => $level->study_level,
+                    ])
+                    ->filter(fn (array $row) => $row['value'] !== '')
+                    ->values(),
             ],
         ];
     }
@@ -221,6 +234,8 @@ class ProgrammeFeeController extends Controller
         $data = $request->validate([
             'program_id' => 'required|exists:programs,id',
             'level_code' => 'nullable|string|max:20',
+            'level_codes' => 'nullable|array',
+            'level_codes.*' => 'string|max:20',
             'semester' => ['nullable', Rule::in(FeeSchedule::SEMESTERS)],
             'items' => 'required|array|min:1',
             'items.*.fee_item_id' => 'required|integer|exists:fee_items,id',
@@ -232,32 +247,34 @@ class ProgrammeFeeController extends Controller
 
         return $this->officeGate('finance.bulk_programme_fees', null, $data, 'Bulk save programme fees', function () use ($request, $data) {
             $programId = (int) $data['program_id'];
-            $levelCode = $data['level_code'] ?: 'all';
+            $levelCodes = $this->bulkLevelCodes($data);
             $semester = $data['semester'] ?? 'both';
             $created = [];
 
-            DB::transaction(function () use ($data, $programId, $levelCode, $semester, &$created) {
-                foreach ($data['items'] as $index => $item) {
-                    $feeItem = FeeItem::query()->findOrFail($item['fee_item_id']);
-                    if (! FeeSchedule::isScheduleCategory((string) $feeItem->category)) {
-                        abort(422, "Fee “{$feeItem->name}” cannot be assigned to a programme schedule.");
-                    }
+            DB::transaction(function () use ($data, $programId, $levelCodes, $semester, &$created) {
+                foreach ($levelCodes as $levelCode) {
+                    foreach ($data['items'] as $index => $item) {
+                        $feeItem = FeeItem::query()->findOrFail($item['fee_item_id']);
+                        if (! FeeSchedule::isScheduleCategory((string) $feeItem->category)) {
+                            abort(422, "Fee “{$feeItem->name}” cannot be assigned to a programme schedule.");
+                        }
 
-                    $row = ProgrammeFee::query()->updateOrCreate(
-                        [
-                            'program_id' => $programId,
-                            'fee_item_id' => $feeItem->id,
-                            'level_code' => $levelCode,
-                            'semester' => $semester,
-                            'installment_tranche' => $item['installment_tranche'] ?? null,
-                        ],
-                        [
-                            'amount' => array_key_exists('amount', $item) ? $item['amount'] : null,
-                            'display_order' => $item['display_order'] ?? ($index + 1),
-                            'is_active' => array_key_exists('is_active', $item) ? (bool) $item['is_active'] : true,
-                        ]
-                    );
-                    $created[] = $row->id;
+                        $row = ProgrammeFee::query()->updateOrCreate(
+                            [
+                                'program_id' => $programId,
+                                'fee_item_id' => $feeItem->id,
+                                'level_code' => $levelCode,
+                                'semester' => $semester,
+                                'installment_tranche' => $item['installment_tranche'] ?? null,
+                            ],
+                            [
+                                'amount' => array_key_exists('amount', $item) ? $item['amount'] : null,
+                                'display_order' => $item['display_order'] ?? ($index + 1),
+                                'is_active' => array_key_exists('is_active', $item) ? (bool) $item['is_active'] : true,
+                            ]
+                        );
+                        $created[] = $row->id;
+                    }
                 }
             });
 
@@ -365,6 +382,41 @@ class ProgrammeFeeController extends Controller
                 ];
             },
         );
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return list<string>
+     */
+    private function bulkLevelCodes(array $data): array
+    {
+        $codes = [];
+        if (! empty($data['level_codes']) && is_array($data['level_codes'])) {
+            $codes = $data['level_codes'];
+        } elseif (! empty($data['level_code'])) {
+            $codes = [$data['level_code']];
+        }
+
+        $normalized = [];
+        foreach ($codes as $code) {
+            $trimmed = trim((string) $code);
+            $value = strcasecmp($trimmed, 'all') === 0 ? 'all' : $trimmed;
+            if ($value === '') {
+                continue;
+            }
+            $normalized[$value] = $value;
+        }
+
+        $values = array_values($normalized);
+        if ($values === []) {
+            return ['all'];
+        }
+
+        if (in_array('all', $values, true) && count($values) > 1) {
+            return array_values(array_filter($values, fn (string $code) => $code !== 'all'));
+        }
+
+        return $values;
     }
 
     /**

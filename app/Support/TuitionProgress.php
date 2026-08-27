@@ -2,17 +2,30 @@
 
 namespace App\Support;
 
+use App\Models\AcademicTerm;
 use App\Models\Invoice;
 use App\Models\Student;
 
 class TuitionProgress
 {
-    public static function percentPaid(Student $student): float
+    public static function currentSessionId(): ?int
     {
-        $invoices = $student->invoices()
+        $id = AcademicTerm::query()->where('is_current', true)->value('academic_session_id');
+
+        return $id ? (int) $id : null;
+    }
+
+    public static function percentPaid(Student $student, ?int $sessionId = null): float
+    {
+        $sessionId ??= self::currentSessionId();
+        $query = $student->invoices()
             ->where('category', 'tuition')
-            ->whereIn('status', ['paid', 'partial'])
-            ->get();
+            ->whereIn('status', ['paid', 'partial']);
+        if ($sessionId) {
+            $query->where('academic_session_id', $sessionId);
+        }
+
+        $invoices = $query->get();
 
         $best = 0.0;
         foreach ($invoices as $invoice) {
@@ -27,9 +40,9 @@ class TuitionProgress
      *
      * @return list<int>
      */
-    public static function availableInstallmentPercents(Student $student): array
+    public static function availableInstallmentPercents(Student $student, ?int $sessionId = null): array
     {
-        $paid = self::percentPaid($student);
+        $paid = self::percentPaid($student, $sessionId);
 
         return array_values(array_filter(
             FeeSchedule::INSTALLMENT_PERCENTS,
@@ -37,9 +50,9 @@ class TuitionProgress
         ));
     }
 
-    public static function meetsMinimum(Student $student, float $minimum = 25): bool
+    public static function meetsMinimum(Student $student, float $minimum = 25, ?int $sessionId = null): bool
     {
-        return self::percentPaid($student) >= $minimum;
+        return self::percentPaid($student, $sessionId) >= $minimum;
     }
 
     public static function invoicePercent(Invoice $invoice): float

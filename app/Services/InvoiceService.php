@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\AcademicSession;
+use App\Models\AcademicTerm;
 use App\Models\Application;
 use App\Models\FeeItem;
 use App\Models\Intake;
@@ -38,6 +40,8 @@ class InvoiceService
             'user_id' => $user->id,
             'student_id' => $studentId,
             'application_id' => $applicationId,
+            'academic_session_id' => $this->currentSessionId(),
+            'level_code' => $this->levelCodeForStudentId($studentId),
             'category' => $fee->category,
             'amount' => $amount,
             'full_amount' => $amount,
@@ -74,6 +78,8 @@ class InvoiceService
             'user_id' => $user->id,
             'student_id' => $studentId,
             'application_id' => $applicationId,
+            'academic_session_id' => $this->currentSessionId(),
+            'level_code' => $this->levelCodeForStudentId($studentId),
             'category' => $category,
             'amount' => $amount,
             'full_amount' => $amount,
@@ -440,8 +446,13 @@ class InvoiceService
         return null;
     }
 
-    public function createTuitionInvoice(Student $student, int $percent = 100, ?string $semester = null): Invoice
-    {
+    public function createTuitionInvoice(
+        Student $student,
+        int $percent = 100,
+        ?string $semester = null,
+        ?AcademicSession $forSession = null,
+        ?string $levelCode = null,
+    ): Invoice {
         if (! in_array($percent, FeeSchedule::INSTALLMENT_PERCENTS, true)) {
             throw new InvalidArgumentException('Tuition installment must be 25%, 50%, 75%, or 100%.');
         }
@@ -452,7 +463,8 @@ class InvoiceService
                 : 'Studentship is not current; tuition billing is closed.');
         }
 
-        $paidPercent = TuitionProgress::percentPaid($student);
+        $sessionId = $forSession?->id ?? $this->currentSessionId();
+        $paidPercent = TuitionProgress::percentPaid($student, $sessionId);
         if ($percent <= $paidPercent) {
             throw new RuntimeException($paidPercent >= 100
                 ? 'Tuition is already paid in full.'
@@ -460,7 +472,12 @@ class InvoiceService
         }
 
         $student->loadMissing(['user', 'program']);
-        $lines = ProgrammeFeeResolver::forStudent($student, $semester);
+        $resolvedLevel = $levelCode !== null && $levelCode !== ''
+            ? $levelCode
+            : ($student->current_level !== null ? (string) $student->current_level : null);
+        $lines = $student->program_id && $resolvedLevel
+            ? ProgrammeFeeResolver::forProgram((int) $student->program_id, $resolvedLevel, $semester)
+            : ProgrammeFeeResolver::forStudent($student, $semester);
         $fullAmount = ProgrammeFeeResolver::scheduleFullAmount($lines);
 
         if ($lines->isEmpty() || $fullAmount <= 0) {
@@ -470,7 +487,16 @@ class InvoiceService
         $hasTranches = $lines->contains(fn (ProgrammeFee $fee) => FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
             && $fee->effective_installment_tranche !== null);
         if ($hasTranches) {
-            return $this->createTuitionInvoiceFromTranches($student, $lines, $percent, $fullAmount, $paidPercent);
+            return $this->createTuitionInvoiceFromTranches(
+                $student,
+                $lines,
+                $percent,
+                $fullAmount,
+                $paidPercent,
+                $sessionId,
+                $resolvedLevel,
+                $forSession,
+            );
         }
 
         $deltaPercent = $percent - $paidPercent;
@@ -487,6 +513,8 @@ class InvoiceService
             'user_id' => $student->user_id,
             'student_id' => $student->id,
             'application_id' => $student->application_id,
+            'academic_session_id' => $sessionId,
+            'level_code' => $resolvedLevel,
             'category' => 'tuition',
             'installment_percent' => $percent,
             'amount' => $amount,
@@ -496,22 +524,24 @@ class InvoiceService
             'wallet_allowed' => true,
         ]);
 
+        $arrearsSuffix = $this->arrearsDescriptionSuffix($forSession, $resolvedLevel, $student);
         $scale = $deltaPercent / 100;
         foreach ($lines as $line) {
             $lineAmount = round($line->effective_amount * $scale, 2);
             if ($lineAmount <= 0) {
                 continue;
             }
+            $base = sprintf(
+                '%s%s',
+                $line->feeItem?->name ?: FeeSchedule::label((string) ($line->feeItem?->category ?? 'other')),
+                $percent < 100
+                    ? ($paidPercent > 0 ? " ({$deltaPercent}% remaining)" : " ({$percent}%)")
+                    : ''
+            );
             $invoice->items()->create([
                 'fee_item_id' => $line->fee_item_id,
                 'programme_fee_id' => $line->id,
-                'description' => sprintf(
-                    '%s%s',
-                    $line->feeItem?->name ?: FeeSchedule::label((string) ($line->feeItem?->category ?? 'other')),
-                    $percent < 100
-                        ? ($paidPercent > 0 ? " ({$deltaPercent}% remaining)" : " ({$percent}%)")
-                        : ''
-                ),
+                'description' => $arrearsSuffix ? "{$base} {$arrearsSuffix}" : $base,
                 'amount' => $lineAmount,
             ]);
         }
@@ -530,13 +560,17 @@ class InvoiceService
         int $percent,
         float $fullAmount,
         float $paidPercent = 0,
+        ?int $sessionId = null,
+        ?string $levelCode = null,
+        ?AcademicSession $forSession = null,
     ): Invoice {
         $paidProgrammeFeeIds = InvoiceItem::query()
             ->whereNotNull('programme_fee_id')
-            ->whereHas('invoice', function ($query) use ($student) {
+            ->whereHas('invoice', function ($query) use ($student, $sessionId) {
                 $query->where('student_id', $student->id)
                     ->where('category', 'tuition')
-                    ->where('status', 'paid');
+                    ->whereIn('status', ['paid', 'partial', 'unpaid']);
+                $this->constrainInvoiceSession($query, $sessionId);
             })
             ->pluck('programme_fee_id')
             ->map(fn ($id) => (int) $id)
@@ -545,10 +579,11 @@ class InvoiceService
         $legacyPaidFeeItemIds = InvoiceItem::query()
             ->whereNull('programme_fee_id')
             ->whereNotNull('fee_item_id')
-            ->whereHas('invoice', function ($query) use ($student) {
+            ->whereHas('invoice', function ($query) use ($student, $sessionId) {
                 $query->where('student_id', $student->id)
                     ->where('category', 'tuition')
-                    ->where('status', 'paid');
+                    ->whereIn('status', ['paid', 'partial', 'unpaid']);
+                $this->constrainInvoiceSession($query, $sessionId);
             })
             ->pluck('fee_item_id')
             ->map(fn ($id) => (int) $id)
@@ -603,6 +638,8 @@ class InvoiceService
             'user_id' => $student->user_id,
             'student_id' => $student->id,
             'application_id' => $student->application_id,
+            'academic_session_id' => $sessionId,
+            'level_code' => $levelCode,
             'category' => 'tuition',
             'installment_percent' => $percent,
             'amount' => $amount,
@@ -612,6 +649,7 @@ class InvoiceService
             'wallet_allowed' => true,
         ]);
 
+        $arrearsSuffix = $this->arrearsDescriptionSuffix($forSession, $levelCode, $student);
         foreach ($billable as $line) {
             $lineAmount = round((float) $line->effective_amount, 2);
             if ($lineAmount <= 0) {
@@ -627,7 +665,9 @@ class InvoiceService
             $invoice->items()->create([
                 'fee_item_id' => $line->fee_item_id,
                 'programme_fee_id' => $line->id,
-                'description' => $suffix ? "{$name} ({$suffix})" : $name,
+                'description' => $suffix
+                    ? ($arrearsSuffix ? "{$name} ({$suffix}) {$arrearsSuffix}" : "{$name} ({$suffix})")
+                    : ($arrearsSuffix ? "{$name} {$arrearsSuffix}" : $name),
                 'amount' => $lineAmount,
             ]);
         }
@@ -716,5 +756,48 @@ class InvoiceService
         }
 
         return $invoice->fresh();
+    }
+
+    private function currentSessionId(): ?int
+    {
+        return TuitionProgress::currentSessionId();
+    }
+
+    private function levelCodeForStudentId(?int $studentId): ?string
+    {
+        if (! $studentId) {
+            return null;
+        }
+        $level = Student::query()->whereKey($studentId)->value('current_level');
+
+        return $level !== null && $level !== '' ? (string) $level : null;
+    }
+
+    private function constrainInvoiceSession($query, ?int $sessionId): void
+    {
+        if ($sessionId) {
+            $query->where('academic_session_id', $sessionId);
+        }
+    }
+
+    private function arrearsDescriptionSuffix(?AcademicSession $session, ?string $levelCode, Student $student): ?string
+    {
+        $currentLevel = $student->current_level !== null ? (string) $student->current_level : null;
+        $isPriorLevel = $levelCode && $currentLevel && $levelCode !== 'all' && $levelCode !== $currentLevel;
+        $isClosedSession = $session?->closed_at !== null;
+        if (! $isPriorLevel && ! $isClosedSession) {
+            return null;
+        }
+
+        $parts = [];
+        if ($session?->label) {
+            $parts[] = $session->label;
+        }
+        if ($levelCode && $levelCode !== 'all') {
+            $parts[] = $levelCode.' level';
+        }
+        $parts[] = 'arrears';
+
+        return '('.implode(' · ', $parts).')';
     }
 }

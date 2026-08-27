@@ -281,6 +281,10 @@ class AuthController extends Controller
     public function updateProfile(Request $request): JsonResponse
     {
         $user = $request->user();
+        if ($request->filled('password') && ! $request->filled('email')) {
+            $request->merge(['email' => $user->email]);
+        }
+
         $data = $request->validate([
             'name' => 'sometimes|required|string|max:255',
             'phone' => 'nullable|string|max:30',
@@ -309,7 +313,15 @@ class AuthController extends Controller
             $user->staff->update(['title' => $data['staff_title']]);
         }
 
-        $this->audit->record('profile.updated', 'Profile updated', 'auth', 'user', $user->id, $before, $user->fresh()->toArray());
+        $this->audit->record(
+            empty($data['password']) ? 'profile.updated' : 'auth.password_changed',
+            empty($data['password']) ? 'Profile updated' : 'Password changed',
+            'auth',
+            'user',
+            $user->id,
+            $before,
+            $user->fresh()->toArray(),
+        );
 
         return $this->payload($user->fresh());
     }

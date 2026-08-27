@@ -4,28 +4,40 @@ namespace App\Http\Controllers;
 
 use App\Models\Invoice;
 use App\Models\Student;
+use App\Services\FeeArrearsService;
 use App\Services\PaystackService;
 use App\Services\WalletService;
 use Illuminate\Http\Request;
 
 class WalletController extends Controller
 {
-    public function __construct(private WalletService $wallets, private PaystackService $paystack) {}
+    public function __construct(
+        private WalletService $wallets,
+        private PaystackService $paystack,
+        private FeeArrearsService $arrears,
+    ) {}
 
     public function show(Request $request)
     {
         $student = $this->resolveStudent($request);
         abort_unless($student?->wallet, 404, 'Wallet is created after acceptance fee and student creation.');
 
+        $this->arrears->ensureForStudent($student);
+
         $wallet = $student->wallet;
         $wallet->load([
             'transactions' => fn ($q) => $q->latest('id')->limit(25),
         ]);
+        $prior = $this->arrears->priorUnpaid($student);
 
         return [
             'id' => $wallet->id,
             'balance' => $wallet->balance,
             'transactions' => $wallet->transactions,
+            'outstanding' => $this->arrears->outstandingAmount($student),
+            'open_invoice_count' => $this->arrears->openCount($student),
+            'prior_unpaid_count' => $prior->count(),
+            'prior_unpaid_amount' => round((float) $prior->sum('balance'), 2),
         ];
     }
 
@@ -44,6 +56,7 @@ class WalletController extends Controller
         abort_unless($student, 403);
 
         try {
+            $this->arrears->assertCanPay($student, $invoice);
             return $this->wallets->payInvoice($student, $invoice);
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);

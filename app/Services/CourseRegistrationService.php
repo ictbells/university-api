@@ -33,6 +33,7 @@ class CourseRegistrationService
 
     public function __construct(
         private InvoiceService $invoices,
+        private FeeArrearsService $arrears,
         private AuditWriter $audit,
         private Notifier $notifier,
         private WorkflowEngine $workflows,
@@ -1071,6 +1072,12 @@ class CourseRegistrationService
             $this->fail('studentship', $student->status === \App\Support\Studentship::STATUS_GRADUATED
                 ? 'Graduated students cannot register for a new session.'
                 : 'Studentship is not current; course registration is closed.');
+        }
+        $this->arrears->ensureForStudent($student);
+        try {
+            $this->arrears->assertPriorSettled($student);
+        } catch (\RuntimeException $e) {
+            $this->fail('tuition', $e->getMessage());
         }
         if (! TuitionProgress::meetsMinimum($student)) {
             $this->fail('tuition', 'Pay at least 25% of current-session tuition before registering courses.');

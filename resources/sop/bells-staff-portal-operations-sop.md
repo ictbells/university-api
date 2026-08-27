@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.28  
+**Version:** 1.30  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -43,7 +43,7 @@ This document covers:
 
 Staff and students use **separate portals**. An account is routed to the correct portal at sign-in based on assigned roles and staff records.
 
-Applicants and students sign in on the **student portal** with **application number** (`APP/YYYY/#####`), **JAMB registration number**, or **matric number** and password. Email is used for mail and password reset (the forgot-password form asks for the email on the record).
+Applicants and students sign in on the **student portal** with **application number** (`APP/YYYY/#####`), **JAMB registration number**, or **matric number** and password. Email is used for mail and password reset (the forgot-password form asks for the email on the record). Signed-in users change password from the initials menu (current password required).
 
 ---
 
@@ -395,7 +395,7 @@ At the end of an academic year, close the session to promote students and lock t
 1. Open **Academic → Admission Setup → Academic Sessions**.
 2. Confirm programme **duration** values are correct (they define final year: 4-year UG → 400L, 2-year PG → level 2).
 3. Click **Close session** on the target session. Review the preview counts (promoted, final-year unchanged, inactive skipped).
-4. Confirm **Close session and promote**. All **active** students with a programme move up one level (100→200 for UG, +1 for PG) until the programme final year. Students already at final year stay **active** with no level change (graduation is separate).
+4. Confirm **Close session and promote**. Remaining unpaid school-fee slices for the level just completed are invoiced as arrears (for example 3rd and 4th 25% after 50% was paid). All **active** students with a programme then move up one level (100→200 for UG, +1 for PG) until the programme final year. Students already at final year stay **active** with no level change (graduation is separate). Students must pay those previous-session invoices before generating or paying current-session tuition, and before course registration.
 5. Optional: enable **Auto-close on end date** when creating or editing a session so the nightly calendar job (`academic:sync-calendar`) closes the session after `ends_on` and runs the same promotion.
 
 Closed sessions cannot be deleted. Re-opening a closed session is not supported.
@@ -567,7 +567,7 @@ E-exam sync is not included in this release.
 
 ### 8.7 Services
 
-- **Fees & payments** — **Payment dashboard** (university financial statement: fee collections, invoices issued, outstanding receivables, wallet liability; download PDF/Excel/Word), **Fee categories** (charge types, including programme-schedule vs operational) and **Fee items** (priced lines: **application and acceptance fees per entry mode**, **official transcript fees per programme and transcript type**, **Clinic services** visit charges, and **school-fee installment shares**: any programme-schedule catalog line — tuition, ICT, laboratory, infrastructure, and the rest — can be tagged 1st/2nd/3rd/4th 25% or optional Full 100% pay-at-once; application, acceptance, and transcript fees stay online-only and cannot use shares), rebates, **Programme fees** (assign catalog lines to programmes with a naira override per line; copy a schedule to other programmes in the same college), invoice generation (enter matric number; the fee list is catalog **fee items**, not programme-fee assignments), invoices, student financial status, **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices filter by session and level; Programme fees filter by level. When schedule lines are tagged with installment shares, student school-fee invoices bill those fixed amounts (already-paid fee items are skipped; 50% bills unpaid 1st + 2nd slices). Untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices. Hostel **Accommodation** on a school-fee sheet is a schedule catalog item, not a hostel-bed charge.
+- **Fees & payments** — **Payment dashboard** (university financial statement: fee collections, invoices issued, outstanding receivables, wallet liability; download PDF/Excel/Word), **Fee categories** (charge types, including programme-schedule vs operational) and **Fee items** (priced lines: **application and acceptance fees per entry mode**, **official transcript fees per programme and transcript type**, **Clinic services** visit charges, and **school-fee installment shares**: any programme-schedule catalog line — tuition, ICT, laboratory, infrastructure, and the rest — can be tagged 1st/2nd/3rd/4th 25% or optional Full 100% pay-at-once; application, acceptance, and transcript fees stay online-only and cannot use shares), rebates, **Programme fees** (assign catalog lines to programmes with a naira override per line; select several levels at once when the amount is the same; copy a schedule to other programmes in the same college), invoice generation (enter matric number; the fee list is catalog **fee items**, not programme-fee assignments), invoices, student financial status, **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices filter by session and level; Programme fees filter by level. When schedule lines are tagged with installment shares, student school-fee invoices bill those fixed amounts (already-paid fee items are skipped; 50% bills unpaid 1st + 2nd slices). Untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices. Hostel **Accommodation** on a school-fee sheet is a schedule catalog item, not a hostel-bed charge.
 
 #### Programme fees (25% matrix)
 
@@ -575,7 +575,7 @@ The bursary sheet is four stacks of named lines with fixed naira amounts, groupe
 
 1. **Fee categories** — mark school charges as programme-schedule (tuition, infrastructure, accommodation, BUSA, ICT, laboratory, and any other sheet heading). Reuse an existing category when the name already matches.
 2. **Fee items** — one catalog line per sheet row, with the matching installment share. Default amount can be the most common cell or 0.
-3. **Programme fees** — for each spreadsheet column, pick one programme in that group, assign every non-dash cell with its naira override, then **Copy schedule** to the other programmes in the same college (use Select all in this department when the group is one department). Dashes stay unassigned. Blank or 0 amounts are skipped on invoices.
+3. **Programme fees** — for each spreadsheet column, pick one programme in that group, assign every non-dash cell with its naira override, then **Copy schedule** to the other programmes in the same college (use Select all in this department when the group is one department). When 200–500 pay the same amount, select those levels together instead of repeating the assignment. **All levels** is one shared line. Dashes stay unassigned. Blank or 0 amounts are skipped on invoices.
 4. Skip **Full 100% (pay at once)** unless bursary wants a discounted lump sum. The sheet grand total is 1st + 2nd + 3rd + 4th 25%. Students who choose 50% or 75% still receive the next unpaid slices, not a pro-rata of that grand total.
 
 #### Import invoices and wallet history
@@ -747,6 +747,8 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.24 | Aug 2026 | Platform team | Acceptance fees are set in the fee catalog by entry mode, matching application fees |
 | 1.25 | Aug 2026 | Platform team | Hostel level toggles save immediately; student bed requests require ≥25% current-session tuition; Undergraduate and JUPEB windows stay separate |
 | 1.26 | Aug 2026 | Platform team | Offerings can publish mapped programme courses for a semester (section A, unlimited; skips courses already offered) |
+| 1.29 | Aug 2026 | Platform team | Programme fees can assign the same catalog lines to several levels at once (for example 200–500) |
+| 1.30 | Aug 2026 | Platform team | Session close invoices remaining school-fee shares; students pay previous-session arrears before current-session fees |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

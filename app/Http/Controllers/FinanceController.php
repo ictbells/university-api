@@ -19,6 +19,7 @@ use App\Models\Student;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use App\Services\AuditWriter;
+use App\Services\FeeArrearsService;
 use App\Services\InvoiceExportService;
 use App\Services\InvoiceService;
 use App\Services\StudentFinanceExportService;
@@ -49,6 +50,7 @@ class FinanceController extends Controller
         private InvoiceExportService $invoiceExports,
         private StudentFinanceExportService $studentFinanceExports,
         private UniversityFinanceStatementService $universityStatement,
+        private FeeArrearsService $arrears,
         private AuditWriter $audit,
     ) {}
 
@@ -342,6 +344,9 @@ class FinanceController extends Controller
         if ($application = $request->user()?->latestApplication) {
             $this->invoices->ensureAcceptanceInvoiceIfOffered($application);
         }
+        if ($student = $request->user()?->student) {
+            $this->arrears->ensureForStudent($student);
+        }
 
         $perPage = min(50, max(10, (int) $request->input('per_page', 25)));
 
@@ -435,11 +440,16 @@ class FinanceController extends Controller
 
     public function history(Request $request)
     {
+        if ($student = $request->user()?->student) {
+            $this->arrears->ensureForStudent($student);
+        }
+
         $userId = $request->user()->id;
 
         $invoices = Invoice::query()
             ->with([
                 'items',
+                'academicSession:id,label',
                 'payments' => fn ($q) => $q->where('status', 'successful')->latest(),
                 'rebates.rebateType',
             ])
@@ -1352,6 +1362,9 @@ class FinanceController extends Controller
             ];
         }
 
+        $this->arrears->ensureForStudent($student);
+        $prior = $this->arrears->priorUnpaid($student);
+
         $lines = ProgrammeFeeResolver::forStudent($student);
         $total = round((float) $lines->sum(fn ($line) => $line->effective_amount), 2);
 
@@ -1361,7 +1374,11 @@ class FinanceController extends Controller
             'line_count' => $lines->count(),
             'program' => $student->program?->only(['id', 'name', 'code']),
             'tuition_percent_paid' => TuitionProgress::percentPaid($student),
-            'available_installment_percents' => TuitionProgress::availableInstallmentPercents($student),
+            'available_installment_percents' => $prior->isNotEmpty()
+                ? []
+                : TuitionProgress::availableInstallmentPercents($student),
+            'prior_unpaid_count' => $prior->count(),
+            'prior_unpaid_amount' => round((float) $prior->sum('balance'), 2),
         ];
     }
 
@@ -1370,10 +1387,17 @@ class FinanceController extends Controller
         $user = $request->user();
         $student = $user->student;
         abort_unless($student, 422, 'Only matriculated students can generate tuition invoices.');
+        $this->arrears->ensureForStudent($student);
 
         $data = $request->validate([
             'installment_percent' => ['required', 'integer', Rule::in(FeeSchedule::INSTALLMENT_PERCENTS)],
         ]);
+
+        try {
+            $this->arrears->assertPriorSettled($student);
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         $hasOpen = Invoice::query()
             ->where('student_id', $student->id)
@@ -1448,6 +1472,7 @@ class FinanceController extends Controller
                 'user.latestApplication',
                 'student:id,user_id,first_name,last_name,matric_number,student_number,program_id',
                 'application:id,user_id,application_number,jamb_registration',
+                'academicSession:id,label',
                 'rebates.rebateType',
             ])
             ->latest();

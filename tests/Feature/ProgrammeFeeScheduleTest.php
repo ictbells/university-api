@@ -59,6 +59,29 @@ class ProgrammeFeeScheduleTest extends TestCase
             ->assertJsonCount(2, 'data');
     }
 
+    public function test_bulk_assign_applies_same_items_to_multiple_levels(): void
+    {
+        [$staff, $program, $tuition] = $this->seedSchedule(assign: false);
+        Sanctum::actingAs($staff);
+
+        $this->postJson('/api/programme-fees/bulk', [
+            'program_id' => $program->id,
+            'level_codes' => ['200', '300', '400', '500'],
+            'semester' => 'both',
+            'items' => [
+                ['fee_item_id' => $tuition->id, 'amount' => 50000],
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonCount(4, 'data');
+
+        $this->assertEqualsCanonicalizing(
+            ['200', '300', '400', '500'],
+            $program->programmeFees()->pluck('level_code')->all(),
+        );
+        $this->assertTrue($program->programmeFees()->pluck('amount')->every(fn ($amount) => (float) $amount === 50000.0));
+    }
+
     public function test_bulk_assign_waits_when_create_is_required_on_finance(): void
     {
         [$staff, $program, $tuition] = $this->seedSchedule(assign: false, gateCreate: true);

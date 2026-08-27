@@ -128,9 +128,9 @@ class GradeEntryService
     /**
      * @return array{created: int, updated: int, errors: list<string>}
      */
-    public function importUpload(UploadedFile $file, int $courseOfferingId, string $scoreComponent, User $actor): array
+    public function importUpload(UploadedFile $file, int $courseOfferingId, string $scoreComponent, User $actor, string $sitting = GradeStatus::SITTING_MAIN): array
     {
-        return $this->importCsv($this->fileToCsv($file), $courseOfferingId, $scoreComponent, $actor);
+        return $this->importCsv($this->fileToCsv($file), $courseOfferingId, $scoreComponent, $actor, $sitting);
     }
 
     public function fileToCsv(UploadedFile $file): string
@@ -146,7 +146,7 @@ class GradeEntryService
     /**
      * @return array{created: int, updated: int, errors: list<string>}
      */
-    public function importCsv(string $csv, int $courseOfferingId, string $scoreComponent, User $actor): array
+    public function importCsv(string $csv, int $courseOfferingId, string $scoreComponent, User $actor, string $sitting = GradeStatus::SITTING_MAIN): array
     {
         $lines = preg_split('/\r\n|\r|\n/', trim($csv)) ?: [];
         if ($lines === []) {
@@ -197,7 +197,7 @@ class GradeEntryService
 
             $data = [
                 'enrollment_id' => $enrollment->id,
-                'sitting' => $row['sitting'] ?? GradeStatus::SITTING_MAIN,
+                'sitting' => $sitting,
                 'source' => 'import',
             ];
 
@@ -215,10 +215,6 @@ class GradeEntryService
                     'exam' => $data['exam_score'] = $score,
                     default => $data['score'] = $score,
                 };
-            }
-
-            if (isset($row['letter']) && $row['letter'] !== '') {
-                $data['letter'] = $row['letter'];
             }
 
             try {

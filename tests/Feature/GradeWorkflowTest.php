@@ -20,6 +20,7 @@ use App\Models\Student;
 use App\Models\User;
 use App\Support\GradeStatus;
 use App\Support\PermissionCatalog;
+use App\Support\ResultImportColumns;
 use Database\Seeders\GradingScaleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -231,6 +232,27 @@ class GradeWorkflowTest extends TestCase
         $this->get('/api/academic/results/import-template')
             ->assertOk()
             ->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+        $this->assertSame(['matric', 'ca', 'exam', 'score'], ResultImportColumns::all());
+    }
+
+    public function test_import_applies_sitting_from_the_request(): void
+    {
+        Sanctum::actingAs($this->staffUser);
+
+        $this->postJson('/api/academic/results/import', [
+            'course_offering_id' => $this->enrollment->course_offering_id,
+            'score_component' => 'total',
+            'sitting' => 'supplementary',
+            'csv' => "matric,ca,exam,score\nBU/2020/001,28,44,",
+        ])
+            ->assertOk()
+            ->assertJsonPath('created', 1);
+
+        $this->assertDatabaseHas('grades', [
+            'enrollment_id' => $this->enrollment->id,
+            'sitting' => 'supplementary',
+        ]);
     }
 
     public function test_cannot_edit_after_submit(): void

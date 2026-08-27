@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Invoice;
 use App\Models\Payment;
+use App\Services\FeeArrearsService;
 use App\Services\PaystackService;
 use Illuminate\Http\Request;
 
@@ -11,6 +12,7 @@ class PaymentController extends Controller
 {
     public function __construct(
         private PaystackService $paystack,
+        private FeeArrearsService $arrears,
     ) {}
 
     public function index(Request $request)
@@ -54,6 +56,15 @@ class PaymentController extends Controller
             403,
             'Staff cannot pay invoices. Students pay from the student portal.'
         );
+        $student = $request->user()->student;
+        if ($student) {
+            $this->arrears->ensureForStudent($student);
+            try {
+                $this->arrears->assertCanPay($student, $invoice);
+            } catch (\RuntimeException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+        }
         $callbackUrl = ($data['portal'] ?? null) === 'student'
             ? rtrim((string) config('app.student_url'), '/').'/payments/callback'
             : null;

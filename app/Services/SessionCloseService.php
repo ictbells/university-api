@@ -18,7 +18,7 @@ class SessionCloseService
 
     private const SAMPLE_LIMIT = 5;
 
-    public function __construct(private AuditWriter $audit, private CourseRegistrationService $registration) {}
+    public function __construct(private AuditWriter $audit, private CourseRegistrationService $registration, private FeeArrearsService $arrears) {}
 
     /**
      * @return array{
@@ -185,6 +185,7 @@ class SessionCloseService
                     }
 
                     if ($write) {
+                        $this->arrears->invoiceRemaining($student, $session, (string) $fromLevel);
                         $student->update(['current_level' => $toLevel]);
                         $progressionRows[] = [
                             'student_id' => $student->id,
