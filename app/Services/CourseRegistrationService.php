@@ -58,12 +58,16 @@ class CourseRegistrationService
                 'enrollments' => [],
                 'available' => [],
                 'carry_overs' => [],
+                'print_terms' => $this->printableTerms($student),
             ];
         }
 
         if ($ensureCarryOvers) {
             $this->ensureCarryOvers($student, $term);
         }
+
+        $carryOverCourseIds = $this->carryOverCourseIds($student, $term);
+        $this->reconcileCarryOverFlags($student, $term, $carryOverCourseIds);
 
         $extension = $this->activeExtension($student, $term);
         $limits = $this->resolvedLimits($student, $term);
@@ -103,19 +107,25 @@ class CourseRegistrationService
             'roster_status' => $this->rosterStatus($units, $limits),
             'extension' => $extension ? $this->serializeExtension($extension) : null,
             'enrollments' => $enrolled->map(fn (Enrollment $row) => $this->serializeEnrollment($row))->values(),
-            'available' => $this->availableOfferings($student, $term),
+            'available' => $this->availableOfferings($student, $term, $carryOverCourseIds),
             'carry_overs' => $enrolled->where('is_carry_over', true)
                 ->map(fn (Enrollment $row) => $this->serializeEnrollment($row))
                 ->values(),
+            'print_terms' => $this->printableTerms($student),
         ];
     }
 
-    public function printHtml(Student $student): string
+    public function printHtml(Student $student, ?AcademicTerm $term = null): string
     {
-        $context = $this->context($student, ensureCarryOvers: false);
-        if (! $context['term']) {
+        $term ??= $this->currentTerm();
+        if (! $term) {
             $this->fail('term', 'No academic semester is current.');
         }
+        if (! $this->studentHasEnrollmentInTerm($student, $term)) {
+            $this->fail('academic_term_id', 'No courses are registered for that semester.');
+        }
+
+        $context = $this->context($student, $term, ensureCarryOvers: false);
 
         $student->loadMissing(['program.department.faculty', 'user']);
         $campus = Campus::query()->where('is_active', true)->orderBy('id')->first()
@@ -169,10 +179,14 @@ class CourseRegistrationService
         ])->render();
     }
 
-    public function availableOfferings(Student $student, AcademicTerm $term): Collection
+    /**
+     * @param  list<int>|null  $carryOverCourseIds
+     */
+    public function availableOfferings(Student $student, AcademicTerm $term, ?array $carryOverCourseIds = null): Collection
     {
         $enrolledIds = $this->enrolledRows($student, $term)->pluck('course_offering_id');
         $level = $this->studentLevel($student);
+        $carryOverLookup = array_flip($carryOverCourseIds ?? $this->carryOverCourseIds($student, $term));
 
         return CourseOffering::query()
             ->with(['course.department.faculty', 'course.programs', 'lecturer.user'])
@@ -181,8 +195,10 @@ class CourseRegistrationService
             ->whereNotIn('id', $enrolledIds)
             ->get()
             ->filter(fn (CourseOffering $offering) => $this->isVisibleToStudent($student, $offering, $level))
-            ->map(function (CourseOffering $offering) {
+            ->map(function (CourseOffering $offering) use ($carryOverLookup) {
                 $taken = (int) ($offering->enrolled_count ?? $offering->enrolledCount());
+                $courseId = (int) ($offering->course_id ?? $offering->course?->id ?? 0);
+                $isCarryOver = $courseId > 0 && isset($carryOverLookup[$courseId]);
 
                 return [
                     'id' => $offering->id,
@@ -192,7 +208,8 @@ class CourseRegistrationService
                     'seats_left' => $offering->seatsLeft($taken),
                     'unlimited' => $offering->hasUnlimitedCapacity(),
                     'bucket' => $offering->course?->course_type ?: 'departmental',
-                    'required' => ($offering->course?->status ?: 'core') === 'required',
+                    'required' => $isCarryOver || ($offering->course?->status ?: 'core') === 'required',
+                    'is_carry_over' => $isCarryOver,
                     'course' => $this->serializeCourse($offering->course),
                     'lecturer' => $offering->lecturer_display_name,
                 ];
@@ -298,7 +315,9 @@ class CourseRegistrationService
             $extension,
         );
 
-        $enrollment = DB::transaction(function () use ($existing, $student, $offering, $actor) {
+        $isCarryOver = in_array((int) $offering->course_id, $this->carryOverCourseIds($student, $term), true);
+
+        $enrollment = DB::transaction(function () use ($existing, $student, $offering, $actor, $isCarryOver) {
             if ($existing) {
                 $existing->update([
                     'status' => 'enrolled',
@@ -306,6 +325,7 @@ class CourseRegistrationService
                     'dropped_at' => null,
                     'drop_reason' => null,
                     'registered_by' => $actor->id,
+                    'is_carry_over' => $isCarryOver || (bool) $existing->is_carry_over,
                 ]);
 
                 return $existing->fresh(['offering.course', 'grade']);
@@ -317,7 +337,7 @@ class CourseRegistrationService
                 'status' => 'enrolled',
                 'registered_at' => now(),
                 'registered_by' => $actor->id,
-                'is_carry_over' => false,
+                'is_carry_over' => $isCarryOver,
             ])->load(['offering.course', 'grade']);
         });
 
@@ -683,7 +703,7 @@ class CourseRegistrationService
 
     public function ensureCarryOvers(Student $student, AcademicTerm $term): void
     {
-        $courseIds = $this->failedCourseIds($student);
+        $courseIds = $this->carryOverCourseIds($student, $term);
         if ($courseIds === []) {
             return;
         }
@@ -789,6 +809,49 @@ class CourseRegistrationService
         }
 
         return $picked;
+    }
+
+    /** @return \Illuminate\Support\Collection<int, array{id: int, name: string, session_label: string, academic_session_id: int|null, is_current: bool}> */
+    public function printableTerms(Student $student): Collection
+    {
+        $termIds = Enrollment::query()
+            ->where('student_id', $student->id)
+            ->enrolled()
+            ->whereHas('offering')
+            ->with('offering')
+            ->get()
+            ->pluck('offering.academic_term_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($termIds->isEmpty()) {
+            return collect();
+        }
+
+        return AcademicTerm::query()
+            ->with('session')
+            ->whereIn('id', $termIds)
+            ->orderByDesc('academic_session_id')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (AcademicTerm $term) => [
+                'id' => $term->id,
+                'name' => $term->name,
+                'session_label' => $term->session?->label ?: ($term->session_label ?: ''),
+                'academic_session_id' => $term->academic_session_id ? (int) $term->academic_session_id : null,
+                'is_current' => (bool) $term->is_current,
+            ])
+            ->values();
+    }
+
+    private function studentHasEnrollmentInTerm(Student $student, AcademicTerm $term): bool
+    {
+        return Enrollment::query()
+            ->where('student_id', $student->id)
+            ->enrolled()
+            ->whereHas('offering', fn ($query) => $query->where('academic_term_id', $term->id))
+            ->exists();
     }
 
     private function enrolledRows(Student $student, AcademicTerm $term): Collection
@@ -982,10 +1045,12 @@ class CourseRegistrationService
     }
 
     /** @return list<int> */
-    private function failedCourseIds(Student $student): array
+    private function carryOverCourseIds(Student $student, AcademicTerm $currentTerm): array
     {
+        $currentSessionId = (int) ($currentTerm->academic_session_id ?: 0);
+
         $rows = Enrollment::query()
-            ->with(['offering.course', 'grades'])
+            ->with(['offering.course', 'offering.term.session', 'grades'])
             ->where('student_id', $student->id)
             ->whereHas('grades')
             ->get();
@@ -1004,15 +1069,37 @@ class CourseRegistrationService
             if (! $grade) {
                 continue;
             }
-            $isFail = strtoupper((string) $grade->letter) === 'F' || (float) $grade->points === 0.0;
-            if ($isFail) {
-                $failed[$courseId] = true;
-            } else {
+            $isFail = strtoupper(trim((string) $grade->letter)) === 'F';
+            if (! $isFail) {
                 $passed[$courseId] = true;
+
+                continue;
             }
+
+            $session = $row->offering?->term?->session;
+            if (! $session || (int) $session->id === $currentSessionId || ! $session->isClosed()) {
+                continue;
+            }
+            $failed[$courseId] = true;
         }
 
         return array_values(array_diff(array_keys($failed), array_keys($passed)));
+    }
+
+    /**
+     * @param  list<int>  $carryOverCourseIds
+     */
+    private function reconcileCarryOverFlags(Student $student, AcademicTerm $term, array $carryOverCourseIds): void
+    {
+        $lookup = array_flip($carryOverCourseIds);
+        foreach ($this->enrolledRows($student, $term) as $row) {
+            $courseId = (int) ($row->offering?->course_id ?? 0);
+            $shouldBeCarryOver = $courseId > 0 && isset($lookup[$courseId]);
+            if ((bool) $row->is_carry_over === $shouldBeCarryOver) {
+                continue;
+            }
+            $row->update(['is_carry_over' => $shouldBeCarryOver]);
+        }
     }
 
     /**

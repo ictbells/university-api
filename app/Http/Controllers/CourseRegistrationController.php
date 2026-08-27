@@ -111,7 +111,14 @@ class CourseRegistrationController extends Controller
     public function myPrint(Request $request): Response
     {
         $this->denyStaff($request);
-        $html = $this->registration->printHtml($this->student($request));
+        $data = $request->validate([
+            'academic_term_id' => 'nullable|integer|exists:academic_terms,id',
+        ]);
+        $student = $this->student($request);
+        $term = ! empty($data['academic_term_id'])
+            ? AcademicTerm::query()->with('session')->findOrFail($data['academic_term_id'])
+            : null;
+        $html = $this->registration->printHtml($student, $term);
         $filename = 'course-registration.html';
         $headers = ['Content-Type' => 'text/html; charset=UTF-8'];
         if ($request->boolean('download')) {
