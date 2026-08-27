@@ -28,9 +28,12 @@ class GenerateInvoiceTest extends TestCase
         [$student, $hostel, $programmeFee] = $this->studentWithHostelAndProgrammeFee();
         Sanctum::actingAs($staff);
 
-        $catalog = $this->getJson('/api/fees?active=1')->assertOk()->json();
+        $catalog = $this->getJson('/api/fees?active=1&operational=1')->assertOk()->json();
         $this->assertTrue(collect($catalog)->contains(
             fn ($row) => (int) ($row['id'] ?? 0) === $hostel->id && ($row['name'] ?? '') === 'Hostel fee',
+        ));
+        $this->assertFalse(collect($catalog)->contains(
+            fn ($row) => ($row['category'] ?? '') === 'tuition' || ($row['name'] ?? '') === 'School fees',
         ));
         $this->assertTrue(collect($catalog)->every(
             fn ($row) => ! array_key_exists('fee_item_id', $row) || $row['fee_item_id'] === null,
@@ -57,6 +60,20 @@ class GenerateInvoiceTest extends TestCase
                 ->exists()
         );
         $this->assertSame(1, Invoice::query()->where('student_id', $student->id)->count());
+    }
+
+    public function test_programme_schedule_fee_items_cannot_be_invoiced_here(): void
+    {
+        $staff = $this->financeStaff();
+        [$student, , $programmeFee] = $this->studentWithHostelAndProgrammeFee();
+        Sanctum::actingAs($staff);
+
+        $this->postJson('/api/invoices', [
+            'matric' => $student->matric_number,
+            'fee_item_ids' => [$programmeFee->fee_item_id],
+        ])
+            ->assertStatus(422)
+            ->assertJsonFragment(['message' => 'Programme-schedule fees cannot be invoiced here. Choose operational fee items, or use the student portal for school fees.']);
     }
 
     public function test_unknown_matric_is_rejected(): void

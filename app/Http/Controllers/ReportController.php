@@ -7,13 +7,13 @@ use App\Models\Enrollment;
 use App\Models\HostelBed;
 use App\Models\Invoice;
 use App\Models\MedicalBill;
-use App\Models\Payment;
 use App\Models\SavedReport;
 use App\Models\Student;
 use App\Models\Wallet;
 use App\Services\AuditWriter;
 use App\Services\ReportExportService;
 use App\Services\ReportQueryService;
+use App\Support\InvoiceSettlement;
 use App\Support\Reports\ReportDatasetCatalog;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
@@ -37,7 +37,7 @@ class ReportController extends Controller
             'students' => Student::query()->count(),
             'enrollments' => Enrollment::query()->count(),
             'invoices_outstanding' => Invoice::query()->whereIn('status', ['unpaid', 'partial'])->sum('balance'),
-            'payments_collected' => Payment::query()->where('status', 'successful')->sum('amount'),
+            'payments_collected' => InvoiceSettlement::collectedRevenue(),
             'wallet_total' => Wallet::query()->sum('balance'),
             'hostel_occupancy' => [
                 'total_beds' => HostelBed::query()->count(),

@@ -22,6 +22,7 @@ use App\Services\AuditWriter;
 use App\Services\InvoiceExportService;
 use App\Services\InvoiceService;
 use App\Services\StudentFinanceExportService;
+use App\Services\UniversityFinanceStatementService;
 use App\Support\AdmissionEntryRules;
 use App\Support\FeeSchedule;
 use App\Support\TranscriptType;
@@ -47,6 +48,7 @@ class FinanceController extends Controller
         private InvoiceService $invoices,
         private InvoiceExportService $invoiceExports,
         private StudentFinanceExportService $studentFinanceExports,
+        private UniversityFinanceStatementService $universityStatement,
         private AuditWriter $audit,
     ) {}
 
@@ -58,6 +60,9 @@ class FinanceController extends Controller
         }
         if ($request->filled('category')) {
             $query->where('category', (string) $request->input('category'));
+        }
+        if ($request->boolean('operational')) {
+            $query->whereIn('category', FeeSchedule::staffDirectInvoiceCategories());
         }
 
         return $query->with('program:id,name,code,study_level')->get();
@@ -649,6 +654,11 @@ class FinanceController extends Controller
             if ($fees->count() !== count($feeIds)) {
                 return response()->json(['message' => 'Select active wallet fee catalog items only.'], 422);
             }
+            if ($fees->contains(fn (FeeItem $fee) => FeeSchedule::isScheduleCategory((string) $fee->category))) {
+                return response()->json([
+                    'message' => 'Programme-schedule fees cannot be invoiced here. Choose operational fee items, or use the student portal for school fees.',
+                ], 422);
+            }
             $ordered = [];
             foreach ($feeIds as $id) {
                 $ordered[] = $fees->get($id);
@@ -906,6 +916,47 @@ class FinanceController extends Controller
         abort_unless($student, 422, 'No student was found with that matric number.');
 
         return $student;
+    }
+
+    public function dashboard(Request $request)
+    {
+        abort_unless($request->user()->hasPermission('finance.invoices.manage'), 403);
+
+        [$from, $to] = $this->dashboardPeriod($request);
+
+        return $this->universityStatement->summarize($from, $to);
+    }
+
+    public function exportDashboard(Request $request)
+    {
+        abort_unless($request->user()->hasPermission('finance.invoices.manage'), 403);
+
+        $data = $request->validate([
+            'format' => 'required|in:pdf,excel,word',
+            'from' => 'nullable|date',
+            'to' => 'nullable|date',
+        ]);
+        [$from, $to] = $this->dashboardPeriod($request);
+        $statement = $this->universityStatement->summarize($from, $to);
+        $statement['filter_summary'] = $this->universityStatement->filterSummary($from, $to);
+
+        return $this->universityStatement->export($data['format'], $statement);
+    }
+
+    /**
+     * @return array{0: \Carbon\CarbonInterface|null, 1: \Carbon\CarbonInterface|null}
+     */
+    private function dashboardPeriod(Request $request): array
+    {
+        $data = $request->validate([
+            'from' => 'nullable|date',
+            'to' => 'nullable|date|after_or_equal:from',
+        ]);
+
+        return [
+            isset($data['from']) ? \Carbon\Carbon::parse($data['from'])->startOfDay() : null,
+            isset($data['to']) ? \Carbon\Carbon::parse($data['to'])->endOfDay() : null,
+        ];
     }
 
     public function studentRoster(Request $request)

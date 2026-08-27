@@ -466,6 +466,8 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::patch('/programme-fees/{programmeFee}', [ProgrammeFeeController::class, 'update']);
         Route::delete('/programme-fees/{programmeFee}', [ProgrammeFeeController::class, 'destroy']);
         Route::post('/invoices', [FinanceController::class, 'generate']);
+        Route::get('/finance/dashboard', [FinanceController::class, 'dashboard']);
+        Route::get('/finance/dashboard/export', [FinanceController::class, 'exportDashboard']);
         Route::get('/finance/student-status', [FinanceController::class, 'studentStatus']);
         Route::get('/finance/student-roster', [FinanceController::class, 'studentRoster']);
         Route::get('/finance/student-roster/export', [FinanceController::class, 'exportStudentRoster']);

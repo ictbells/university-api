@@ -94,6 +94,35 @@ class InvoiceSettlement
     }
 
     /**
+     * Cash received against invoices. Wallet top-ups are not revenue.
+     */
+    public static function collectedRevenue(): float
+    {
+        $fromPayments = (float) Payment::query()
+            ->whereNotNull('invoice_id')
+            ->whereIn('status', ['successful', 'paid'])
+            ->where(function ($query) {
+                $query->whereNull('purpose')
+                    ->orWhereNotIn('purpose', ['wallet_topup', 'wallet_funding']);
+            })
+            ->sum('amount');
+
+        $fromPaidInvoicesWithoutReceipts = (float) Invoice::query()
+            ->whereNotIn('status', ['cancelled', 'disabled', 'unpaid'])
+            ->whereDoesntHave('payments', function ($query) {
+                $query->whereIn('status', ['successful', 'paid'])
+                    ->where(function ($inner) {
+                        $inner->whereNull('purpose')
+                            ->orWhereNotIn('purpose', ['wallet_topup', 'wallet_funding']);
+                    });
+            })
+            ->selectRaw('COALESCE(SUM(CASE WHEN amount > COALESCE(balance, 0) THEN amount - COALESCE(balance, 0) ELSE 0 END), 0) as total')
+            ->value('total');
+
+        return round($fromPayments + $fromPaidInvoicesWithoutReceipts, 2);
+    }
+
+    /**
      * Sync payable balance/status on the invoice; return finance display settlement.
      *
      * @param  Collection<int, Payment>|iterable<Payment>  $payments

@@ -254,6 +254,20 @@ class FeeSchedule
         return ! self::walletBlocked($category);
     }
 
+    /**
+     * Catalog lines bursary can invoice directly (hostel, clinic, sundry, …).
+     * Programme-schedule lines stay on Programme fees / student installments.
+     *
+     * @return list<string>
+     */
+    public static function staffDirectInvoiceCategories(): array
+    {
+        return array_values(array_filter(
+            self::operationalCategories(),
+            fn (string $category) => self::walletAllowed($category),
+        ));
+    }
+
     public static function onlinePaymentAllowed(string $category): bool
     {
         return in_array($category, ['application_fee', 'acceptance_fee', 'transcript'], true);
