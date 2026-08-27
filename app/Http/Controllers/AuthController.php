@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\StaffLoginNotificationMail;
 use App\Http\Requests\RegisterApplicantRequest;
 use App\Models\AcademicTerm;
 use App\Models\Intake;
@@ -25,6 +26,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
@@ -216,8 +218,38 @@ class AuthController extends Controller
         $this->security->touchActivity($user);
         $token = $user->createToken('spa')->plainTextToken;
         $this->audit->record('auth.login', 'User signed in', 'auth', 'user', $user->id);
+        $this->notifyStaffLogin($request, $user);
 
         return $this->payload($user, $token);
+    }
+
+    private function notifyStaffLogin(Request $request, User $user): void
+    {
+        $email = trim((string) $user->email);
+        if ($email === '' || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return;
+        }
+
+        try {
+            Mail::to($email)->send(new StaffLoginNotificationMail(
+                $user,
+                now()->timezone('Africa/Lagos')->format('d M Y H:i').' WAT',
+                $request->ip(),
+                $this->loginDeviceLabel($request->userAgent()),
+            ));
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
+    private function loginDeviceLabel(?string $userAgent): ?string
+    {
+        $agent = trim((string) $userAgent);
+        if ($agent === '') {
+            return null;
+        }
+
+        return mb_strlen($agent) > 180 ? mb_substr($agent, 0, 177).'...' : $agent;
     }
 
     public function logout(Request $request)
@@ -288,17 +320,17 @@ class AuthController extends Controller
 
         if ($portal === 'student') {
             $data = $request->validate([
-                'login' => 'required|string',
+                'email' => 'required|email',
                 'portal' => 'nullable|in:staff,student',
             ]);
 
-            $user = StudentPortalAuth::resolveUser($data['login']);
-            if ($user) {
+            $user = User::query()->where('email', $data['email'])->first();
+            if ($user && $user->isStudentPortalUser() && ! $user->isStaffPortalUser()) {
                 Password::sendResetLink(['email' => $user->email]);
-                $this->audit->record('auth.forgot_password', 'Password reset requested', 'auth', 'user', $user->id, null, ['login' => StudentPortalAuth::normalizeLogin($data['login'])]);
+                $this->audit->record('auth.forgot_password', 'Password reset requested', 'auth', 'user', $user->id, null, ['email' => $user->email]);
             }
 
-            return response()->json(['message' => 'If that account exists, a reset link was sent to the email on your record.']);
+            return response()->json(['message' => 'If that email exists, a reset link was sent.']);
         }
 
         $request->validate(['email' => 'required|email']);
@@ -342,6 +374,7 @@ class AuthController extends Controller
             'latestApplication.applicationFeeInvoice',
             'latestApplication.acceptanceFeeInvoice',
             'latestApplication.intake.term.session',
+            'latestApplication.academicSession',
             'latestNinVerification',
         ]);
         if ($user->latestApplication) {
@@ -351,6 +384,7 @@ class AuthController extends Controller
                 'latestApplication.applicationFeeInvoice',
                 'latestApplication.acceptanceFeeInvoice',
                 'latestApplication.intake.term.session',
+                'latestApplication.academicSession',
             ]);
         }
         $nav = $this->navResolver->resolve($user);
@@ -433,11 +467,9 @@ class AuthController extends Controller
     private function currentSessionLabel(User $user): ?string
     {
         if ($this->currentSessionKind($user) === 'application') {
-            $term = $user->latestApplication?->intake?->term;
+            $application = $user->latestApplication;
 
-            return $term?->session?->label
-                ?: $term?->session_label
-                ?: null;
+            return $application?->sessionLabel();
         }
 
         $current = $this->currentTerm();

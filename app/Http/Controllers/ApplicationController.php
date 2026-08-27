@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Mail\AdmissionOfferMail;
+use App\Models\AcademicSession;
 use App\Models\Application;
 use App\Models\ApplicationDocument;
 use App\Models\Document;
@@ -120,40 +121,56 @@ class ApplicationController extends Controller
     {
         abort_unless($request->user()->hasPermission('admissions.view'), 403);
 
-        $query = Intake::query()->with('term.session');
-
+        $modes = [];
         if ($request->filled('entry_mode')) {
-            $query->where('entry_mode', $request->entry_mode);
+            $modes[] = (string) $request->entry_mode;
         }
         if ($request->filled('entry_modes')) {
-            $modes = is_array($request->entry_modes)
+            $extra = is_array($request->entry_modes)
                 ? $request->entry_modes
                 : array_filter(array_map('trim', explode(',', (string) $request->entry_modes)));
-            if ($modes !== []) {
-                $query->whereIn('entry_mode', $modes);
-            }
+            $modes = array_values(array_unique(array_merge($modes, $extra)));
         }
 
-        return $query
+        $sessionIds = Application::query()
+            ->whereNotNull('academic_session_id')
+            ->when($modes !== [], fn ($query) => $query->whereIn('entry_mode', $modes))
+            ->distinct()
+            ->pluck('academic_session_id');
+
+        $intakeSessionIds = Intake::query()
+            ->with('term')
+            ->when($modes !== [], fn ($query) => $query->whereIn('entry_mode', $modes))
+            ->get()
+            ->map(fn (Intake $intake) => $intake->academicSessionId())
+            ->filter();
+
+        $ids = $sessionIds->merge($intakeSessionIds)->unique()->filter()->values();
+        $intakes = Intake::query()
+            ->with('term')
+            ->when($modes !== [], fn ($query) => $query->whereIn('entry_mode', $modes))
+            ->get();
+
+        return AcademicSession::query()
+            ->whereIn('id', $ids)
             ->orderByDesc('id')
             ->get()
-            ->map(function (Intake $intake) {
-                $accepting = $intake->isAcceptingApplications();
-                $admissionLabel = $intake->term?->session?->label ?? $intake->term?->session_label;
-                $label = $admissionLabel
-                    ? "{$intake->name} ({$admissionLabel})"
-                    : $intake->name;
+            ->map(function (AcademicSession $session) use ($intakes) {
+                $accepting = $intakes->contains(
+                    fn (Intake $intake) => $intake->academicSessionId() === (int) $session->id
+                        && $intake->isAcceptingApplications()
+                );
 
                 return [
-                    'id' => $intake->id,
-                    'session_label' => $label,
-                    'name' => $intake->name,
-                    'entry_mode' => $intake->entry_mode,
-                    'admission_session_label' => $admissionLabel,
+                    'id' => $session->id,
+                    'session_label' => $session->label,
+                    'name' => $session->label,
+                    'admission_session_label' => $session->label,
                     'is_open' => $accepting,
                     'is_current' => $accepting,
                 ];
-            });
+            })
+            ->values();
     }
 
     public function show(Request $request, Application $application)
@@ -861,7 +878,7 @@ class ApplicationController extends Controller
      */
     private function decorateFile(Application $application)
     {
-        $application->loadMissing(['program.workflowTemplate.stages', 'steps', 'refereeInvites', 'documents', 'latestReview']);
+        $application->loadMissing(['program.workflowTemplate.stages', 'steps', 'refereeInvites', 'documents', 'latestReview', 'academicSession', 'intake.term']);
         $application->setAttribute('eligibility', ProgrammeEligibility::forApplication($application));
         $application->setAttribute('workflow', $this->workflows->snapshot($application));
         $application->setAttribute('referee_invites', $this->referees->statusFor($application));

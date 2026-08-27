@@ -174,6 +174,7 @@ class ApplicationSignupGateTest extends TestCase
         $application = Application::query()->where('user_id', $user->id)->first();
         $this->assertNotNull($application);
         $this->assertSame($intake->id, $application->intake_id);
+        $this->assertSame($intake->academicSessionId(), $application->academic_session_id);
         $this->assertSame('utme', $application->entry_mode);
         $this->assertSame('awaiting_application_fee', $application->stage);
         Http::assertNothingSent();

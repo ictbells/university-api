@@ -20,6 +20,7 @@ use App\Support\AdmissionEntryRules;
 use App\Support\CandidateEligibility;
 use App\Support\StudyLevel;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AcademicSetupController extends Controller
@@ -143,6 +144,7 @@ class AcademicSetupController extends Controller
 
         return Intake::query()
             ->with('term')
+            ->withCount('applications')
             ->get()
             ->sortBy(fn (Intake $intake) => [AdmissionEntryRules::entryModeRank($intake->entry_mode), -$intake->id])
             ->values()
@@ -304,8 +306,10 @@ class AcademicSetupController extends Controller
             'is_open' => 'sometimes|boolean',
         ]);
         $validated['is_open'] = $request->boolean('is_open', true);
+        Intake::assertUniqueEntryMode($validated['entry_mode']);
 
         return $this->officeGate('academic.store_intake', null, $validated, 'Create application session', function () use ($validated) {
+            Intake::assertUniqueEntryMode($validated['entry_mode']);
             $intake = Intake::query()->create($validated);
             $this->audit->record('intake.created', 'Admission intake created', 'admissions', 'intake', $intake->id, null, $intake);
 
@@ -329,8 +333,16 @@ class AcademicSetupController extends Controller
         if ($request->has('is_open')) {
             $validated['is_open'] = $request->boolean('is_open');
         }
+        if (array_key_exists('entry_mode', $validated) && $validated['entry_mode'] !== $intake->entry_mode) {
+            throw ValidationException::withMessages([
+                'entry_mode' => 'Admission category cannot be changed.',
+            ]);
+        }
+        unset($validated['entry_mode']);
+        $intake->assertCanRetargetTerm(isset($validated['academic_term_id']) ? (int) $validated['academic_term_id'] : null);
 
         return $this->officeGate('academic.update_intake', $intake, ['intake_id' => $intake->id, ...$validated], 'Update application session', function () use ($intake, $validated, $before) {
+            $intake->assertCanRetargetTerm(isset($validated['academic_term_id']) ? (int) $validated['academic_term_id'] : null);
             $intake->update($validated);
             $this->audit->record('intake.updated', 'Admission intake updated', 'admissions', 'intake', $intake->id, $before, $intake);
 
@@ -341,9 +353,11 @@ class AcademicSetupController extends Controller
     public function destroyIntake(Intake $intake)
     {
         $before = $intake->toArray();
+        $intake->assertCanDelete();
 
         return $this->officeGate('academic.destroy_intake', $intake, ['intake_id' => $intake->id], 'Delete application session', function () use ($intake, $before) {
-            $intake->delete();
+            $intake->assertCanDelete();
+            $intake->forceDelete();
             $this->audit->record('intake.deleted', 'Admission intake deleted', 'admissions', 'intake', $intake->id, $before, null);
 
             return response()->noContent();

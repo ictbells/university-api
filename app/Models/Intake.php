@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
@@ -33,6 +34,59 @@ class Intake extends BaseModel
     public function term(): BelongsTo
     {
         return $this->belongsTo(AcademicTerm::class, 'academic_term_id');
+    }
+
+    public function applications(): HasMany
+    {
+        return $this->hasMany(Application::class);
+    }
+
+    public function academicSessionId(): ?int
+    {
+        $this->loadMissing('term');
+        $sessionId = $this->term?->academic_session_id;
+
+        return $sessionId ? (int) $sessionId : null;
+    }
+
+    public static function assertUniqueEntryMode(string $entryMode, ?int $ignoreId = null): void
+    {
+        $exists = static::query()
+            ->where('entry_mode', $entryMode)
+            ->when($ignoreId, fn ($query) => $query->where('id', '!=', $ignoreId))
+            ->exists();
+        if (! $exists) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'entry_mode' => 'This admission category already exists. Edit it for the new session instead of creating another.',
+        ]);
+    }
+
+    public function assertCanRetargetTerm(?int $newTermId): void
+    {
+        if ($newTermId === null || (int) $this->academic_term_id === (int) $newTermId) {
+            return;
+        }
+        if (! $this->isAcceptingApplications()) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'academic_term_id' => 'Stop accepting applications before assigning this category to a new session.',
+        ]);
+    }
+
+    public function assertCanDelete(): void
+    {
+        if (! $this->applications()->exists()) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'intake' => 'This admission category has applications and cannot be deleted.',
+        ]);
     }
 
     public function isAcceptingApplications(): bool

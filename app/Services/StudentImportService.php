@@ -260,6 +260,7 @@ class StudentImportService
             'application_number' => $applicationNumber,
             'user_id' => $user->id,
             'intake_id' => $intake->id,
+            'academic_session_id' => $intake->academicSessionId(),
             'program_id' => $program->id,
             'entry_mode' => $entryMode,
             'jamb_registration' => $jamb !== '' ? $jamb : null,

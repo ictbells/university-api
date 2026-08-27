@@ -19,39 +19,40 @@ class ApplicationSessionsFilterTest extends TestCase
 
     public function test_application_sessions_are_scoped_to_channel_entry_modes(): void
     {
-        $term = $this->term();
-        $utme = $this->intake($term, 'UTME 2025/2026', 'utme');
-        $this->intake($term, 'JUPEB 2025/2026', 'jupeb');
-        $pg = $this->intake($term, 'PG 2025/2026', 'pg');
+        $ugTerm = $this->term('2025/2026');
+        $pgTerm = $this->term('2024/2025');
+        $utme = $this->intake($ugTerm, 'UTME', 'utme');
+        $this->intake($ugTerm, 'JUPEB', 'jupeb');
+        $pg = $this->intake($pgTerm, 'PG', 'pg');
 
         Sanctum::actingAs($this->staffUser(['admissions.view']));
 
         $this->getJson('/api/applications/sessions?entry_modes=utme,de,transfer')
             ->assertOk()
             ->assertJsonCount(1)
-            ->assertJsonPath('0.id', $utme->id)
-            ->assertJsonPath('0.entry_mode', 'utme');
+            ->assertJsonPath('0.id', $utme->academicSessionId())
+            ->assertJsonPath('0.session_label', '2025/2026');
 
         $this->getJson('/api/applications/sessions?entry_modes=jupeb')
             ->assertOk()
             ->assertJsonCount(1)
-            ->assertJsonPath('0.entry_mode', 'jupeb');
+            ->assertJsonPath('0.session_label', '2025/2026');
 
         $this->getJson('/api/applications/sessions?entry_modes=pg')
             ->assertOk()
             ->assertJsonCount(1)
-            ->assertJsonPath('0.id', $pg->id)
-            ->assertJsonPath('0.entry_mode', 'pg');
+            ->assertJsonPath('0.id', $pg->academicSessionId())
+            ->assertJsonPath('0.session_label', '2024/2025');
     }
 
-    private function term(): AcademicTerm
+    private function term(string $label): AcademicTerm
     {
-        $session = AcademicSession::query()->create(['label' => '2025/2026']);
+        $session = AcademicSession::query()->create(['label' => $label]);
 
         return AcademicTerm::query()->create([
             'academic_session_id' => $session->id,
             'name' => 'First',
-            'session_label' => '2025/2026',
+            'session_label' => $label,
             'is_current' => true,
         ]);
     }

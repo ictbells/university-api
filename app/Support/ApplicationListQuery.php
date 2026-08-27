@@ -23,6 +23,7 @@ class ApplicationListQuery
             'program.department.faculty',
             'program.workflowTemplate.stages',
             'intake.term',
+            'academicSession',
             'applicationFeeInvoice',
             'acceptanceFeeInvoice',
             'latestReview',
@@ -56,14 +57,23 @@ class ApplicationListQuery
         if ($request->filled('intake_id')) {
             $query->where('intake_id', (int) $request->intake_id);
         } elseif ($request->filled('academic_session_id')) {
-            $sessionId = (int) $request->academic_session_id;
-            $query->whereHas('intake.term', fn ($term) => $term->where('academic_session_id', $sessionId));
+            $query->where('academic_session_id', (int) $request->academic_session_id);
         } elseif ($request->filled('academic_term_id')) {
             $termId = (int) $request->academic_term_id;
-            $query->whereHas('intake', fn ($intake) => $intake->where('academic_term_id', $termId));
+            $sessionId = AcademicTerm::query()->where('id', $termId)->value('academic_session_id');
+            if ($sessionId) {
+                $query->where('academic_session_id', (int) $sessionId);
+            } else {
+                $query->whereHas('intake', fn ($intake) => $intake->where('academic_term_id', $termId));
+            }
         } elseif ($request->filled('session')) {
             $session = (string) $request->session;
-            $query->whereHas('intake.term', fn ($term) => $term->where('session_label', $session));
+            $sessionId = AcademicSession::query()->where('label', $session)->value('id');
+            if ($sessionId) {
+                $query->where('academic_session_id', (int) $sessionId);
+            } else {
+                $query->whereHas('intake.term', fn ($term) => $term->where('session_label', $session));
+            }
         }
         if ($request->filled('faculty_id') || $request->filled('college_id')) {
             $facultyId = (int) ($request->input('faculty_id') ?: $request->input('college_id'));

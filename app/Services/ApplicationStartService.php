@@ -27,7 +27,12 @@ class ApplicationStartService
 
         CandidateEligibility::assertQualifiedForIntake($intake, $jamb);
 
-        $existing = Application::query()->where('user_id', $user->id)->where('intake_id', $intake->id)->first();
+        $sessionId = $intake->academicSessionId();
+        $existing = Application::query()
+            ->where('user_id', $user->id)
+            ->where('intake_id', $intake->id)
+            ->when($sessionId, fn ($query) => $query->where('academic_session_id', $sessionId))
+            ->first();
         if ($existing) {
             $this->prembly->syncUserVerificationToApplication($user, $existing);
 
@@ -40,6 +45,7 @@ class ApplicationStartService
             'application_number' => ApplicationReference::generate(),
             'user_id' => $user->id,
             'intake_id' => $intake->id,
+            'academic_session_id' => $sessionId,
             'program_id' => $programId,
             'entry_mode' => $intake->entry_mode,
             'jamb_registration' => $jamb,

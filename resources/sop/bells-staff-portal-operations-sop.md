@@ -43,7 +43,7 @@ This document covers:
 
 Staff and students use **separate portals**. An account is routed to the correct portal at sign-in based on assigned roles and staff records.
 
-Applicants and students sign in on the **student portal** with **application number** (`APP/YYYY/#####`), **JAMB registration number**, or **matric number** and password. Email is used for mail only; password reset asks for the same sign-in ID and then emails the address on file.
+Applicants and students sign in on the **student portal** with **application number** (`APP/YYYY/#####`), **JAMB registration number**, or **matric number** and password. Email is used for mail and password reset (the forgot-password form asks for the email on the record).
 
 ---
 
@@ -131,6 +131,7 @@ Legacy permissions (`institution.manage`, `academic.catalog.manage`) still grant
 2. Enter work **email** and **password**.
 3. If two-factor authentication (2FA) is enabled globally, complete the authenticator step after password verification.
 4. On first login with 2FA enabled, scan the provided secret into an authenticator app and enter the 6-digit code.
+5. After a successful sign-in (including after 2FA), the staff member is emailed a login notice with time, IP address, and device. Failed attempts are not emailed.
 
 Applicants and students must use the **student portal**, not the staff portal.
 

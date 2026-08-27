@@ -214,6 +214,33 @@ class Application extends BaseModel
         return $this->belongsTo(Intake::class);
     }
 
+    public function academicSession(): BelongsTo
+    {
+        return $this->belongsTo(AcademicSession::class);
+    }
+
+    public function sessionLabel(): ?string
+    {
+        $this->loadMissing(['academicSession', 'intake.term.session']);
+
+        return $this->academicSession?->label
+            ?: $this->intake?->term?->session?->label
+            ?: $this->intake?->term?->session_label;
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (Application $application) {
+            if ($application->academic_session_id || ! $application->intake_id) {
+                return;
+            }
+            $intake = $application->relationLoaded('intake')
+                ? $application->intake
+                : Intake::query()->with('term')->find($application->intake_id);
+            $application->academic_session_id = $intake?->academicSessionId();
+        });
+    }
+
     public function program(): BelongsTo
     {
         return $this->belongsTo(Program::class);
