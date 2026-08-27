@@ -15,6 +15,7 @@ use App\Models\Staff;
 use App\Models\Student;
 use App\Models\User;
 use App\Models\Wallet;
+use App\Services\InvoiceService;
 use App\Support\FeeSchedule;
 use App\Support\PermissionCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -175,6 +176,73 @@ class ClinicCatalogBillingTest extends TestCase
             -2250,
             (float) $invoice->items()->where('description', 'NHIS coverage')->value('amount')
         );
+    }
+
+    public function test_null_coverage_override_does_not_wipe_nhis_split(): void
+    {
+        [$staff, $visit, $fee] = $this->clinicContext();
+        MedicalProfile::query()->updateOrCreate(
+            ['student_id' => $visit->student_id],
+            ['nhis_enrolled' => true, 'nhis_coverage_percent' => 90]
+        );
+        Sanctum::actingAs($staff);
+
+        $this->postJson("/api/clinic/visits/{$visit->id}/items", [
+            'fee_item_id' => $fee->id,
+            'quantity' => 1,
+            'nhis_covered' => true,
+        ])->assertCreated();
+
+        $this->postJson("/api/clinic/visits/{$visit->id}/finalize-bill", [
+            'coverage_percent_override' => null,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('nhis_applied', true)
+            ->assertJsonPath('gross_amount', '2500.00')
+            ->assertJsonPath('nhis_covered_amount', '2250.00')
+            ->assertJsonPath('student_payable_amount', '250.00');
+
+        $invoice = Invoice::query()->where('category', 'clinic')->first();
+        $this->assertEquals(250, (float) $invoice->amount);
+        $this->assertEquals(250, (float) $invoice->balance);
+    }
+
+    public function test_disabled_clinic_invoice_can_be_replaced_by_finalizing_again(): void
+    {
+        [$staff, $visit, $fee] = $this->clinicContext();
+        MedicalProfile::query()->updateOrCreate(
+            ['student_id' => $visit->student_id],
+            ['nhis_enrolled' => true, 'nhis_coverage_percent' => 90]
+        );
+        Sanctum::actingAs($staff);
+
+        $this->postJson("/api/clinic/visits/{$visit->id}/items", [
+            'fee_item_id' => $fee->id,
+            'quantity' => 1,
+            'nhis_covered' => true,
+        ])->assertCreated();
+
+        $this->postJson("/api/clinic/visits/{$visit->id}/finalize-bill", [
+            'coverage_percent_override' => null,
+        ])->assertCreated();
+
+        $first = Invoice::query()->where('category', 'clinic')->first();
+        $this->assertNotNull($first);
+        app(InvoiceService::class)->disable($first, 'Wrong amount billed before NHIS split.');
+
+        $this->assertSame('cancelled', $first->fresh()->status);
+        $this->assertSame('cancelled', MedicalBill::query()->where('invoice_id', $first->id)->value('status'));
+
+        $replaced = $this->postJson("/api/clinic/visits/{$visit->id}/finalize-bill")
+            ->assertOk()
+            ->assertJsonPath('student_payable_amount', '250.00')
+            ->json();
+
+        $this->assertNotEquals($first->id, $replaced['invoice_id']);
+        $second = Invoice::query()->find($replaced['invoice_id']);
+        $this->assertEquals(250, (float) $second->amount);
+        $this->assertSame('unpaid', $second->status);
+        $this->assertSame($second->id, (int) MedicalBill::query()->where('clinic_visit_id', $visit->id)->value('invoice_id'));
     }
 
     public function test_finalize_uses_fixed_nhis_cover_amount(): void

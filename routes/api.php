@@ -481,7 +481,6 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::post('/invoices/{invoice}/rebates/{rebate}/reverse', [RebateController::class, 'reverse']);
     });
     Route::post('/invoices/tuition-installment', [FinanceController::class, 'createTuitionInstallment']);
-    Route::post('/payments/record', [PaymentController::class, 'record'])->middleware('permission:finance.payments.record');
 
     Route::get('/me/clinic', [ClinicController::class, 'me']);
     Route::post('/me/clinic/appointments', [ClinicController::class, 'bookAppointment']);

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\AcademicLevel;
+use App\Models\AcademicSession;
 use App\Models\AcademicTerm;
 use App\Models\FeeItem;
 use App\Models\Hostel;
@@ -15,6 +16,7 @@ use App\Models\Invoice;
 use App\Models\Setting;
 use App\Models\Student;
 use App\Support\TuitionProgress;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -22,6 +24,8 @@ use Illuminate\Validation\ValidationException;
 
 class HostelService
 {
+    private AcademicSession|false|null $resolvedCurrentSession = false;
+
     public function __construct(
         private HostelRoomService $rooms,
         private InvoiceService $invoices,
@@ -452,13 +456,25 @@ class HostelService
     public function windowForStudent(Student $student, ?int $termId = null): ?array
     {
         $category = $this->studentCategory($student);
-
-        return $this->levelWindows($category, $termId)
-            ->first(function (array $row) use ($student, $category) {
-                $level = $this->academicLevelForStudent($category, $student);
-
+        $termId ??= $this->currentTermId();
+        $level = $this->academicLevelForStudent($category, $student);
+        $row = $this->levelWindows($category, $termId)
+            ->first(function (array $row) use ($level) {
                 return $level && (int) $row['academic_level_id'] === (int) $level->id;
             });
+        if (! $row) {
+            return null;
+        }
+
+        $bounds = $this->effectiveWindowBounds(
+            $level ? $this->resolvedLevelWindow($category, $level->id, $termId) : null
+        );
+
+        return [
+            ...$row,
+            'opens_at' => $bounds['opens_at']?->toIso8601String(),
+            'closes_at' => $bounds['closes_at']?->toIso8601String(),
+        ];
     }
 
     public function selectionHostelsForStudent(Student $student): array
@@ -787,14 +803,65 @@ class HostelService
         }
 
         $now = now();
-        if ($window->opens_at && $now->lt($window->opens_at)) {
+        $bounds = $this->effectiveWindowBounds($window);
+        if ($bounds['opens_at'] && $now->lt($bounds['opens_at'])) {
             return false;
         }
-        if ($window->closes_at && $now->gt($window->closes_at)) {
+        if ($bounds['closes_at'] && $now->gt($bounds['closes_at'])) {
             return false;
         }
 
         return true;
+    }
+
+    /**
+     * @return array{opens_at: ?Carbon, closes_at: ?Carbon}
+     */
+    private function effectiveWindowBounds(?HostelLevelWindow $window): array
+    {
+        $session = $this->currentSession();
+        $sessionOpens = $session?->starts_on?->copy()->startOfDay();
+        $sessionCloses = $this->sessionClosesAt($session);
+
+        $opens = $window?->opens_at ?? $sessionOpens;
+        $closes = $window?->closes_at;
+        if ($sessionCloses) {
+            $closes = $closes && $closes->lt($sessionCloses) ? $closes : $sessionCloses;
+        }
+
+        return [
+            'opens_at' => $opens,
+            'closes_at' => $closes,
+        ];
+    }
+
+    private function sessionClosesAt(?AcademicSession $session): ?Carbon
+    {
+        if (! $session) {
+            return null;
+        }
+
+        $end = $session->ends_on?->copy()->endOfDay();
+        $closed = $session->closed_at;
+        if ($end && $closed) {
+            return $closed->lt($end) ? $closed : $end;
+        }
+
+        return $closed ?? $end;
+    }
+
+    private function currentSession(): ?AcademicSession
+    {
+        if ($this->resolvedCurrentSession !== false) {
+            return $this->resolvedCurrentSession;
+        }
+
+        $termId = $this->currentTermId();
+        $this->resolvedCurrentSession = $termId
+            ? AcademicTerm::query()->with('session')->find($termId)?->session
+            : null;
+
+        return $this->resolvedCurrentSession;
     }
 
     private function academicLevelBand(AcademicLevel|Student|string|int $source): ?int

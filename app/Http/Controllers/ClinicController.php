@@ -255,7 +255,7 @@ class ClinicController extends Controller
     public function addItem(Request $request, ClinicVisit $visit)
     {
         abort_unless($request->user()->hasPermission('medical.billing') || $request->user()->hasPermission('medical.manage'), 403);
-        abort_if($visit->bill, 422, 'Cannot add items after the bill is finalized.');
+        abort_if($visit->loadMissing('bill.invoice')->bill?->isLive(), 422, 'Cannot add items after the bill is finalized.');
 
         $data = $request->validate([
             'fee_item_id' => [
@@ -302,7 +302,7 @@ class ClinicController extends Controller
     public function updateItem(Request $request, ClinicVisitItem $item)
     {
         abort_unless($request->user()->hasPermission('medical.billing') || $request->user()->hasPermission('medical.manage'), 403);
-        abort_if($item->visit?->bill, 422, 'Cannot edit items after the bill is finalized.');
+        abort_if($item->visit?->loadMissing('bill.invoice')->bill?->isLive(), 422, 'Cannot edit items after the bill is finalized.');
 
         $data = $request->validate([
             'quantity' => 'sometimes|numeric|min:0.01',
@@ -335,7 +335,7 @@ class ClinicController extends Controller
     public function deleteItem(Request $request, ClinicVisitItem $item)
     {
         abort_unless($request->user()->hasPermission('medical.billing') || $request->user()->hasPermission('medical.manage'), 403);
-        abort_if($item->visit?->bill, 422, 'Cannot remove items after the bill is finalized.');
+        abort_if($item->visit?->loadMissing('bill.invoice')->bill?->isLive(), 422, 'Cannot remove items after the bill is finalized.');
 
         return $this->officeGate(
             'medical.delete_item',
@@ -365,7 +365,7 @@ class ClinicController extends Controller
             function () use ($visit, $data) {
                 $bill = $this->billing->finalize(
                     $visit,
-                    array_key_exists('coverage_percent_override', $data) ? (float) $data['coverage_percent_override'] : null
+                    $this->coveragePercentOverride($data)
                 );
                 $this->audit->record(
                     'clinic.bill_finalized',
@@ -564,7 +564,16 @@ class ClinicController extends Controller
         return $this->billing->splitAmounts(
             $visit,
             $profile,
-            array_key_exists('coverage_percent_override', $data) ? (float) $data['coverage_percent_override'] : null
+            $this->coveragePercentOverride($data)
         );
+    }
+
+    private function coveragePercentOverride(array $data): ?float
+    {
+        if (! array_key_exists('coverage_percent_override', $data) || $data['coverage_percent_override'] === null || $data['coverage_percent_override'] === '') {
+            return null;
+        }
+
+        return (float) $data['coverage_percent_override'];
     }
 }

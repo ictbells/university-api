@@ -7,10 +7,12 @@ use App\Models\Department;
 use App\Models\Faculty;
 use App\Models\FeeItem;
 use App\Models\Invoice;
+use App\Models\InvoiceRebate;
 use App\Models\OfficeDepartment;
 use App\Models\Payment;
 use App\Models\Permission;
 use App\Models\Program;
+use App\Models\RebateType;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\Student;
@@ -278,6 +280,52 @@ class StudentFinanceInstallmentTest extends TestCase
 
         $this->assertEquals(25.0, TuitionProgress::percentPaid($student));
         $this->assertSame([50, 75, 100], TuitionProgress::availableInstallmentPercents($student));
+    }
+
+    public function test_disabled_invoices_and_their_rebates_are_excluded_from_student_status(): void
+    {
+        $staff = $this->financeStaff();
+        [$student, $tuition] = $this->studentWithPaidQuarterTuition();
+        $user = $student->user;
+        $type = RebateType::query()->create([
+            'name' => 'Staff child',
+            'kind' => 'fixed',
+            'default_value' => 1000,
+            'is_active' => true,
+        ]);
+
+        $disabled = Invoice::query()->create([
+            'number' => 'INV-DISABLED-HOSTEL',
+            'user_id' => $user->id,
+            'student_id' => $student->id,
+            'category' => 'hostel',
+            'amount' => 5000,
+            'full_amount' => 5000,
+            'balance' => 4000,
+            'rebate_total' => 1000,
+            'status' => 'cancelled',
+            'disabled_reason' => 'Raised in error',
+            'wallet_allowed' => true,
+        ]);
+        InvoiceRebate::query()->create([
+            'invoice_id' => $disabled->id,
+            'rebate_type_id' => $type->id,
+            'kind' => 'fixed',
+            'value' => 1000,
+            'amount' => 1000,
+            'reason' => 'Should not count',
+        ]);
+
+        Sanctum::actingAs($staff);
+        $payload = $this->getJson('/api/finance/student-status?student_id='.$student->id)
+            ->assertOk()
+            ->json();
+
+        $this->assertEquals(17000.0, $payload['summary']['billed']);
+        $this->assertEquals(0.0, $payload['summary']['rebate_total']);
+        $this->assertEquals(4250.0, $payload['summary']['paid']);
+        $this->assertEquals(12750.0, $payload['summary']['outstanding']);
+        $this->assertEquals('outstanding', $payload['summary']['clearance']);
     }
 
     private function financeStaff(): User

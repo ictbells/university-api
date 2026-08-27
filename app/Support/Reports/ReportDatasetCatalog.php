@@ -525,7 +525,7 @@ class ReportDatasetCatalog
             label: 'Payments',
             category: 'Finance',
             description: 'Recorded payments.',
-            permissions: ['finance.payments.record', 'finance.invoices.manage'],
+            permissions: ['finance.invoices.manage'],
             columns: [
                 self::col('receipt_no', 'Receipt', 'string', 'payments.receipt_no'),
                 self::col('reference', 'Reference', 'string', 'payments.reference'),

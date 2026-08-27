@@ -116,6 +116,49 @@ class HostelLevelWindowTest extends TestCase
         $this->assertEquals(25.0, $open['tuition_percent']);
     }
 
+    public function test_student_window_uses_current_session_dates_when_level_dates_are_blank(): void
+    {
+        [$student, $level, $term] = $this->studentWithLevel();
+        $term->session->update([
+            'starts_on' => now()->subMonth()->toDateString(),
+            'ends_on' => now()->addMonths(5)->toDateString(),
+        ]);
+
+        app(HostelService::class)->syncLevelWindows('undergraduate', [[
+            'academic_level_id' => $level->id,
+            'is_active' => true,
+        ]], $term->id);
+
+        $snapshot = app(HostelService::class)->studentSnapshot($student->fresh());
+        $this->assertTrue($snapshot['window_open']);
+        $this->assertSame(
+            $term->session->fresh()->starts_on->startOfDay()->toIso8601String(),
+            $snapshot['window']['opens_at'],
+        );
+        $this->assertSame(
+            $term->session->fresh()->ends_on->endOfDay()->toIso8601String(),
+            $snapshot['window']['closes_at'],
+        );
+    }
+
+    public function test_hostel_window_closes_when_academic_session_ends(): void
+    {
+        [$student, $level, $term] = $this->studentWithLevel();
+        $term->session->update([
+            'starts_on' => now()->subYear()->toDateString(),
+            'ends_on' => now()->subDay()->toDateString(),
+        ]);
+
+        app(HostelService::class)->syncLevelWindows('undergraduate', [[
+            'academic_level_id' => $level->id,
+            'is_active' => true,
+        ]], $term->id);
+
+        $hostels = app(HostelService::class);
+        $this->assertFalse($hostels->isLevelOpen('undergraduate', $student));
+        $this->assertFalse($hostels->studentSnapshot($student)['window_open']);
+    }
+
     public function test_request_bed_requires_25_percent_tuition(): void
     {
         [$student, $level, $term] = $this->studentWithLevel();

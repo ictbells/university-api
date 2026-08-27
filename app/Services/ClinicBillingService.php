@@ -96,9 +96,10 @@ class ClinicBillingService
     public function finalize(ClinicVisit $visit, ?float $coverageOverride = null): MedicalBill
     {
         return DB::transaction(function () use ($visit, $coverageOverride) {
-            $visit->load(['items', 'bill', 'student.user']);
+            $visit->load(['items', 'bill.invoice', 'student.user']);
             abort_if($visit->items->isEmpty(), 422, 'Add at least one charge line before finalizing.');
-            abort_if($visit->bill, 422, 'This visit already has a finalized bill.');
+            $existing = $visit->bill;
+            abort_if($existing?->isLive(), 422, 'This visit already has a finalized bill.');
 
             /** @var Student $student */
             $student = $visit->student;
@@ -117,7 +118,7 @@ class ClinicBillingService
                 $status = 'unpaid';
             }
 
-            return $visit->bill()->create([
+            $payload = [
                 'invoice_id' => $invoice?->id,
                 'gross_amount' => $split['gross'],
                 'nhis_covered_amount' => $split['covered'],
@@ -125,7 +126,15 @@ class ClinicBillingService
                 'nhis_applied' => $split['nhis_applied'],
                 'amount' => $split['payable'],
                 'status' => $status,
-            ]);
+            ];
+
+            if ($existing) {
+                $existing->update($payload);
+
+                return $existing->fresh('invoice');
+            }
+
+            return $visit->bill()->create($payload);
         });
     }
 }

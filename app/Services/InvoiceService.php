@@ -671,6 +671,7 @@ class InvoiceService
         $invoice->status = 'cancelled';
         $invoice->disabled_reason = $reason;
         $invoice->save();
+        MedicalBill::syncStatusFromInvoice($invoice);
 
         return $invoice->fresh();
     }
@@ -681,9 +682,15 @@ class InvoiceService
             throw new RuntimeException('Only disabled invoices can be enabled.');
         }
 
+        if (in_array($invoice->category, ['medical', 'clinic'], true)
+            && ! MedicalBill::query()->where('invoice_id', $invoice->id)->exists()) {
+            throw new RuntimeException('This clinic invoice was replaced. Finalize the visit again from the clinic.');
+        }
+
         $invoice->status = 'unpaid';
         $invoice->disabled_reason = null;
         $invoice->save();
+        MedicalBill::syncStatusFromInvoice($invoice);
 
         return $invoice->fresh();
     }

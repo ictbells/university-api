@@ -501,8 +501,7 @@ class FinanceController extends Controller
     public function paymentReceipt(Request $request, Payment $payment): Response
     {
         $user = $request->user();
-        $canManage = $user->hasPermission('finance.invoices.manage')
-            || $user->hasPermission('finance.payments.record');
+        $canManage = $user->hasPermission('finance.invoices.manage');
         abort_unless($canManage || $payment->user_id === $user->id, 403);
         abort_unless($payment->status === 'successful', 422, 'Receipt is available after payment succeeds.');
 

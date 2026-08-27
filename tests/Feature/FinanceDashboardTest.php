@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use App\Models\Invoice;
+use App\Models\InvoiceRebate;
 use App\Models\Payment;
 use App\Models\Permission;
+use App\Models\RebateType;
 use App\Models\Role;
 use App\Models\Student;
 use App\Models\User;
@@ -165,6 +167,66 @@ class FinanceDashboardTest extends TestCase
         $this->assertEquals(7000.0, $payload['totals']['invoiced']);
         $this->assertEquals(7000.0, $payload['totals']['collected']);
         $this->assertEquals(0.0, $payload['totals']['outstanding']);
+    }
+
+    public function test_disabled_invoices_and_their_rebates_are_excluded(): void
+    {
+        $staff = $this->financeStaff();
+        $user = User::factory()->create(['status' => 'active']);
+        $type = RebateType::query()->create([
+            'name' => 'Staff child',
+            'kind' => 'fixed',
+            'default_value' => 2000,
+            'is_active' => true,
+        ]);
+
+        $live = Invoice::query()->create([
+            'number' => 'INV-LIVE-HOSTEL',
+            'user_id' => $user->id,
+            'category' => 'hostel',
+            'amount' => 8000,
+            'full_amount' => 8000,
+            'balance' => 6000,
+            'rebate_total' => 2000,
+            'status' => 'unpaid',
+            'wallet_allowed' => true,
+        ]);
+        InvoiceRebate::query()->create([
+            'invoice_id' => $live->id,
+            'rebate_type_id' => $type->id,
+            'kind' => 'fixed',
+            'value' => 2000,
+            'amount' => 2000,
+            'reason' => 'Staff child',
+        ]);
+
+        $disabled = Invoice::query()->create([
+            'number' => 'INV-DISABLED-HOSTEL',
+            'user_id' => $user->id,
+            'category' => 'hostel',
+            'amount' => 5000,
+            'full_amount' => 5000,
+            'balance' => 3000,
+            'rebate_total' => 2000,
+            'status' => 'cancelled',
+            'disabled_reason' => 'Raised in error',
+            'wallet_allowed' => true,
+        ]);
+        InvoiceRebate::query()->create([
+            'invoice_id' => $disabled->id,
+            'rebate_type_id' => $type->id,
+            'kind' => 'fixed',
+            'value' => 2000,
+            'amount' => 2000,
+            'reason' => 'Should not count',
+        ]);
+
+        Sanctum::actingAs($staff);
+        $payload = $this->getJson('/api/finance/dashboard')->assertOk()->json();
+
+        $this->assertEquals(8000.0, $payload['totals']['invoiced']);
+        $this->assertEquals(2000.0, $payload['totals']['rebates']);
+        $this->assertEquals(6000.0, $payload['totals']['outstanding']);
     }
 
     public function test_statement_pdf_export_succeeds(): void

@@ -53,7 +53,7 @@ class DatabaseSeeder extends Seeder
             ])->pluck('id')],
             'hostel-officer' => ['Hostel Officer', true, Permission::query()->where('module', 'hostel')->pluck('id')],
             'student' => ['Student', true, Permission::query()->whereIn('key', [
-                'students.view_own', 'wallet.view_own', 'medical.view_own', 'documents.view_own', 'admissions.apply',
+                'students.view_own', 'medical.view_own', 'documents.view_own', 'admissions.apply',
             ])->pluck('id')],
             'applicant' => ['Applicant', true, Permission::query()->whereIn('key', ['admissions.apply', 'documents.view_own'])->pluck('id')],
         ];

@@ -26,7 +26,7 @@ class PaymentController extends Controller
                 'user.latestApplication',
             ])
             ->latest();
-        if (! $request->user()->hasPermission('finance.payments.record')) {
+        if (! $request->user()->hasPermission('finance.invoices.manage')) {
             $query->where('user_id', $request->user()->id);
         }
 
@@ -75,12 +75,5 @@ class PaymentController extends Controller
         $this->paystack->handleWebhook($request->all(), $request->header('x-paystack-signature'));
 
         return response()->json(['status' => 'ok']);
-    }
-
-    public function record()
-    {
-        return response()->json([
-            'message' => 'Cash payments are not allowed. Students pay from the student portal.',
-        ], 422);
     }
 }

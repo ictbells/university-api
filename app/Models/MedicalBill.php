@@ -38,6 +38,16 @@ class MedicalBill extends BaseModel
         return $this->belongsTo(ClinicVisit::class, 'clinic_visit_id');
     }
 
+    public function isLive(): bool
+    {
+        $this->loadMissing('invoice');
+        if ($this->status === 'cancelled' || $this->invoice?->status === 'cancelled') {
+            return false;
+        }
+
+        return true;
+    }
+
     public static function syncStatusFromInvoice(Invoice $invoice): void
     {
         if (! in_array($invoice->category, ['medical', 'clinic'], true)) {

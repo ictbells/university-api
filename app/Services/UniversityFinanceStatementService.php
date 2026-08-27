@@ -47,9 +47,7 @@ class UniversityFinanceStatementService
         );
         $receipts = $this->money($this->successfulPayments($from, $to)->sum('amount'));
         $invoiced = $this->money($this->activeInvoices($from, $to)->sum('amount'));
-        $rebates = $this->money(
-            $this->applyPeriod(InvoiceRebate::query()->whereNull('reversed_at'), $from, $to)->sum('amount')
-        );
+        $rebates = $this->money($this->activeRebates($from, $to)->sum('invoice_rebates.amount'));
         $outstanding = $this->money(
             Invoice::query()
                 ->whereNotIn('status', ['cancelled', 'disabled'])
@@ -305,6 +303,19 @@ class UniversityFinanceStatementService
             $from,
             $to,
             'invoices.created_at',
+        );
+    }
+
+    private function activeRebates(?CarbonInterface $from, ?CarbonInterface $to): Builder
+    {
+        return $this->applyPeriod(
+            InvoiceRebate::query()
+                ->join('invoices', 'invoices.id', '=', 'invoice_rebates.invoice_id')
+                ->whereNull('invoice_rebates.reversed_at')
+                ->whereNotIn('invoices.status', ['cancelled', 'disabled']),
+            $from,
+            $to,
+            'invoice_rebates.created_at',
         );
     }
 
