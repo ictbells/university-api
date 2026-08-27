@@ -470,10 +470,17 @@ class InvoiceService
         $hasTranches = $lines->contains(fn (ProgrammeFee $fee) => FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
             && $fee->effective_installment_tranche !== null);
         if ($hasTranches) {
-            return $this->createTuitionInvoiceFromTranches($student, $lines, $percent, $fullAmount);
+            return $this->createTuitionInvoiceFromTranches($student, $lines, $percent, $fullAmount, $paidPercent);
         }
 
-        $amount = round($fullAmount * ($percent / 100), 2);
+        $deltaPercent = $percent - $paidPercent;
+        if ($deltaPercent <= 0) {
+            throw new RuntimeException($paidPercent >= 100
+                ? 'Tuition is already paid in full.'
+                : 'This installment has already been paid. Choose the next unpaid share.');
+        }
+
+        $amount = round($fullAmount * ($deltaPercent / 100), 2);
         $number = 'INV-'.now()->format('Ymd').'-'.str_pad((string) (Invoice::query()->count() + 1), 5, '0', STR_PAD_LEFT);
         $invoice = Invoice::query()->create([
             'number' => $number,
@@ -489,7 +496,7 @@ class InvoiceService
             'wallet_allowed' => true,
         ]);
 
-        $scale = $percent / 100;
+        $scale = $deltaPercent / 100;
         foreach ($lines as $line) {
             $lineAmount = round($line->effective_amount * $scale, 2);
             if ($lineAmount <= 0) {
@@ -501,7 +508,7 @@ class InvoiceService
                 'description' => sprintf(
                     '%s%s',
                     $line->feeItem?->name ?: FeeSchedule::label((string) ($line->feeItem?->category ?? 'other')),
-                    $percent < 100 ? " ({$percent}%)" : ''
+                    $percent < 100 ? " ({$deltaPercent}% remaining)" : ''
                 ),
                 'amount' => $lineAmount,
             ]);
@@ -520,6 +527,7 @@ class InvoiceService
         Collection $lines,
         int $percent,
         float $fullAmount,
+        float $paidPercent = 0,
     ): Invoice {
         $paidProgrammeFeeIds = InvoiceItem::query()
             ->whereNotNull('programme_fee_id')
@@ -560,7 +568,7 @@ class InvoiceService
         });
 
         $useFullPackage = $percent === 100 && $hasFullPackage && ! $hasPriorPaidSlice;
-        $wanted = FeeSchedule::tranchesForInstallmentPercent($percent, $useFullPackage);
+        $wanted = FeeSchedule::remainingTranchesForInstallmentPercent($percent, $paidPercent, $useFullPackage);
 
         $billable = $lines->filter(function (ProgrammeFee $line) use ($wanted, $paidProgrammeFeeIds, $legacyPaidFeeItemIds) {
             if ($this->trancheLineAlreadyPaid($line, $paidProgrammeFeeIds, $legacyPaidFeeItemIds)) {

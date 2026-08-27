@@ -65,6 +65,47 @@ class FeeSchedule
     }
 
     /**
+     * Slices already settled by a paid installment (25% covers 1st, 50% covers 1st+2nd, …).
+     *
+     * @return list<int>
+     */
+    public static function tranchesCoveredByPaidPercent(float $paidPercent): array
+    {
+        if ($paidPercent >= 100) {
+            return [1, 2, 3, 4, 100];
+        }
+        if ($paidPercent >= 75) {
+            return [1, 2, 3];
+        }
+        if ($paidPercent >= 50) {
+            return [1, 2];
+        }
+        if ($paidPercent >= 25) {
+            return [1];
+        }
+
+        return [];
+    }
+
+    /**
+     * Tranche codes still unpaid for the chosen installment.
+     *
+     * @return list<int>
+     */
+    public static function remainingTranchesForInstallmentPercent(
+        int $percent,
+        float $paidPercent,
+        bool $hasFullPackage = false,
+    ): array {
+        $covered = self::tranchesCoveredByPaidPercent($paidPercent);
+
+        return array_values(array_filter(
+            self::tranchesForInstallmentPercent($percent, $hasFullPackage),
+            static fn (int $tranche) => ! in_array($tranche, $covered, true)
+        ));
+    }
+
+    /**
      * @return list<string>
      */
     public static function scheduleCategories(): array

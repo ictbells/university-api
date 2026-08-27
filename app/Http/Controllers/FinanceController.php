@@ -1123,8 +1123,14 @@ class FinanceController extends Controller
             ->selectRaw('COALESCE(SUM(COALESCE(programme_fees.amount, fee_items.amount, 0)), 0)');
 
         return [
-            'GREATEST(COALESCE(('.$invoiceFull->toSql().'), 0), COALESCE(('.$schedule->toSql().'), 0))',
-            array_merge($invoiceFull->getBindings(), $schedule->getBindings()),
+            'CASE WHEN COALESCE(('.$invoiceFull->toSql().'), 0) > COALESCE(('.$schedule->toSql().'), 0)'
+            .' THEN COALESCE(('.$invoiceFull->toSql().'), 0) ELSE COALESCE(('.$schedule->toSql().'), 0) END',
+            array_merge(
+                $invoiceFull->getBindings(),
+                $schedule->getBindings(),
+                $invoiceFull->getBindings(),
+                $schedule->getBindings(),
+            ),
         ];
     }
 
@@ -1160,9 +1166,11 @@ class FinanceController extends Controller
             return;
         }
 
-        $students->loadMissing('program');
         $studentIds = $students->pluck('id')->all();
         $userIds = $students->pluck('user_id')->filter()->unique()->values()->all();
+        foreach ($students as $student) {
+            $student->loadMissing('program');
+        }
 
         $invoices = Invoice::query()
             ->with(['payments' => fn ($query) => $query->whereNotIn('status', ['failed', 'cancelled'])])
