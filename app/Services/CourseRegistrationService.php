@@ -15,6 +15,7 @@ use App\Models\Program;
 use App\Models\RegistrationExtension;
 use App\Models\Setting;
 use App\Models\Student;
+use App\Models\StudentLevelProgression;
 use App\Models\UnitGrace;
 use App\Models\UnitLimit;
 use App\Models\User;
@@ -130,6 +131,7 @@ class CourseRegistrationService
             $this->fail('academic_term_id', 'No courses are registered for that semester.');
         }
 
+        $term->loadMissing('session');
         $context = $this->context($student, $term, ensureCarryOvers: false);
 
         $student->loadMissing(['program.department.faculty', 'user']);
@@ -175,7 +177,7 @@ class CourseRegistrationService
             'full_name' => $fullName,
             'matric_number' => $student->matric_number ?: '—',
             'programme' => $student->program?->name ?: '—',
-            'level' => $student->current_level ?: '—',
+            'level' => $this->levelForPrint($student, $term),
             'session' => $session,
             'semester' => $semester,
             'rows' => $rows,
@@ -903,9 +905,12 @@ class CourseRegistrationService
 
         return AcademicTerm::query()
             ->with('session')
-            ->whereIn('id', $termIds)
-            ->orderByDesc('academic_session_id')
-            ->orderBy('id')
+            ->whereIn('academic_terms.id', $termIds)
+            ->leftJoin('academic_sessions', 'academic_sessions.id', '=', 'academic_terms.academic_session_id')
+            ->orderByDesc('academic_sessions.starts_on')
+            ->orderBy('academic_terms.starts_on')
+            ->orderBy('academic_terms.id')
+            ->select('academic_terms.*')
             ->get()
             ->map(fn (AcademicTerm $term) => [
                 'id' => $term->id,
@@ -915,6 +920,41 @@ class CourseRegistrationService
                 'is_current' => (bool) $term->is_current,
             ])
             ->values();
+    }
+
+    private function levelForPrint(Student $student, AcademicTerm $term): string
+    {
+        $sessionId = (int) ($term->academic_session_id ?: 0);
+        if ($sessionId < 1) {
+            return $student->current_level !== null && $student->current_level !== ''
+                ? (string) $student->current_level
+                : '—';
+        }
+
+        $progressions = StudentLevelProgression::query()
+            ->with('session')
+            ->where('student_id', $student->id)
+            ->get();
+
+        $forSession = $progressions->firstWhere('academic_session_id', $sessionId);
+        if ($forSession) {
+            return (string) $forSession->from_level;
+        }
+
+        $startsOn = $term->session?->starts_on;
+        if ($startsOn) {
+            $later = $progressions
+                ->filter(fn (StudentLevelProgression $row) => $row->session?->starts_on && $row->session->starts_on->gt($startsOn))
+                ->sortBy(fn (StudentLevelProgression $row) => $row->session?->starts_on?->timestamp ?? 0)
+                ->first();
+            if ($later) {
+                return (string) $later->from_level;
+            }
+        }
+
+        return $student->current_level !== null && $student->current_level !== ''
+            ? (string) $student->current_level
+            : '—';
     }
 
     private function studentHasEnrollmentInTerm(Student $student, AcademicTerm $term): bool

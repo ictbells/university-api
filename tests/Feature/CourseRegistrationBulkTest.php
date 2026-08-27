@@ -14,6 +14,7 @@ use App\Models\Grade;
 use App\Models\Invoice;
 use App\Models\Program;
 use App\Models\Student;
+use App\Models\StudentLevelProgression;
 use App\Models\User;
 use App\Support\GradeStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -107,6 +108,72 @@ class CourseRegistrationBulkTest extends TestCase
         $this->assertStringContainsString('CHM101', $currentHtml);
         $this->assertStringNotContainsString('GST111', $currentHtml);
         $this->assertStringContainsString('Second', $currentHtml);
+    }
+
+    public function test_print_shows_the_level_for_the_selected_session(): void
+    {
+        [$user, $gst, $chm, $student] = $this->openStudentWithTwoOfferings();
+        $current = AcademicTerm::query()->where('is_current', true)->firstOrFail();
+        $oldSession = AcademicSession::query()->create([
+            'label' => '2025/2026',
+            'starts_on' => '2025-10-01',
+            'ends_on' => '2026-09-30',
+            'closed_at' => now(),
+        ]);
+        $oldTerm = AcademicTerm::query()->create([
+            'academic_session_id' => $oldSession->id,
+            'name' => 'First',
+            'session_label' => '2025/2026',
+            'is_current' => false,
+        ]);
+        $oldOffering = CourseOffering::query()->create([
+            'course_id' => $gst->course_id,
+            'academic_term_id' => $oldTerm->id,
+            'section' => 'A',
+        ]);
+        Enrollment::query()->create([
+            'student_id' => $student->id,
+            'course_offering_id' => $oldOffering->id,
+            'status' => 'enrolled',
+            'registered_at' => now()->subYear(),
+        ]);
+        $student->update(['current_level' => 200]);
+        StudentLevelProgression::query()->insert([
+            'student_id' => $student->id,
+            'academic_session_id' => $oldSession->id,
+            'program_id' => $student->program_id,
+            'from_level' => 100,
+            'to_level' => 200,
+            'created_at' => now(),
+        ]);
+        Enrollment::query()->create([
+            'student_id' => $student->id,
+            'course_offering_id' => $chm->id,
+            'status' => 'enrolled',
+            'registered_at' => now(),
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->getJson('/api/academic/my-registration')
+            ->assertOk()
+            ->assertJsonCount(2, 'print_terms');
+
+        $oldHtml = $this->get('/api/academic/my-registration/print?academic_term_id='.$oldTerm->id)
+            ->assertOk()
+            ->getContent();
+        $this->assertStringContainsString('GST111', $oldHtml);
+        $this->assertStringNotContainsString('CHM101', $oldHtml);
+        $this->assertStringContainsString('2025/2026', $oldHtml);
+        $this->assertStringContainsString('Level:</span> <span class="value">100</span>', $oldHtml);
+
+        $currentHtml = $this->get('/api/academic/my-registration/print?academic_term_id='.$current->id)
+            ->assertOk()
+            ->getContent();
+        $this->assertStringContainsString('CHM101', $currentHtml);
+        $this->assertStringNotContainsString('GST111', $currentHtml);
+        $this->assertStringContainsString('2026/2027', $currentHtml);
+        $this->assertStringContainsString('Level:</span> <span class="value">200</span>', $currentHtml);
     }
 
     public function test_single_course_offering_id_still_registers(): void

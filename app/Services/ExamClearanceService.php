@@ -2,12 +2,15 @@
 
 namespace App\Services;
 
+use App\Models\Campus;
 use App\Models\ClinicVisit;
 use App\Models\HostelAllocation;
 use App\Models\Invoice;
 use App\Models\MedicalBill;
+use App\Models\Setting;
 use App\Models\Student;
 use App\Support\ExamClearanceSettings;
+use App\Support\InstitutionLogo;
 use App\Support\TuitionProgress;
 
 class ExamClearanceService
@@ -93,14 +96,58 @@ class ExamClearanceService
         }
 
         $cleared = $checks === [] || collect($checks)->every(fn (array $row) => $row['passed']);
+        $term = $this->registration->currentTerm();
 
         return [
             'cleared' => $cleared,
             'status' => $cleared ? 'cleared' : 'not_cleared',
             'settings' => $settings,
             'checks' => $checks,
-            'term' => $this->registration->currentTerm()?->only(['id', 'name', 'code']),
+            'term' => $term ? [
+                'id' => $term->id,
+                'name' => $term->name,
+                'session_label' => $term->session?->label ?: $term->session_label,
+            ] : null,
         ];
+    }
+
+    public function printHtml(Student $student): string
+    {
+        $student->loadMissing(['program', 'user']);
+        $payload = $this->forStudent($student);
+        $name = trim(implode(' ', array_filter([
+            $student->first_name,
+            $student->middle_name,
+            $student->last_name,
+        ]))) ?: ($student->user?->name ?? 'Student');
+        $term = $payload['term'] ?? null;
+        $campus = Campus::query()->where('is_active', true)->orderBy('id')->first()
+            ?? Campus::query()->orderBy('id')->first();
+
+        return view('documents.exam-clearance', [
+            'institution' => [
+                'name' => (string) Setting::getValue('university_name', 'Bells University of Technology'),
+                'motto' => (string) Setting::getValue('university_motto', 'Chords of Knowledge'),
+                'address' => trim(collect([
+                    $campus?->address,
+                    $campus?->city,
+                ])->filter()->implode(', '))
+                    ?: 'KM 8, Idiroko Road, Benja Village P.M.B 1015, Ota, Ogun State',
+            ],
+            'logo_data_uri' => InstitutionLogo::dataUri(),
+            'full_name' => $name,
+            'matric_number' => $student->matric_number ?: '—',
+            'student_number' => $student->student_number ?: '—',
+            'programme' => $student->program?->name ?: '—',
+            'level' => $student->current_level !== null && $student->current_level !== ''
+                ? (string) $student->current_level
+                : '—',
+            'session' => $term['session_label'] ?? '—',
+            'semester' => $term['name'] ?? '—',
+            'cleared' => (bool) ($payload['cleared'] ?? false),
+            'checks' => $payload['checks'] ?? [],
+            'generated_at' => now()->format('d M Y, h:i A'),
+        ])->render();
     }
 
     public function summarize(Student $student): array

@@ -8,9 +8,13 @@ use App\Models\User;
 use App\Services\AuditWriter;
 use App\Services\OfficeApprovalService;
 use App\Services\StaffOfficePlacement;
+use App\Mail\StaffCredentialsMail;
 use App\Support\PasswordRules;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class UserController extends Controller
 {
@@ -67,6 +71,7 @@ class UserController extends Controller
             'email' => 'required|email|unique:users,email',
             'phone' => 'nullable|string|max:30',
             'password' => $replaying ? ['required', 'string'] : PasswordRules::rules(),
+            '_credential_cipher' => 'nullable|string',
             'status' => 'nullable|in:active,disabled',
             'role_ids' => 'array',
             'role_ids.*' => 'exists:roles,id',
@@ -78,10 +83,15 @@ class UserController extends Controller
         ], $replaying ? [] : PasswordRules::messages());
 
         if (! $replaying) {
-            $data['password'] = Hash::make($data['password']);
+            $plainPassword = (string) $data['password'];
+            $data['password'] = Hash::make($plainPassword);
+            $data['_credential_cipher'] = Crypt::encryptString($plainPassword);
         }
 
         return $this->officeGate('users.store', null, $data, 'Create user '.$data['email'], function () use ($request, $data) {
+            $plainPassword = $this->decryptStaffCredential($data['_credential_cipher'] ?? null);
+            unset($data['_credential_cipher']);
+
             $user = User::query()->create([
                 'name' => $data['name'],
                 'email' => $data['email'],
@@ -112,6 +122,7 @@ class UserController extends Controller
 
             $user = $user->load(['roles', 'staff']);
             $this->placement->enrich($user);
+            $this->emailStaffCredentials($user, $plainPassword);
 
             return response()->json($user, 201);
         });
@@ -295,5 +306,36 @@ class UserController extends Controller
             'staff_number' => 'STF-'.str_pad((string) $user->id, 4, '0', STR_PAD_LEFT),
             'title' => $payload['title'] ?? 'Staff',
         ]);
+    }
+
+    private function decryptStaffCredential(?string $cipher): ?string
+    {
+        if (! is_string($cipher) || $cipher === '') {
+            return null;
+        }
+
+        try {
+            $plain = Crypt::decryptString($cipher);
+
+            return is_string($plain) && $plain !== '' ? $plain : null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function emailStaffCredentials(User $user, ?string $plainPassword): void
+    {
+        if (! $plainPassword || $user->email === '' || $user->status === 'disabled') {
+            return;
+        }
+
+        try {
+            Mail::to($user->email)->send(new StaffCredentialsMail($user, $plainPassword));
+        } catch (\Throwable $exception) {
+            Log::warning('staff.credentials_email_failed', [
+                'user_id' => $user->id,
+                'message' => $exception->getMessage(),
+            ]);
+        }
     }
 }

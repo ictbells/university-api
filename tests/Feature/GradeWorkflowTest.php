@@ -222,6 +222,17 @@ class GradeWorkflowTest extends TestCase
             ->assertJsonPath('layout', 'department_matrix')
             ->assertJsonPath('students.0.matric_number', 'BU/2020/001');
 
+        $html = $this->get('/api/academic/results/reports/submission-list/department?academic_term_id='.$this->term->id.'&status=submitted&format=html')
+            ->assertOk()
+            ->assertHeader('content-type', 'text/html; charset=UTF-8')
+            ->getContent();
+        $this->assertStringContainsString('BU/2020/001', $html);
+        $this->assertStringContainsString('>A<', $html);
+
+        $this->getJson('/api/academic/results/reports/submission-list/department?format=html')
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('academic_term_id');
+
         $this->assertNotNull($grade->id);
     }
 

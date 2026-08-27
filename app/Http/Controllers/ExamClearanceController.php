@@ -6,22 +6,28 @@ use App\Models\Student;
 use App\Services\ExamClearanceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 
 class ExamClearanceController extends Controller
 {
     public function __construct(private ExamClearanceService $clearance) {}
 
-    public function mine(Request $request): JsonResponse
+    public function mine(Request $request): JsonResponse|Response
     {
         $student = $request->user()?->student;
         abort_unless($student, 404, 'Student record not found.');
 
-        $student->loadMissing('program');
+        $student->loadMissing(['program', 'user']);
+
+        if ($request->input('format') === 'html') {
+            return response($this->clearance->printHtml($student))
+                ->header('Content-Type', 'text/html; charset=UTF-8');
+        }
 
         return response()->json($this->payload($student));
     }
 
-    public function show(Request $request, Student $student): JsonResponse
+    public function show(Request $request, Student $student): JsonResponse|Response
     {
         abort_unless(
             $request->user()?->hasPermission('exam_clearance.view')
@@ -29,7 +35,12 @@ class ExamClearanceController extends Controller
             403
         );
 
-        $student->loadMissing('program');
+        $student->loadMissing(['program', 'user']);
+
+        if ($request->input('format') === 'html') {
+            return response($this->clearance->printHtml($student))
+                ->header('Content-Type', 'text/html; charset=UTF-8');
+        }
 
         return response()->json($this->payload($student));
     }
@@ -78,6 +89,7 @@ class ExamClearanceController extends Controller
                 'matric_number' => $student->matric_number,
                 'student_number' => $student->student_number,
                 'program' => $student->program?->name,
+                'current_level' => $student->current_level,
             ],
             ...$this->clearance->forStudent($student),
         ];

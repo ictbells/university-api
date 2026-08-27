@@ -402,11 +402,18 @@ class ResultsController extends Controller
 
     public function submissionList(Request $request, string $scope)
     {
-        abort_unless($request->user()->hasPermission('results.read'), 403);
+        abort_unless(
+            $request->user()->hasPermission('results.read')
+                || $request->user()->hasPermission('results.submit')
+                || $request->user()->hasPermission('results.faculty_approve')
+                || $request->user()->hasPermission('results.board'),
+            403
+        );
         abort_unless(in_array($scope, ['department', 'faculty', 'board'], true), 404);
 
         $data = $request->validate([
             'academic_term_id' => 'required|integer|exists:academic_terms,id',
+            'academic_session_id' => 'nullable|integer|exists:academic_sessions,id',
             'faculty_id' => 'nullable|integer|exists:faculties,id',
             'department_id' => 'nullable|integer|exists:departments,id',
             'status' => 'nullable|string',

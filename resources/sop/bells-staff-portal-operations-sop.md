@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.31  
+**Version:** 1.32  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -308,7 +308,7 @@ Pending work returns HTTP **202** with status `pending_approval`. The staff port
 
 | Task | Steps |
 |------|-------|
-| Create staff user | Users → Add user; set name, email, password, roles, optional staff title and office placement |
+| Create staff user | Users → Add user; set name, email, password, roles, optional staff title and office placement. The password is emailed to their work address when the account is created (or when office approval completes). Mail failure is logged and does not block create. |
 | Disable user | Edit user → set status to disabled (reason required) |
 | Reset password (admin) | Edit user → enter new password |
 | Assign roles | Edit user or use role assignment with audit reason |
@@ -498,10 +498,10 @@ After import, the applicant signs in on the student portal with **application nu
 - **Course catalog** — Course catalogue with Core / Elective / Required status; bulk spreadsheet import (`academic.courses.manage`).
 - **Programme courses** — Assign catalog courses to a programme by college, department, and admission category (UTME, Direct Entry, JUPEB, Transfer, Postgraduate). A programme that accepts several categories appears under each of them. This is the curriculum map; it is not the student registration list (`academic.programmes.manage`).
 - **Offerings** — Course offerings per semester (`academic.offerings.manage`). Filter by admission session and study level. Use **Publish programme courses** to create a section A (unlimited seats) for every mapped catalog course in the chosen semester; courses that already have an offering are skipped. Then add lecturers, extra sections, or capacity. Students register only from offerings in the **current** semester.
-- **Course registration** — Staff view of student enrolments (`academic.enrollments.manage`). On the student portal **Course registration** page, students see every available offering with a unit checklist (General | Faculty | Departmental | Overall), tick their choice, and submit with **one Register**. They must have paid at least 25% tuition before Register/Drop succeed; the catalogue stays visible while they are blocked. Staff can still register below that threshold when they provide a reason. Search the student picker by session and level.
+- **Course registration** — Staff view of student enrolments (`academic.enrollments.manage`). On the student portal **Course registration** page, students see every available offering with a unit checklist (General | Faculty | Departmental | Overall), tick their choice, and submit with **one Register**. They must have paid at least 25% tuition before Register/Drop succeed; the catalogue stays visible while they are blocked. Staff can still register below that threshold when they provide a reason. Search the student picker by session and level. **Print registered courses** opens a preview; students choose session and semester there to print an earlier registration. The form shows the level for that session, not the student's current level.
 - **Unit limits** — Credit-unit caps (`academic.enrollments.manage`). Filter by session and level.
 - **Registration extensions** — Review late-registration requests (`academic.extensions.review`). Filter by session and level.
-- **Exam clearance** — Exam clearance lists (`exam_clearance.view`)
+- **Exam clearance** — Exam clearance lists (`exam_clearance.view`). Open a student row to see each condition in a drawer. Students can print their own clearance slip from the student portal Academic page.
 
 Import students lives under **Admission Setup** (§8.4).
 
@@ -516,7 +516,7 @@ Result entry follows a controlled workflow before students can see grades on the
 | Results dashboard | Counts by status | `results.read` |
 | Result entry | Search students, enter CA/exam/total | `results.read` + `results.write` / `results.submit` |
 | CSV import | Bulk draft import (`matric,score` or ca/exam columns) | `results.import` |
-| Department uploads | Department grade list, submit drafts, print department list | `results.submit` |
+| Department uploads | Department grade list, submit drafts, print department list. **Grade** is the A–F letter from the total score and grading scale (staff do not type it). Print requires a semester. | `results.submit` |
 | Faculty Approval | Faculty approve/return submitted grades; print faculty list | `results.faculty_approve` |
 | Board | Board-ready/cleared records list; board clear / request corrections; printable board list | `results.board` |
 | Release | Release board-cleared grades to students | `results.release` |
@@ -750,6 +750,10 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.29 | Aug 2026 | Platform team | Programme fees can assign the same catalog lines to several levels at once (for example 200–500) |
 | 1.30 | Aug 2026 | Platform team | Session close invoices remaining school-fee shares; students pay previous-session arrears before current-session fees |
 | 1.31 | Aug 2026 | Platform team | Student tuition status and dashboard course count use the current session/semester only |
+| 1.32 | Aug 2026 | Platform team | Staff exam clearance opens a details drawer; students can print an exam clearance slip |
+| 1.32 | Aug 2026 | Platform team | Students print course registration by session and semester; the form shows the level for that session |
+| 1.33 | Aug 2026 | Platform team | Department result print uses the selected semester; Grade is the A–F letter from the total score |
+| 1.34 | Aug 2026 | Platform team | New staff accounts are emailed their staff-portal login details |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 
