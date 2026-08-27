@@ -1374,7 +1374,7 @@ class FinanceController extends Controller
             'total_amount' => $total > 0 ? $total : null,
             'line_count' => $lines->count(),
             'program' => $student->program?->only(['id', 'name', 'code']),
-            'tuition_percent_paid' => TuitionProgress::percentPaid($student),
+            'tuition_percent_paid' => TuitionProgress::currentSessionPercent($student),
             'available_installment_percents' => $prior->isNotEmpty()
                 ? []
                 : TuitionProgress::availableInstallmentPercents($student),

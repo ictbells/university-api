@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\AcademicSession;
+use App\Models\AcademicTerm;
 use App\Models\Campus;
 use App\Models\Department;
 use App\Models\Faculty;
@@ -330,6 +332,18 @@ class TuitionInstallmentTrancheTest extends TestCase
             'current_level' => '100',
         ]);
         Wallet::query()->create(['student_id' => $student->id, 'balance' => 0]);
+
+        $session = AcademicSession::query()->create([
+            'label' => '2025/2026',
+            'starts_on' => '2025-10-01',
+            'ends_on' => '2026-09-30',
+        ]);
+        AcademicTerm::query()->create([
+            'academic_session_id' => $session->id,
+            'name' => 'First',
+            'session_label' => '2025/2026',
+            'is_current' => true,
+        ]);
 
         return $student->fresh(['program']);
     }

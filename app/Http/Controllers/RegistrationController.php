@@ -90,7 +90,7 @@ class RegistrationController extends Controller
     private function decorate(Student $student, ?AcademicTerm $term): Student
     {
         $roster = $this->registration->rosterStatusFor($student, $term);
-        $student->setAttribute('tuition_percent', TuitionProgress::percentPaid($student));
+        $student->setAttribute('tuition_percent', TuitionProgress::currentSessionPercent($student));
         $student->setAttribute('course_reg_status', $roster['status']);
         $student->setAttribute('enrolled_units', $roster['enrolled_units']);
         $student->setAttribute('extension_status', $roster['extension_status']);

@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.30  
+**Version:** 1.31  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -395,7 +395,7 @@ At the end of an academic year, close the session to promote students and lock t
 1. Open **Academic → Admission Setup → Academic Sessions**.
 2. Confirm programme **duration** values are correct (they define final year: 4-year UG → 400L, 2-year PG → level 2).
 3. Click **Close session** on the target session. Review the preview counts (promoted, final-year unchanged, inactive skipped).
-4. Confirm **Close session and promote**. Remaining unpaid school-fee slices for the level just completed are invoiced as arrears (for example 3rd and 4th 25% after 50% was paid). All **active** students with a programme then move up one level (100→200 for UG, +1 for PG) until the programme final year. Students already at final year stay **active** with no level change (graduation is separate). Students must pay those previous-session invoices before generating or paying current-session tuition, and before course registration.
+4. Confirm **Close session and promote**. Remaining unpaid school-fee slices for the level just completed are invoiced as arrears (for example 3rd and 4th 25% after 50% was paid). All **active** students with a programme then move up one level (100→200 for UG, +1 for PG) until the programme final year. Students already at final year stay **active** with no level change (graduation is separate). Students must pay those previous-session invoices before generating or paying current-session tuition, and before course registration. Student-portal **Tuition fee payment** is current-session (and current-level) only — previous-year or previous-level receipts do not show as Part paid. Dashboard **Course registrations** counts the current semester only.
 5. Optional: enable **Auto-close on end date** when creating or editing a session so the nightly calendar job (`academic:sync-calendar`) closes the session after `ends_on` and runs the same promotion.
 
 Closed sessions cannot be deleted. Re-opening a closed session is not supported.
@@ -749,6 +749,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.26 | Aug 2026 | Platform team | Offerings can publish mapped programme courses for a semester (section A, unlimited; skips courses already offered) |
 | 1.29 | Aug 2026 | Platform team | Programme fees can assign the same catalog lines to several levels at once (for example 200–500) |
 | 1.30 | Aug 2026 | Platform team | Session close invoices remaining school-fee shares; students pay previous-session arrears before current-session fees |
+| 1.31 | Aug 2026 | Platform team | Student tuition status and dashboard course count use the current session/semester only |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

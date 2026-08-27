@@ -5,7 +5,10 @@ namespace Tests\Feature;
 use App\Models\AcademicSession;
 use App\Models\AcademicTerm;
 use App\Models\Campus;
+use App\Models\Course;
+use App\Models\CourseOffering;
 use App\Models\Department;
+use App\Models\Enrollment;
 use App\Models\Faculty;
 use App\Models\FeeItem;
 use App\Models\Invoice;
@@ -55,6 +58,86 @@ class FeeArrearsTest extends TestCase
         $this->assertEquals(12000.0, (float) $current['amount']);
         $this->assertSame('200', (string) $current['level_code']);
         $this->assertSame($newSession->id, (int) $current['academic_session_id']);
+    }
+
+    public function test_current_session_tuition_and_enrollments_ignore_previous_year(): void
+    {
+        [$student, $oldSession, $newSession] = $this->studentPaidHalfThenPromoted();
+        $oldTerm = AcademicTerm::query()->where('academic_session_id', $oldSession->id)->firstOrFail();
+        $newTerm = AcademicTerm::query()->where('academic_session_id', $newSession->id)->where('is_current', true)->firstOrFail();
+
+        $course = Course::query()->create([
+            'department_id' => $student->program->department_id,
+            'code' => 'CSC101',
+            'title' => 'Intro',
+            'units' => 3,
+            'course_type' => 'departmental',
+        ]);
+        $oldOffering = CourseOffering::query()->create([
+            'course_id' => $course->id,
+            'academic_term_id' => $oldTerm->id,
+            'section' => 'A',
+            'capacity' => 50,
+        ]);
+        CourseOffering::query()->create([
+            'course_id' => $course->id,
+            'academic_term_id' => $newTerm->id,
+            'section' => 'A',
+            'capacity' => 50,
+        ]);
+        Enrollment::query()->create([
+            'student_id' => $student->id,
+            'course_offering_id' => $oldOffering->id,
+            'status' => 'enrolled',
+            'registered_at' => now()->subYear(),
+        ]);
+
+        Sanctum::actingAs($student->user);
+
+        $this->assertSame(0.0, TuitionProgress::percentPaid($student->fresh()));
+        $this->assertSame(0.0, TuitionProgress::currentSessionPercent($student->fresh()));
+
+        $this->getJson('/api/academic/my-registration')
+            ->assertOk()
+            ->assertJsonPath('tuition_percent', 0)
+            ->assertJsonPath('enrollments', []);
+
+        $this->getJson('/api/academic/my-enrollments?current=1')
+            ->assertOk()
+            ->assertExactJson([]);
+
+        $all = $this->getJson('/api/academic/my-enrollments')->assertOk()->json();
+        $this->assertCount(1, $all);
+
+        AcademicTerm::query()->update(['is_current' => false]);
+        $this->assertSame(0.0, TuitionProgress::percentPaid($student->fresh()));
+        $this->assertSame(0.0, TuitionProgress::currentSessionPercent($student->fresh()));
+        $this->getJson('/api/academic/my-registration')
+            ->assertOk()
+            ->assertJsonPath('tuition_percent', 0)
+            ->assertJsonPath('enrollments', []);
+        $this->getJson('/api/academic/my-enrollments?current=1')
+            ->assertOk()
+            ->assertExactJson([]);
+    }
+
+    public function test_previous_level_receipts_on_current_session_do_not_count_as_part_paid(): void
+    {
+        [$student, , $newSession] = $this->studentPaidHalfThenPromoted();
+        Invoice::query()
+            ->where('student_id', $student->id)
+            ->where('category', 'tuition')
+            ->where('status', 'paid')
+            ->update(['academic_session_id' => $newSession->id]);
+
+        $this->assertSame(0.0, TuitionProgress::currentSessionPercent($student->fresh()));
+        Sanctum::actingAs($student->user);
+        $this->getJson('/api/academic/my-registration')
+            ->assertOk()
+            ->assertJsonPath('tuition_percent', 0);
+        $this->getJson('/api/my-programme-fees')
+            ->assertOk()
+            ->assertJsonPath('tuition_percent_paid', 0);
     }
 
     public function test_already_promoted_student_gets_arrears_invoice_on_wallet_load(): void

@@ -26,6 +26,8 @@ class HostelService
 {
     private AcademicSession|false|null $resolvedCurrentSession = false;
 
+    private bool $releasedStaleAllocations = false;
+
     public function __construct(
         private HostelRoomService $rooms,
         private InvoiceService $invoices,
@@ -42,9 +44,22 @@ class HostelService
 
     public function currentTermId(): ?int
     {
-        $value = Setting::getValue('current_term_id');
+        $live = AcademicTerm::query()->where('is_current', true)->value('id');
+        if ($live) {
+            return (int) $live;
+        }
 
-        return $value ? (int) $value : AcademicTerm::query()->where('is_current', true)->value('id');
+        $value = Setting::getValue('current_term_id');
+        if (! $value) {
+            return null;
+        }
+
+        $term = AcademicTerm::query()->with('session')->find((int) $value);
+        if (! $term || $term->session?->isClosed()) {
+            return null;
+        }
+
+        return (int) $term->id;
     }
 
     public function studentCategory(Student $student): string
@@ -71,12 +86,6 @@ class HostelService
 
         $windows = HostelLevelWindow::query()
             ->where('category', $category)
-            ->where(function (Builder $query) use ($termId) {
-                $query->whereNull('academic_term_id');
-                if ($termId) {
-                    $query->orWhere('academic_term_id', $termId);
-                }
-            })
             ->with('academicLevel')
             ->get()
             ->groupBy('academic_level_id');
@@ -154,10 +163,18 @@ class HostelService
             ->values()
             ->all();
 
+        $this->ensureStaleSessionAllocationsReleased();
+        $currentTermIds = $this->currentSessionTermIds();
+
         $query = Student::query()
             ->with(['application', 'program', 'activeHostelAllocation'])
             ->where('status', 'active')
-            ->whereDoesntHave('hostelAllocations', fn (Builder $inner) => $inner->whereIn('status', ['allocated', 'pending']))
+            ->whereDoesntHave('hostelAllocations', function (Builder $inner) use ($currentTermIds) {
+                $inner->whereIn('status', ['allocated', 'pending']);
+                if ($currentTermIds !== []) {
+                    $inner->whereIn('academic_term_id', $currentTermIds);
+                }
+            })
             ->when($category === Hostel::CATEGORY_JUPEB, function (Builder $inner) {
                 $inner->where(function (Builder $scope) {
                     $scope->where('study_level', 'jupeb')
@@ -231,7 +248,8 @@ class HostelService
             ]);
         }
 
-        if ($student->hostelAllocations()->whereIn('status', ['allocated', 'pending'])->exists()) {
+        $this->ensureStaleSessionAllocationsReleased();
+        if ($this->currentSessionAllocationsQuery($student->id)->exists()) {
             throw ValidationException::withMessages(['student_id' => 'Student already has a hostel bed request or allocation.']);
         }
 
@@ -263,6 +281,8 @@ class HostelService
 
     public function hostelBedCounts(): Collection
     {
+        $this->ensureStaleSessionAllocationsReleased();
+
         return HostelBed::query()
             ->join('hostel_rooms', 'hostel_rooms.id', '=', 'hostel_beds.hostel_room_id')
             ->join('hostel_blocks', 'hostel_blocks.id', '=', 'hostel_rooms.hostel_block_id')
@@ -280,6 +300,7 @@ class HostelService
 
     public function hostelStats(): array
     {
+        $this->ensureStaleSessionAllocationsReleased();
         $hostelCount = Hostel::query()->count();
         $byCategory = Hostel::query()
             ->selectRaw('category, COUNT(*) as hostels')
@@ -479,6 +500,7 @@ class HostelService
 
     public function selectionHostelsForStudent(Student $student): array
     {
+        $this->ensureStaleSessionAllocationsReleased();
         $category = $this->studentCategory($student);
         $gender = strtolower((string) $student->gender);
 
@@ -565,16 +587,13 @@ class HostelService
 
     public function studentSnapshot(Student $student): array
     {
+        $this->ensureStaleSessionAllocationsReleased();
+        $student->unsetRelation('activeHostelAllocation');
         $student->loadMissing(['application', 'activeHostelAllocation.bed.room.block.hostel']);
         $category = $this->studentCategory($student);
         $window = $this->windowForStudent($student);
-        $active = $student->activeHostelAllocation;
-        $pending = HostelAllocation::query()
-            ->with(['bed.room.block.hostel', 'academicTerm'])
-            ->where('student_id', $student->id)
-            ->where('status', 'pending')
-            ->latest()
-            ->first();
+        $active = $this->currentSessionAllocation($student->id, 'allocated');
+        $pending = $this->currentSessionAllocation($student->id, 'pending');
         $allocation = $active ?: $pending;
         $open = $this->isLevelOpen($category, $student);
         $tuitionOk = TuitionProgress::meetsMinimum($student);
@@ -589,7 +608,7 @@ class HostelService
             'window' => $window,
             'window_open' => $open,
             'tuition_ok' => $tuitionOk,
-            'tuition_percent' => TuitionProgress::percentPaid($student),
+            'tuition_percent' => TuitionProgress::currentSessionPercent($student),
             'can_select' => $canSelect,
             'allocation' => $allocation ? $this->formatAllocation($allocation) : null,
             'history' => HostelAllocation::query()
@@ -770,12 +789,6 @@ class HostelService
         $windows = HostelLevelWindow::query()
             ->where('category', $category)
             ->where('academic_level_id', $academicLevelId)
-            ->where(function (Builder $query) use ($termId) {
-                $query->whereNull('academic_term_id');
-                if ($termId) {
-                    $query->orWhere('academic_term_id', $termId);
-                }
-            })
             ->get();
 
         return $this->preferTermWindow($windows, $termId);
@@ -793,7 +806,15 @@ class HostelService
             }
         }
 
-        return $windows->firstWhere('academic_term_id', null) ?? $windows->first();
+        $global = $windows->firstWhere('academic_term_id', null);
+        if ($global) {
+            return $global;
+        }
+
+        $active = $windows->filter(fn (HostelLevelWindow $window) => $window->is_active)
+            ->sortByDesc(fn (HostelLevelWindow $window) => $window->updated_at?->timestamp ?? 0);
+
+        return $active->first() ?? $windows->sortByDesc(fn (HostelLevelWindow $window) => $window->updated_at?->timestamp ?? 0)->first();
     }
 
     private function windowIsOpen(?HostelLevelWindow $window): bool
@@ -820,34 +841,18 @@ class HostelService
     private function effectiveWindowBounds(?HostelLevelWindow $window): array
     {
         $session = $this->currentSession();
-        $sessionOpens = $session?->starts_on?->copy()->startOfDay();
-        $sessionCloses = $this->sessionClosesAt($session);
+        $sessionClosed = $session?->closed_at;
 
-        $opens = $window?->opens_at ?? $sessionOpens;
+        $opens = $window?->opens_at;
         $closes = $window?->closes_at;
-        if ($sessionCloses) {
-            $closes = $closes && $closes->lt($sessionCloses) ? $closes : $sessionCloses;
+        if ($sessionClosed) {
+            $closes = $closes && $closes->lt($sessionClosed) ? $closes : $sessionClosed;
         }
 
         return [
             'opens_at' => $opens,
             'closes_at' => $closes,
         ];
-    }
-
-    private function sessionClosesAt(?AcademicSession $session): ?Carbon
-    {
-        if (! $session) {
-            return null;
-        }
-
-        $end = $session->ends_on?->copy()->endOfDay();
-        $closed = $session->closed_at;
-        if ($end && $closed) {
-            return $closed->lt($end) ? $closed : $end;
-        }
-
-        return $closed ?? $end;
     }
 
     private function currentSession(): ?AcademicSession
@@ -862,6 +867,107 @@ class HostelService
             : null;
 
         return $this->resolvedCurrentSession;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function currentSessionTermIds(): array
+    {
+        $session = $this->currentSession();
+        if ($session) {
+            return AcademicTerm::query()
+                ->where('academic_session_id', $session->id)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+        }
+
+        $termId = $this->currentTermId();
+
+        return $termId ? [(int) $termId] : [];
+    }
+
+    private function currentSessionAllocationsQuery(int $studentId): Builder
+    {
+        $termIds = $this->currentSessionTermIds();
+
+        return HostelAllocation::query()
+            ->where('student_id', $studentId)
+            ->whereIn('status', ['allocated', 'pending'])
+            ->when(
+                $termIds !== [],
+                fn (Builder $query) => $query->whereIn('academic_term_id', $termIds),
+            );
+    }
+
+    private function currentSessionAllocation(int $studentId, string $status): ?HostelAllocation
+    {
+        return $this->currentSessionAllocationsQuery($studentId)
+            ->with(['bed.room.block.hostel', 'academicTerm'])
+            ->where('status', $status)
+            ->latest()
+            ->first();
+    }
+
+    private function ensureStaleSessionAllocationsReleased(): void
+    {
+        if ($this->releasedStaleAllocations) {
+            return;
+        }
+        $this->releasedStaleAllocations = true;
+
+        $termIds = $this->currentSessionTermIds();
+        $session = $this->currentSession();
+        $query = HostelAllocation::query()
+            ->with(['bed.room.block.hostel'])
+            ->whereIn('status', ['allocated', 'pending']);
+
+        if ($termIds !== []) {
+            $query->where(function (Builder $inner) use ($termIds, $session) {
+                $inner->where(function (Builder $row) use ($termIds) {
+                    $row->whereNotNull('academic_term_id')
+                        ->whereNotIn('academic_term_id', $termIds);
+                });
+                if ($session?->starts_on) {
+                    $inner->orWhere(function (Builder $row) use ($session) {
+                        $row->whereNull('academic_term_id')
+                            ->where(function (Builder $dates) use ($session) {
+                                $dates->whereNull('allocated_at')
+                                    ->orWhere('allocated_at', '<', $session->starts_on->copy()->startOfDay());
+                            });
+                    });
+                }
+            });
+        }
+
+        foreach ($query->get() as $allocation) {
+            $this->releaseAllocationRecord($allocation);
+        }
+    }
+
+    private function releaseAllocationRecord(HostelAllocation $allocation): void
+    {
+        $allocation->update([
+            'status' => $allocation->status === 'pending' ? 'rejected' : 'vacated',
+            'vacated_at' => now(),
+        ]);
+
+        $bed = $allocation->bed;
+        if ($bed && in_array($bed->status, ['occupied', 'reserved'], true)) {
+            $stillHeld = HostelAllocation::query()
+                ->where('hostel_bed_id', $bed->id)
+                ->whereIn('status', ['allocated', 'pending'])
+                ->where('id', '!=', $allocation->id)
+                ->exists();
+            if (! $stillHeld) {
+                $bed->update(['status' => 'available']);
+            }
+        }
+        if ($bed?->room && $bed->room->block?->hostel) {
+            $this->rooms->resetRoomGenderIfEmpty($bed->room, $bed->room->block->hostel);
+            $this->rooms->applyRoomAvailability($bed->room->fresh('beds'));
+        }
     }
 
     private function academicLevelBand(AcademicLevel|Student|string|int $source): ?int

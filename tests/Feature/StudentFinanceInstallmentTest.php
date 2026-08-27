@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\AcademicSession;
+use App\Models\AcademicTerm;
 use App\Models\Campus;
 use App\Models\Department;
 use App\Models\Faculty;
@@ -424,6 +426,17 @@ class StudentFinanceInstallmentTest extends TestCase
             'balance' => 5750,
         ]);
 
+        $session = AcademicSession::query()->create([
+            'label' => '2025/2026',
+            'starts_on' => '2025-10-01',
+            'ends_on' => '2026-09-30',
+        ]);
+        AcademicTerm::query()->create([
+            'academic_session_id' => $session->id,
+            'name' => 'First',
+            'session_label' => '2025/2026',
+            'is_current' => true,
+        ]);
         $tuition = Invoice::query()->create([
             'number' => 'INV-20260825-TUITION',
             'user_id' => $user->id,
@@ -435,6 +448,8 @@ class StudentFinanceInstallmentTest extends TestCase
             'balance' => 0,
             'status' => 'paid',
             'wallet_allowed' => true,
+            'academic_session_id' => $session->id,
+            'level_code' => '100',
         ]);
         Payment::query()->create([
             'user_id' => $user->id,

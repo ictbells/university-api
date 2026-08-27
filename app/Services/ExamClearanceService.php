@@ -20,9 +20,9 @@ class ExamClearanceService
         $checks = [];
 
         if ($settings['tuition_paid']) {
-            $percent = TuitionProgress::percentPaid($student);
+            $percent = TuitionProgress::currentSessionPercent($student);
             $required = (int) $settings['tuition_percent'];
-            $ok = TuitionProgress::meetsMinimum($student, $required);
+            $ok = $percent >= $required;
             $checks[] = $this->check(
                 'tuition_paid',
                 "Tuition paid ({$required}%)",

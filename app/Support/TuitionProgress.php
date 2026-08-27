@@ -15,9 +15,29 @@ class TuitionProgress
         return $id ? (int) $id : null;
     }
 
+    /**
+     * Tuition paid toward the live academic session and the student's current level.
+     * Previous-session or previous-level receipts do not count. Returns 0 when no semester is current.
+     */
+    public static function currentSessionPercent(Student $student): float
+    {
+        $sessionId = self::currentSessionId();
+        if (! $sessionId) {
+            return 0.0;
+        }
+
+        return self::percentPaid($student, $sessionId);
+    }
+
     public static function percentPaid(Student $student, ?int $sessionId = null, bool $includeLegacy = false, ?string $levelCode = null): float
     {
         $sessionId ??= $includeLegacy ? null : self::currentSessionId();
+        if (! $sessionId && ! $includeLegacy) {
+            return 0.0;
+        }
+        if (! $includeLegacy && ($levelCode === null || $levelCode === '') && $student->current_level !== null && $student->current_level !== '') {
+            $levelCode = (string) $student->current_level;
+        }
         $query = $student->invoices()
             ->where('category', 'tuition')
             ->whereIn('status', ['paid', 'partial']);
@@ -29,7 +49,7 @@ class TuitionProgress
                 }
             });
         }
-        if ($includeLegacy && $levelCode) {
+        if ($levelCode) {
             $query->where(function ($builder) use ($levelCode) {
                 $builder->whereNull('level_code')
                     ->orWhere('level_code', 'all')

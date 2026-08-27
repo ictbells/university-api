@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AcademicLevel;
+use App\Models\AcademicTerm;
 use App\Models\Course;
 use App\Models\Program;
 use App\Models\Staff;
@@ -394,7 +395,16 @@ class AcademicController extends Controller
         $student = $request->user()->student;
         abort_unless($student, 404);
 
-        $rows = $student->enrollments()->with(['offering.course', 'grades', 'grade'])->get();
+        $query = $student->enrollments()->with(['offering.course', 'grades', 'grade']);
+        if ($request->boolean('current')) {
+            $termId = AcademicTerm::query()->where('is_current', true)->value('id');
+            if (! $termId) {
+                return [];
+            }
+            $query->enrolled()->whereHas('offering', fn ($offerings) => $offerings->where('academic_term_id', $termId));
+        }
+
+        $rows = $query->get();
 
         return $rows->map(function ($enrollment) {
             $released = $enrollment->grades
