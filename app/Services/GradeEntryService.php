@@ -10,8 +10,12 @@ use App\Support\GradeAuditLogger;
 use App\Support\GradeLetterResolver;
 use App\Support\GradeScoreComposer;
 use App\Support\GradeStatus;
+use App\Support\ResultImportColumns;
+use App\Support\SpreadsheetImport;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class GradeEntryService
 {
@@ -110,6 +114,35 @@ class GradeEntryService
         $grade->delete();
     }
 
+    public function importTemplate(): StreamedResponse
+    {
+        return SpreadsheetImport::templateDownload(
+            ResultImportColumns::SHEET,
+            ResultImportColumns::all(),
+            ResultImportColumns::instructions(),
+            ResultImportColumns::samples(),
+            ResultImportColumns::FILENAME,
+        );
+    }
+
+    /**
+     * @return array{created: int, updated: int, errors: list<string>}
+     */
+    public function importUpload(UploadedFile $file, int $courseOfferingId, string $scoreComponent, User $actor): array
+    {
+        return $this->importCsv($this->fileToCsv($file), $courseOfferingId, $scoreComponent, $actor);
+    }
+
+    public function fileToCsv(UploadedFile $file): string
+    {
+        $extension = strtolower($file->getClientOriginalExtension());
+        if (in_array($extension, ['xlsx', 'xls'], true)) {
+            return $this->spreadsheetToCsv($file->getRealPath() ?: '');
+        }
+
+        return (string) file_get_contents($file->getRealPath());
+    }
+
     /**
      * @return array{created: int, updated: int, errors: list<string>}
      */
@@ -201,5 +234,36 @@ class GradeEntryService
         }
 
         return compact('created', 'updated', 'errors');
+    }
+
+    private function spreadsheetToCsv(string $path): string
+    {
+        if ($path === '' || ! is_readable($path)) {
+            throw ValidationException::withMessages(['file' => 'Unable to read the uploaded spreadsheet.']);
+        }
+
+        $rows = SpreadsheetImport::readRows($path, ResultImportColumns::SHEET);
+        if ($rows === [] || SpreadsheetImport::rowEmpty($rows[0] ?? [])) {
+            $rows = SpreadsheetImport::readRows($path);
+        }
+        if ($rows === []) {
+            throw ValidationException::withMessages(['file' => 'Spreadsheet is empty.']);
+        }
+
+        $handle = fopen('php://temp', 'r+');
+        if ($handle === false) {
+            throw ValidationException::withMessages(['file' => 'Unable to prepare the spreadsheet for import.']);
+        }
+        foreach ($rows as $row) {
+            if (! is_array($row) || SpreadsheetImport::rowEmpty($row)) {
+                continue;
+            }
+            fputcsv($handle, $row);
+        }
+        rewind($handle);
+        $csv = stream_get_contents($handle) ?: '';
+        fclose($handle);
+
+        return $csv;
     }
 }

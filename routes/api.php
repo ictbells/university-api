@@ -408,6 +408,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::post('/academic/results/board-scopes/request-corrections', [ResultsController::class, 'boardRequestCorrections']);
         Route::post('/academic/results/release', [ResultsController::class, 'release']);
         Route::post('/academic/results/import', [ResultsController::class, 'import']);
+        Route::get('/academic/results/import-template', [ResultsController::class, 'importTemplate']);
         Route::get('/academic/results/students', [ResultsController::class, 'students']);
         Route::get('/academic/results/students/{student}', [ResultsController::class, 'studentGrades']);
         Route::get('/academic/results/students/{student}/transcript', [ResultsController::class, 'staffTranscript']);

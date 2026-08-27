@@ -20,6 +20,7 @@ use Dompdf\Dompdf;
 use Dompdf\Options;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ResultsController extends Controller
 {
@@ -258,6 +259,13 @@ class ResultsController extends Controller
         );
     }
 
+    public function importTemplate(Request $request): StreamedResponse
+    {
+        abort_unless($request->user()->hasPermission('results.import'), 403);
+
+        return $this->entry->importTemplate();
+    }
+
     public function import(Request $request)
     {
         abort_unless($request->user()->hasPermission('results.import'), 403);
@@ -268,7 +276,7 @@ class ResultsController extends Controller
             'file' => 'required_without:csv|file',
         ]);
 
-        $csv = $data['csv'] ?? file_get_contents($request->file('file')->getRealPath());
+        $csv = $data['csv'] ?? $this->entry->fileToCsv($request->file('file'));
         $payload = [
             'course_offering_id' => (int) $data['course_offering_id'],
             'score_component' => $data['score_component'] ?? 'total',

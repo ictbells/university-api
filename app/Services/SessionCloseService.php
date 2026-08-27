@@ -18,7 +18,7 @@ class SessionCloseService
 
     private const SAMPLE_LIMIT = 5;
 
-    public function __construct(private AuditWriter $audit) {}
+    public function __construct(private AuditWriter $audit, private CourseRegistrationService $registration) {}
 
     /**
      * @return array{
@@ -58,6 +58,9 @@ class SessionCloseService
         return DB::transaction(function () use ($session, $trigger, $actor) {
             $locked = AcademicSession::query()->lockForUpdate()->findOrFail($session->id);
             $this->assertNotClosed($locked);
+
+            $locked->loadMissing('semesters');
+            $this->registration->failUnderloadedSessionRegistrations($locked);
 
             $summary = $this->summarize($locked, write: true, actor: $actor);
 

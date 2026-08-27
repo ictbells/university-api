@@ -3,11 +3,13 @@
 namespace App\Services;
 
 use App\Models\AcademicLevel;
+use App\Models\AcademicSession;
 use App\Models\AcademicTerm;
 use App\Models\Campus;
 use App\Models\Course;
 use App\Models\CourseOffering;
 use App\Models\Enrollment;
+use App\Models\Grade;
 use App\Models\Invoice;
 use App\Models\Program;
 use App\Models\RegistrationExtension;
@@ -16,6 +18,8 @@ use App\Models\Student;
 use App\Models\UnitGrace;
 use App\Models\UnitLimit;
 use App\Models\User;
+use App\Support\GradeLetterResolver;
+use App\Support\GradeStatus;
 use App\Support\InstitutionLogo;
 use App\Support\StudyLevel;
 use App\Support\TuitionProgress;
@@ -811,6 +815,73 @@ class CourseRegistrationService
         return $picked;
     }
 
+    public function failUnderloadedSessionRegistrations(AcademicSession $session): int
+    {
+        $count = 0;
+        foreach ($session->semesters as $term) {
+            $count += $this->failUnderloadedRegistrations($term);
+        }
+
+        return $count;
+    }
+
+    public function failUnderloadedRegistrations(AcademicTerm $term): int
+    {
+        $studentIds = Enrollment::query()
+            ->enrolled()
+            ->whereHas('offering', fn ($query) => $query->where('academic_term_id', $term->id))
+            ->distinct()
+            ->pluck('student_id');
+        if ($studentIds->isEmpty()) {
+            return 0;
+        }
+
+        $count = 0;
+        foreach ($studentIds->chunk(200) as $chunk) {
+            $students = Student::query()
+                ->with(['program.department.faculty'])
+                ->whereIn('id', $chunk)
+                ->get();
+            foreach ($students as $student) {
+                $enrolled = $this->enrolledRows($student, $term);
+                if ($enrolled->isEmpty()) {
+                    continue;
+                }
+                $limits = $this->resolvedLimits($student, $term);
+                if (! $this->hasRequiredUnitMinimum($limits)) {
+                    continue;
+                }
+                $units = $this->unitsByBucket($enrolled);
+                if (! $this->belowRequiredUnits($units, $limits)) {
+                    continue;
+                }
+                foreach ($enrolled as $row) {
+                    if ($this->markEnrollmentFailedForUnderload($row, $term)) {
+                        $count++;
+                    }
+                }
+            }
+        }
+
+        if ($count > 0) {
+            $this->audit->record(
+                'registration.underload_failed',
+                "{$count} registered course(s) failed because the unit minimum was not met",
+                'academic',
+                'academic_term',
+                $term->id,
+                null,
+                [
+                    'academic_term_id' => $term->id,
+                    'failed_count' => $count,
+                ],
+                'Programme unit minimum not met',
+            );
+        }
+
+        return $count;
+    }
+
     /** @return \Illuminate\Support\Collection<int, array{id: int, name: string, session_label: string, academic_session_id: int|null, is_current: bool}> */
     public function printableTerms(Student $student): Collection
     {
@@ -898,6 +969,72 @@ class CourseRegistrationService
         }
 
         return 'registered';
+    }
+
+    /** @param array<string, array{min: ?int, max: ?int, grace: int}> $limits */
+    private function hasRequiredUnitMinimum(array $limits): bool
+    {
+        foreach (self::BUCKETS as $bucket) {
+            if (($limits[$bucket]['min'] ?? null) !== null) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, array{min: ?int, max: ?int, grace: int}> $limits */
+    private function belowRequiredUnits(array $units, array $limits): bool
+    {
+        foreach (self::BUCKETS as $bucket) {
+            $min = $limits[$bucket]['min'] ?? null;
+            if ($min !== null && (int) ($units[$bucket] ?? 0) < $min) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function markEnrollmentFailedForUnderload(Enrollment $row, AcademicTerm $term): bool
+    {
+        $row->loadMissing(['offering.course.department', 'grades']);
+        $existing = $row->grades
+            ->first(fn (Grade $grade) => ($grade->sitting ?: GradeStatus::SITTING_MAIN) === GradeStatus::SITTING_MAIN);
+        if ($existing && GradeStatus::isReleased((string) $existing->status) && $existing->source !== 'unit_requirement') {
+            return false;
+        }
+        if ($existing && GradeStatus::isReleased((string) $existing->status) && $existing->source === 'unit_requirement') {
+            return false;
+        }
+
+        $course = $row->offering?->course;
+        $org = $course ? GradeWorkflowService::orgSnapshotFromCourse($course) : [
+            'upload_lane' => null,
+            'faculty_id' => null,
+            'department_id' => null,
+        ];
+        $payload = [
+            'enrollment_id' => $row->id,
+            'sitting' => GradeStatus::SITTING_MAIN,
+            'letter' => 'F',
+            'points' => GradeLetterResolver::gradePointForLetter('F') ?? 0,
+            'score' => 0,
+            'status' => GradeStatus::RELEASED,
+            'source' => 'unit_requirement',
+            'source_ref' => 'term:'.$term->id,
+            'released_at' => now(),
+            'upload_lane' => $org['upload_lane'],
+            'faculty_id' => $org['faculty_id'],
+            'department_id' => $org['department_id'],
+        ];
+        if ($existing) {
+            $existing->update($payload);
+        } else {
+            Grade::query()->create($payload);
+        }
+
+        return true;
     }
 
     private function studentCanMutate(Student $student, AcademicTerm $term, ?RegistrationExtension $extension, bool $throw): bool

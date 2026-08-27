@@ -224,6 +224,15 @@ class GradeWorkflowTest extends TestCase
         $this->assertNotNull($grade->id);
     }
 
+    public function test_staff_can_download_results_import_template(): void
+    {
+        Sanctum::actingAs($this->staffUser);
+
+        $this->get('/api/academic/results/import-template')
+            ->assertOk()
+            ->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    }
+
     public function test_cannot_edit_after_submit(): void
     {
         Sanctum::actingAs($this->staffUser);

@@ -32,6 +32,7 @@ class AcademicCalendarService
 
         foreach ($expired as $term) {
             $term->update(['is_current' => false]);
+            app(CourseRegistrationService::class)->failUnderloadedRegistrations($term);
             $closed[] = $term->fresh('session');
         }
 
