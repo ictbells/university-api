@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.32  
+**Version:** 1.35  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -584,11 +584,11 @@ E-exam sync is not included in this release.
 
 #### Programme fees (25% matrix)
 
-The bursary sheet is four stacks of named lines with fixed naira amounts, grouped by college/department. Do **not** put the same catalog line on 25% and again on 50%. Create separate catalog items when the same name appears in more than one block (for example **Tuition · 1st 25%** and **Tuition · 2nd 25%**), because the amounts differ.
+The bursary sheet is four stacks of named lines (1st–4th 25%) with fixed naira amounts, grouped by college/department. **50% / 75% / 100%** are student payment choices, not extra catalog stacks: choosing 50% bills unpaid 1st + 2nd slices. You **may** reuse one catalog item across slices — on Programme fees, select 1st–4th 25% on that item and set a naira override per assignment. Separate catalog items (for example **Tuition · 1st 25%** and **Tuition · 2nd 25%**) are optional, useful when bursary names each stack or when a catalog default is permanently tagged to one slice.
 
 1. **Fee categories** — mark school charges as programme-schedule (tuition, infrastructure, accommodation, BUSA, ICT, laboratory, and any other sheet heading). Reuse an existing category when the name already matches.
-2. **Fee items** — one catalog line per sheet row, with the matching installment share. Default amount can be the most common cell or 0.
-3. **Programme fees** — for each spreadsheet column, pick one programme in that group, assign every non-dash cell with its naira override, then **Copy schedule** to the other programmes in the same college (use Select all in this department when the group is one department). When 200–500 pay the same amount, select those levels together instead of repeating the assignment. **All levels** is one shared line. Dashes stay unassigned. Blank or 0 amounts are skipped on invoices.
+2. **Fee items** — one catalog line per charge name (Tuition, ICT, …). Tag an installment share on the catalog item when that line is only ever one slice; otherwise leave it blank and set slices on Programme fees.
+3. **Programme fees** — for each spreadsheet column, pick one programme in that group, assign every non-dash cell with its naira override (and slice if the catalog item is untagged), then **Copy schedule** to the other programmes in the same college (use Select all in this department when the group is one department). When 200–500 pay the same amount, select those levels together instead of repeating the assignment. **All levels** is one shared line. Dashes stay unassigned. Blank or 0 amounts are skipped on invoices.
 4. Skip **Full 100% (pay at once)** unless bursary wants a discounted lump sum. The sheet grand total is 1st + 2nd + 3rd + 4th 25%. Students who choose 50% or 75% still receive the next unpaid slices, not a pro-rata of that grand total.
 
 #### Import invoices and wallet history
@@ -767,6 +767,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.32 | Aug 2026 | Platform team | Students print course registration by session and semester; the form shows the level for that session |
 | 1.33 | Aug 2026 | Platform team | Department result print uses the selected semester; Grade is the A–F letter from the total score |
 | 1.34 | Aug 2026 | Platform team | New staff accounts are emailed their staff-portal login details |
+| 1.35 | Aug 2026 | Platform team | Programme fees may reuse one catalog item across 1st–4th 25% slices; 50%/75%/100% are student choices, not extra catalog stacks |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

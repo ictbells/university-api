@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\GradeLetterResolver;
 use App\Support\GradeStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -127,6 +128,45 @@ class Grade extends BaseModel
     public function courseUnits(): int
     {
         return (int) ($this->resolvedOffering()?->course?->units ?? 0);
+    }
+
+    public function resolvedLetter(): string
+    {
+        $letter = strtoupper(trim((string) ($this->letter ?? '')));
+        if ($letter !== '') {
+            return $letter;
+        }
+        if ($this->score === null || $this->score === '') {
+            return '';
+        }
+        $resolved = GradeLetterResolver::fromScore((float) $this->score);
+
+        return strtoupper(trim((string) ($resolved['letter'] ?? '')));
+    }
+
+    public function resolvedGradePoints(): float
+    {
+        $letter = $this->resolvedLetter();
+        if ($letter === 'F') {
+            return 0.0;
+        }
+        if ($this->points !== null && (float) $this->points > 0) {
+            return (float) $this->points;
+        }
+        if ($letter !== '') {
+            $fromLetter = GradeLetterResolver::gradePointForLetter($letter);
+            if ($fromLetter !== null) {
+                return (float) $fromLetter;
+            }
+        }
+        if ($this->score !== null && $this->score !== '') {
+            $resolved = GradeLetterResolver::fromScore((float) $this->score);
+            if ($resolved !== null) {
+                return (float) $resolved['grade_point'];
+            }
+        }
+
+        return (float) ($this->points ?? 0);
     }
 
     public function getRegistrationHeldAttribute(): bool

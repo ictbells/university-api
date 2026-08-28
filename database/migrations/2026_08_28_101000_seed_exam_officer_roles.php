@@ -14,7 +14,7 @@ return new class extends Migration
                 'description' => 'Campus-wide exam officer: enter, submit, approve, board, and release results.',
                 'keys' => [
                     'results.read', 'results.write', 'results.submit', 'results.faculty_approve',
-                    'results.board', 'results.release', 'results.import',
+                    'results.board', 'results.release', 'results.import', 'scales.manage',
                 ],
             ],
             'faculty-exam-officer' => [

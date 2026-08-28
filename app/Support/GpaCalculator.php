@@ -34,7 +34,7 @@ final class GpaCalculator
             if ($credits <= 0) {
                 continue;
             }
-            $point = (float) ($grade->points ?? 0);
+            $point = $grade->resolvedGradePoints();
             $totalPoints += $point * $credits;
             $totalCredits += $credits;
         }

@@ -83,10 +83,10 @@ final class StudentProgressMetrics
             $failedCodes = [];
             foreach ($eligibleSemester as $row) {
                 $units = self::units($row);
-                $letter = strtoupper((string) ($row->letter ?? ''));
-                if ($letter === 'F') {
+                $letter = $row->resolvedLetter();
+                if ($letter === '' || $letter === 'F') {
                     $code = (string) (self::courseCode($row) ?? '');
-                    if ($code !== '') {
+                    if ($letter === 'F' && $code !== '') {
                         $failedCodes[] = $code;
                     }
 
@@ -101,8 +101,8 @@ final class StudentProgressMetrics
             $tupToDate = 0;
             foreach ($eligibleToDate as $row) {
                 $units = self::units($row);
-                $letter = strtoupper((string) ($row->letter ?? ''));
-                if ($letter === 'F' || $units <= 0) {
+                $letter = $row->resolvedLetter();
+                if ($letter === '' || $letter === 'F' || $units <= 0) {
                     continue;
                 }
                 $tupToDate += $units;

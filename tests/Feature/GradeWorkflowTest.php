@@ -251,6 +251,31 @@ class GradeWorkflowTest extends TestCase
         $this->assertNotNull($grade->id);
     }
 
+    public function test_submission_list_computes_wgp_from_letter_when_points_are_missing(): void
+    {
+        Sanctum::actingAs($this->staffUser);
+        Grade::query()->create([
+            'enrollment_id' => $this->enrollment->id,
+            'sitting' => 'main',
+            'score' => 70,
+            'letter' => 'A',
+            'points' => 0,
+            'status' => GradeStatus::SUBMITTED,
+            'faculty_id' => $this->enrollment->offering->course->department->faculty_id,
+            'department_id' => $this->enrollment->offering->course->department_id,
+        ]);
+
+        $this->getJson(
+            '/api/academic/results/reports/submission-list/department?academic_term_id='.$this->term->id.'&status=submitted'
+        )
+            ->assertOk()
+            ->assertJsonPath('students.0.matric', 'BU/2020/001')
+            ->assertJsonPath('students.0.tup', '3')
+            ->assertJsonPath('students.0.wgp', '15')
+            ->assertJsonPath('students.0.gpa', '5.00')
+            ->assertJsonPath('students.0.cgpa', '5.00');
+    }
+
     public function test_board_list_includes_general_lane_rows_for_faculty_scope(): void
     {
         Sanctum::actingAs($this->staffUser);
@@ -464,6 +489,28 @@ class GradeWorkflowTest extends TestCase
 
         $this->getJson('/api/academic/terms')->assertForbidden();
         $this->getJson('/api/academic/levels')->assertForbidden();
+    }
+
+    public function test_exam_officer_can_load_and_update_grading_scale(): void
+    {
+        Sanctum::actingAs($this->staffUser);
+        \App\Models\GradeBoundary::query()->delete();
+        \App\Models\GradingScale::query()->delete();
+
+        $list = $this->getJson('/api/academic/results/grading-scales')->assertOk()->json();
+        $this->assertNotEmpty($list);
+        $scale = $list[0];
+        $this->assertEquals('A', collect($scale['boundaries'])->firstWhere('letter', 'A')['letter'] ?? null);
+
+        $this->putJson('/api/academic/results/grading-scales/'.$scale['id'], [
+            'name' => $scale['name'],
+            'max_points' => 5,
+            'boundaries' => [
+                ['letter' => 'A', 'min_score' => 70, 'max_score' => 100, 'grade_point' => 5],
+                ['letter' => 'B', 'min_score' => 60, 'max_score' => 69.99, 'grade_point' => 4],
+                ['letter' => 'F', 'min_score' => 0, 'max_score' => 59.99, 'grade_point' => 0],
+            ],
+        ])->assertOk()->assertJsonPath('name', $scale['name']);
     }
 
     public function test_department_officer_cannot_write_outside_departmental_lane(): void

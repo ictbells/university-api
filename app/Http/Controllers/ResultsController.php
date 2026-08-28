@@ -425,6 +425,8 @@ class ResultsController extends Controller
             403,
         );
 
+        GradingScale::ensureDefault();
+
         return GradingScale::query()->with('boundaries')->orderByDesc('is_default')->orderBy('id')->get();
     }
 

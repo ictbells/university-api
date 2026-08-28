@@ -9,8 +9,7 @@ final class GradeLetterResolver
 {
     public static function defaultScale(): ?GradingScale
     {
-        return GradingScale::query()->where('is_default', true)->first()
-            ?? GradingScale::query()->orderBy('id')->first();
+        return GradingScale::ensureDefault();
     }
 
     /**
@@ -26,7 +25,6 @@ final class GradeLetterResolver
         $boundary = GradeBoundary::query()
             ->where('grading_scale_id', $scale->id)
             ->where('min_score', '<=', $score)
-            ->where('max_score', '>=', $score)
             ->orderByDesc('min_score')
             ->first();
 
