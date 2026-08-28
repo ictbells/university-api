@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\AcademicLevel;
 use App\Models\AcademicSession;
 use App\Models\AcademicTerm;
-use App\Models\Campus;
 use App\Models\Department;
 use App\Models\Faculty;
 use App\Models\FeeCategory;
@@ -14,7 +13,6 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\Program;
 use App\Models\ProgrammeFee;
-use App\Models\Setting;
 use App\Models\Student;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
@@ -26,14 +24,18 @@ use App\Services\StudentFinanceExportService;
 use App\Services\UniversityFinanceStatementService;
 use App\Support\AdmissionEntryRules;
 use App\Support\FeeSchedule;
-use App\Support\TranscriptType;
 use App\Support\InstitutionLogo;
 use App\Support\InvoiceSettlement;
 use App\Support\ListSessionLevelFilter;
 use App\Support\NairaWords;
 use App\Support\ProgrammeFeeResolver;
+use App\Support\ReceiptInstitution;
+use App\Support\ReceiptQr;
 use App\Support\StudentFinanceStatus;
+use App\Support\TranscriptType;
 use App\Support\TuitionProgress;
+use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -45,6 +47,7 @@ use Symfony\Component\HttpFoundation\Response;
 class FinanceController extends Controller
 {
     use Concerns\AuthorizesOfficeApprovals;
+
     public function __construct(
         private InvoiceService $invoices,
         private InvoiceExportService $invoiceExports,
@@ -517,7 +520,11 @@ class FinanceController extends Controller
         abort_unless($payment->status === 'successful', 422, 'Receipt is available after payment succeeds.');
 
         if ($payment->invoice_id) {
-            return $this->receipt($request, $payment->invoice ?: Invoice::query()->findOrFail($payment->invoice_id));
+            return $this->receipt(
+                $request,
+                $payment->invoice ?: Invoice::query()->findOrFail($payment->invoice_id),
+                $payment,
+            );
         }
 
         abort_unless($payment->purpose === 'wallet_topup', 422, 'Receipt is not available for this payment.');
@@ -526,11 +533,15 @@ class FinanceController extends Controller
         $student = $payment->user?->student;
         $method = $this->paymentMethodLabel($payment->method ?: 'online');
         $amount = (float) $payment->amount;
+        $receiptNo = $payment->receipt_no ?: $payment->reference ?: 'RCP-'.$payment->id;
+        $verifyUrl = ReceiptQr::verifyUrl($receiptNo);
         $html = view('receipts.wallet', [
-            'institution' => $this->receiptInstitution(),
+            'institution' => ReceiptInstitution::details(),
             'logo_data_uri' => InstitutionLogo::dataUri(),
             'doc_title' => 'Wallet funding receipt',
-            'receipt_no' => $payment->receipt_no ?: $payment->reference ?: 'RCP-'.$payment->id,
+            'receipt_no' => $receiptNo,
+            'qr_data_uri' => ReceiptQr::dataUri($verifyUrl),
+            'qr_verify_url' => $verifyUrl,
             'payer' => $payment->user?->name ?: '—',
             'payer_id' => $student?->matric_number,
             'payer_id_label' => 'Matric number',
@@ -543,7 +554,7 @@ class FinanceController extends Controller
             'generated_at' => now()->format('d M Y, h:i A'),
         ])->render();
 
-        $filename = 'receipt-'.($payment->receipt_no ?: $payment->reference ?: $payment->id).'.html';
+        $filename = 'receipt-'.$receiptNo.'.html';
         $headers = ['Content-Type' => 'text/html; charset=UTF-8'];
         if ($request->boolean('download')) {
             $headers['Content-Disposition'] = 'attachment; filename="'.$filename.'"';
@@ -552,12 +563,11 @@ class FinanceController extends Controller
         return response($html, 200, $headers);
     }
 
-    public function receipt(Request $request, Invoice $invoice): Response
+    public function receipt(Request $request, Invoice $invoice, ?Payment $payment = null): Response
     {
         $user = $request->user();
         $canManage = $user->hasPermission('finance.invoices.manage');
         abort_unless($canManage || $invoice->user_id === $user->id, 403);
-        abort_unless($invoice->status === 'paid', 422, 'Receipt is available after the invoice is paid.');
 
         $invoice->load([
             'items',
@@ -566,8 +576,14 @@ class FinanceController extends Controller
             'application',
             'payments' => fn ($q) => $q->where('status', 'successful')->latest(),
         ]);
-        $payment = $invoice->payments->first();
-        abort_unless($payment, 422, 'No successful payment was found for this invoice.');
+        if ($payment) {
+            abort_unless($payment->invoice_id === $invoice->id, 404);
+            abort_unless($payment->status === 'successful', 422, 'Receipt is available after payment succeeds.');
+            abort_unless($canManage || $payment->user_id === $user->id, 403);
+        } else {
+            $payment = $invoice->payments->first();
+        }
+        abort_unless($payment, 422, 'Receipt is available after payment succeeds.');
 
         $student = $invoice->student ?: $invoice->user?->student;
         $application = $invoice->application;
@@ -587,11 +603,15 @@ class FinanceController extends Controller
         $installmentPercent = $category === 'tuition' && $invoice->installment_percent !== null
             ? (int) $invoice->installment_percent
             : null;
+        $receiptNo = $payment->receipt_no ?: $invoice->number;
+        $verifyUrl = ReceiptQr::verifyUrl($receiptNo);
         $html = view('receipts.invoice', [
-            'institution' => $this->receiptInstitution(),
+            'institution' => ReceiptInstitution::details(),
             'logo_data_uri' => InstitutionLogo::dataUri(),
             'doc_title' => 'Official payment receipt',
-            'receipt_no' => $payment->receipt_no ?: $invoice->number,
+            'receipt_no' => $receiptNo,
+            'qr_data_uri' => ReceiptQr::dataUri($verifyUrl),
+            'qr_verify_url' => $verifyUrl,
             'payer' => $invoice->user?->name
                 ?: trim(implode(' ', array_filter([$student?->first_name, $student?->last_name])))
                 ?: '—',
@@ -613,7 +633,7 @@ class FinanceController extends Controller
             'generated_at' => now()->format('d M Y, h:i A'),
         ])->render();
 
-        $filename = 'receipt-'.($payment->receipt_no ?: $invoice->number).'.html';
+        $filename = 'receipt-'.$receiptNo.'.html';
         $headers = ['Content-Type' => 'text/html; charset=UTF-8'];
         if ($request->boolean('download')) {
             $headers['Content-Disposition'] = 'attachment; filename="'.$filename.'"';
@@ -972,7 +992,7 @@ class FinanceController extends Controller
     }
 
     /**
-     * @return array{0: \Carbon\CarbonInterface|null, 1: \Carbon\CarbonInterface|null}
+     * @return array{0: CarbonInterface|null, 1: CarbonInterface|null}
      */
     private function dashboardPeriod(Request $request): array
     {
@@ -982,8 +1002,8 @@ class FinanceController extends Controller
         ]);
 
         return [
-            isset($data['from']) ? \Carbon\Carbon::parse($data['from'])->startOfDay() : null,
-            isset($data['to']) ? \Carbon\Carbon::parse($data['to'])->endOfDay() : null,
+            isset($data['from']) ? Carbon::parse($data['from'])->startOfDay() : null,
+            isset($data['to']) ? Carbon::parse($data['to'])->endOfDay() : null,
         ];
     }
 
@@ -1460,27 +1480,6 @@ class FinanceController extends Controller
             in_array($method, ['legacy_import', 'import'], true) => 'Recorded payment',
             default => ucfirst(str_replace('_', ' ', $method)),
         };
-    }
-
-    /**
-     * @return array{name: string, motto: string, office: string, address: string, contact: string}
-     */
-    private function receiptInstitution(): array
-    {
-        $campus = Campus::query()->where('is_active', true)->orderBy('id')->first()
-            ?? Campus::query()->orderBy('id')->first();
-
-        return [
-            'name' => (string) Setting::getValue('university_name', 'Bells University of Technology'),
-            'motto' => (string) Setting::getValue('university_motto', 'Chords of Knowledge'),
-            'office' => (string) Setting::getValue('bursary_office_title', 'Bursary Department'),
-            'address' => trim(collect([
-                $campus?->address,
-                $campus?->city,
-            ])->filter()->implode(', '))
-                ?: 'KM 8, Idiroko Road, Benja Village, P.M.B 1015, Ota, Ogun State',
-            'contact' => (string) Setting::getValue('university_contact', 'Telephone: 07087138753'),
-        ];
     }
 
     private function invoiceListQuery(Request $request): Builder

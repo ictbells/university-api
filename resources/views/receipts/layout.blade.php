@@ -150,6 +150,27 @@
       padding: 6px 10px;
       border-radius: 6px;
     }
+    .qr-wrap {
+      margin-top: 10px;
+      text-align: right;
+    }
+    .qr-wrap a { display: inline-block; }
+    .qr-wrap img {
+      display: block;
+      width: 110px;
+      height: 110px;
+      margin-left: auto;
+      background: #fff;
+    }
+    .qr-wrap span {
+      display: block;
+      margin-top: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #64748b;
+    }
     .badge {
       display: inline-block;
       margin-top: 8px;
@@ -320,6 +341,18 @@
       <div class="serial">
         <span>Receipt number</span>
         <strong>{{ $receipt_no }}</strong>
+        @if (!empty($qr_data_uri))
+          <div class="qr-wrap">
+            @if (!empty($qr_verify_url))
+              <a href="{{ $qr_verify_url }}">
+                <img src="{{ $qr_data_uri }}" alt="Verify receipt {{ $receipt_no }}" width="110" height="110">
+              </a>
+            @else
+              <img src="{{ $qr_data_uri }}" alt="Verify receipt {{ $receipt_no }}" width="110" height="110">
+            @endif
+            <span>Scan to verify</span>
+          </div>
+        @endif
       </div>
     </div>
     @yield('body')
@@ -333,7 +366,7 @@
     </div>
     <p class="footer">
       This is a computer-generated receipt of {{ $institution['name'] }}. It is valid without a physical signature.<br>
-      Keep a copy for your records. Generated {{ $generated_at }}.
+      Keep a copy for your records. Scan the QR code to confirm this receipt online. Generated {{ $generated_at }}.
     </p>
   </div>
 </body>

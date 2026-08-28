@@ -87,6 +87,14 @@ class OpenApiGenerator
             'summary' => 'Confirm graduation for one student',
             'description' => 'Late senate conferment; final year is not required. Requires `academic.graduate`. Body: `graduated_at`.',
         ],
+        'get_/api/receipts/{receipt_no}/verify' => [
+            'summary' => 'Verify a payment receipt',
+            'description' => 'Public signed URL encoded in the receipt QR code. Confirms receipt number, payer, amount, date, and PAID status for a successful payment. Unsigned or tampered links return 403. Unknown or unsuccessful receipts return a branded HTML failure page.',
+            'parameters' => [
+                ['name' => 'receipt_no', 'in' => 'path', 'required' => true, 'schema' => ['type' => 'string']],
+                ['name' => 'signature', 'in' => 'query', 'required' => true, 'schema' => ['type' => 'string'], 'description' => 'Non-expiring HMAC from Laravel signed URLs.'],
+            ],
+        ],
         'get_/api/candidate-data/{jambRegistration}' => [
             'summary' => 'Lookup candidate by JAMB number',
             'description' => 'Public lookup used during applicant signup. Returns candidate row and suggested name/UTME prefill payload.',
@@ -264,6 +272,7 @@ class OpenApiGenerator
             str_starts_with($uri, 'api/programs') => 'Academic',
             str_starts_with($uri, 'api/wallet'),
             str_starts_with($uri, 'api/invoices'),
+            str_starts_with($uri, 'api/receipts'),
             str_starts_with($uri, 'api/transactions'),
             str_starts_with($uri, 'api/fees'),
             str_starts_with($uri, 'api/payments') => 'Finance',

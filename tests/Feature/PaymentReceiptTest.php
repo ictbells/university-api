@@ -55,6 +55,11 @@ class PaymentReceiptTest extends TestCase
         $this->assertStringContainsString('Application fee', $html);
         $this->assertStringContainsString('Five Thousand Naira Only', $html);
         $this->assertStringContainsString('INV-RECEIPT-1', $html);
+        $this->assertStringContainsString('data:image/svg+xml', $html);
+        $this->assertStringContainsString('/api/receipts/RCP-TEST01/verify', $html);
+        $this->assertStringContainsString('signature=', $html);
+        $this->assertStringContainsString('Scan to verify', $html);
+        $this->assertStringContainsString('Scan the QR code to confirm this receipt online', $html);
     }
 
     public function test_tuition_receipt_includes_installment_percent(): void
@@ -117,6 +122,9 @@ class PaymentReceiptTest extends TestCase
         $this->assertStringContainsString('RCP-WLT01', $html);
         $this->assertStringContainsString('Ten Thousand Naira and Fifty Kobo Only', $html);
         $this->assertStringContainsString('Chidi Eze', $html);
+        $this->assertStringContainsString('data:image/svg+xml', $html);
+        $this->assertStringContainsString('/api/receipts/RCP-WLT01/verify', $html);
+        $this->assertStringContainsString('signature=', $html);
     }
 
     public function test_staff_can_view_another_students_paid_invoice_receipt_with_breakdown(): void
@@ -169,5 +177,40 @@ class PaymentReceiptTest extends TestCase
         $this->assertStringContainsString('ICT', $html);
         $this->assertStringContainsString('RCP-STAFF01', $html);
         $this->assertStringContainsString('Ada Okoye', $html);
+    }
+
+    public function test_partial_invoice_payment_still_prints_a_receipt(): void
+    {
+        $user = User::factory()->create(['name' => 'Emeka Obi', 'status' => 'active']);
+        $invoice = Invoice::query()->create([
+            'number' => 'INV-PARTIAL-RCP',
+            'user_id' => $user->id,
+            'category' => 'tuition',
+            'amount' => 20000,
+            'full_amount' => 40000,
+            'balance' => 20000,
+            'status' => 'partial',
+            'wallet_allowed' => true,
+        ]);
+        $invoice->items()->create(['description' => 'Tuition 50%', 'amount' => 20000]);
+        $payment = $invoice->payments()->create([
+            'user_id' => $user->id,
+            'method' => 'wallet',
+            'amount' => 20000,
+            'status' => 'successful',
+            'reference' => 'WALLET-PARTIAL-RCP',
+            'receipt_no' => 'RCP-PARTIAL01',
+            'purpose' => 'tuition',
+        ]);
+
+        Sanctum::actingAs($user);
+        $html = $this->get('/api/payments/'.$payment->id.'/receipt')
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('Official payment receipt', $html);
+        $this->assertStringContainsString('RCP-PARTIAL01', $html);
+        $this->assertStringContainsString('Emeka Obi', $html);
+        $this->assertStringContainsString('Twenty Thousand Naira Only', $html);
     }
 }

@@ -8,6 +8,7 @@
     "require": {
         "php": "^8.3",
         "aws/aws-sdk-php": "^3.393",
+        "chillerlan/php-qrcode": "^6.0",
         "dompdf/dompdf": "^3.1",
         "laravel/framework": "^13.17",
         "laravel/sanctum": "^4.3",

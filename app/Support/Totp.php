@@ -2,6 +2,11 @@
 
 namespace App\Support;
 
+use chillerlan\QRCode\Common\EccLevel;
+use chillerlan\QRCode\Output\QRMarkupSVG;
+use chillerlan\QRCode\QRCode;
+use chillerlan\QRCode\QROptions;
+
 class Totp
 {
     private const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -22,6 +27,19 @@ class Totp
         $encodedIssuer = rawurlencode($issuer);
 
         return "otpauth://totp/{$encodedLabel}?secret={$secret}&issuer={$encodedIssuer}&algorithm=SHA1&digits=6&period=30";
+    }
+
+    public static function qrDataUri(string $otpauthUrl): string
+    {
+        $options = new QROptions([
+            'outputInterface' => QRMarkupSVG::class,
+            'outputBase64' => true,
+            'addQuietzone' => true,
+            'eccLevel' => EccLevel::M,
+            'svgAddXmlHeader' => false,
+        ]);
+
+        return (new QRCode($options))->addByteSegment($otpauthUrl)->render();
     }
 
     public static function verify(string $secret, string $code, int $window = 1): bool

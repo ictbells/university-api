@@ -30,6 +30,7 @@ use App\Http\Controllers\OfficeStructureController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\ProgrammeFeeController;
 use App\Http\Controllers\RebateController;
+use App\Http\Controllers\ReceiptVerificationController;
 use App\Http\Controllers\RefereePortalController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\RegistrationExtensionController;
@@ -82,6 +83,10 @@ Route::get('/transcript-requests/{token}/download', [TranscriptRequestController
     ->where('token', '[A-Za-z0-9]+');
 
 Route::get('/portal-info', [InstitutionController::class, 'portalInfo']);
+Route::get('/receipts/{receipt_no}/verify', [ReceiptVerificationController::class, 'show'])
+    ->middleware(['signed', 'throttle:60,1'])
+    ->where('receipt_no', '[A-Za-z0-9\-]+')
+    ->name('receipts.verify');
 Route::get('/admission-guide', [AdmissionGuideController::class, 'publicShow']);
 Route::get('/admission-guide/print', [AdmissionGuideController::class, 'publicPrint']);
 Route::get('/intakes', [AcademicSetupController::class, 'openIntakes']);

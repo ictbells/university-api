@@ -49,10 +49,12 @@ class TwoFactorChallengeService
         Cache::put($this->key($challengeId), $challenge, now()->addMinutes(10));
 
         $issuer = config('app.name', 'Bells Staff Portal');
+        $otpauthUrl = Totp::provisioningUri($secret, $user->email, $issuer);
 
         return [
             'secret' => $secret,
-            'otpauth_url' => Totp::provisioningUri($secret, $user->email, $issuer),
+            'otpauth_url' => $otpauthUrl,
+            'qr_code' => Totp::qrDataUri($otpauthUrl),
         ];
     }
 
