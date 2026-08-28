@@ -9,7 +9,9 @@ use App\Models\Campus;
 use App\Models\Course;
 use App\Models\CourseOffering;
 use App\Models\Department;
+use App\Models\Enrollment;
 use App\Models\Faculty;
+use App\Models\Grade;
 use App\Models\OfficeDepartment;
 use App\Models\Permission;
 use App\Models\Program;
@@ -18,6 +20,7 @@ use App\Models\Staff;
 use App\Models\Student;
 use App\Models\User;
 use App\Services\CourseRegistrationService;
+use App\Support\GradeStatus;
 use App\Support\PermissionCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -46,6 +49,131 @@ class ProgrammeCourseAssignmentTest extends TestCase
             'course_id' => $course->id,
             'academic_level_id' => $level->id,
         ]);
+    }
+
+    public function test_student_can_see_unpassed_lower_level_programme_courses(): void
+    {
+        [, $program, $course100, $level100, $term] = $this->seedCatalog();
+        $level200 = AcademicLevel::query()->create([
+            'name' => '200 Level',
+            'code' => '200',
+            'study_level' => 'undergraduate',
+            'sort_order' => 2,
+            'is_active' => true,
+        ]);
+        $level300 = AcademicLevel::query()->create([
+            'name' => '300 Level',
+            'code' => '300',
+            'study_level' => 'undergraduate',
+            'sort_order' => 3,
+            'is_active' => true,
+        ]);
+        $course200 = Course::query()->create([
+            'department_id' => $program->department_id,
+            'code' => 'CSC201',
+            'title' => 'Data Structures',
+            'units' => 3,
+            'course_type' => 'departmental',
+            'status' => 'core',
+        ]);
+        $course300 = Course::query()->create([
+            'department_id' => $program->department_id,
+            'code' => 'CSC301',
+            'title' => 'Algorithms',
+            'units' => 3,
+            'course_type' => 'departmental',
+            'status' => 'core',
+        ]);
+        $program->courses()->sync([
+            $course100->id => ['academic_level_id' => $level100->id, 'bucket' => 'departmental'],
+            $course200->id => ['academic_level_id' => $level200->id, 'bucket' => 'departmental'],
+            $course300->id => ['academic_level_id' => $level300->id, 'bucket' => 'departmental'],
+        ]);
+        $off100 = CourseOffering::query()->create([
+            'course_id' => $course100->id,
+            'academic_term_id' => $term->id,
+            'section' => 'A',
+        ]);
+        $off200 = CourseOffering::query()->create([
+            'course_id' => $course200->id,
+            'academic_term_id' => $term->id,
+            'section' => 'A',
+        ]);
+        $off300 = CourseOffering::query()->create([
+            'course_id' => $course300->id,
+            'academic_term_id' => $term->id,
+            'section' => 'A',
+        ]);
+        $student = $this->studentOn($program);
+        $student->update(['current_level' => 200]);
+        $student = $student->fresh(['program']);
+        $service = app(CourseRegistrationService::class);
+
+        $available = $service->availableOfferings($student, $term);
+        $ids = $available->pluck('id')->all();
+
+        $this->assertContains($off100->id, $ids);
+        $this->assertContains($off200->id, $ids);
+        $this->assertNotContains($off300->id, $ids);
+        $this->assertTrue((bool) $available->firstWhere('id', $off100->id)['is_outstanding']);
+        $this->assertFalse((bool) $available->firstWhere('id', $off200->id)['is_outstanding']);
+    }
+
+    public function test_passed_lower_level_courses_are_not_offered_again(): void
+    {
+        [, $program, $course100, $level100, $term] = $this->seedCatalog();
+        $level200 = AcademicLevel::query()->create([
+            'name' => '200 Level',
+            'code' => '200',
+            'study_level' => 'undergraduate',
+            'sort_order' => 2,
+            'is_active' => true,
+        ]);
+        $program->courses()->sync([
+            $course100->id => ['academic_level_id' => $level100->id, 'bucket' => 'departmental'],
+        ]);
+        $previous = AcademicSession::query()->create([
+            'label' => '2025/2026',
+            'starts_on' => '2025-10-01',
+            'ends_on' => '2026-09-30',
+            'closed_at' => now()->subDay(),
+        ]);
+        $previousTerm = AcademicTerm::query()->create([
+            'academic_session_id' => $previous->id,
+            'name' => 'First',
+            'session_label' => '2025/2026',
+            'is_current' => false,
+        ]);
+        $oldOffering = CourseOffering::query()->create([
+            'course_id' => $course100->id,
+            'academic_term_id' => $previousTerm->id,
+            'section' => 'A',
+        ]);
+        $currentOffering = CourseOffering::query()->create([
+            'course_id' => $course100->id,
+            'academic_term_id' => $term->id,
+            'section' => 'A',
+        ]);
+        $student = $this->studentOn($program);
+        $student->update(['current_level' => 200]);
+        $enrollment = Enrollment::query()->create([
+            'student_id' => $student->id,
+            'course_offering_id' => $oldOffering->id,
+            'status' => 'enrolled',
+            'registered_at' => now()->subYear(),
+        ]);
+        Grade::query()->create([
+            'enrollment_id' => $enrollment->id,
+            'sitting' => 'main',
+            'letter' => 'B',
+            'points' => 4,
+            'score' => 62,
+            'status' => GradeStatus::RELEASED,
+        ]);
+        $student = $student->fresh(['program']);
+        $ids = app(CourseRegistrationService::class)->availableOfferings($student, $term)->pluck('id')->all();
+
+        $this->assertNotContains($currentOffering->id, $ids);
     }
 
     public function test_students_only_see_courses_assigned_to_their_programme(): void

@@ -2,8 +2,10 @@
 
 use App\Http\Controllers\AcademicController;
 use App\Http\Controllers\AcademicSetupController;
+use App\Http\Controllers\AdmissionGuideController;
 use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\ApplicantImportController;
+use App\Http\Controllers\ApplicationClearanceController;
 use App\Http\Controllers\ApplicationController;
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\AuthController;
@@ -19,6 +21,7 @@ use App\Http\Controllers\HostelController;
 use App\Http\Controllers\InstitutionController;
 use App\Http\Controllers\IntegrationController;
 use App\Http\Controllers\InvoiceImportController;
+use App\Http\Controllers\JupebMatricController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MedicalController;
 use App\Http\Controllers\NotificationController;
@@ -79,6 +82,8 @@ Route::get('/transcript-requests/{token}/download', [TranscriptRequestController
     ->where('token', '[A-Za-z0-9]+');
 
 Route::get('/portal-info', [InstitutionController::class, 'portalInfo']);
+Route::get('/admission-guide', [AdmissionGuideController::class, 'publicShow']);
+Route::get('/admission-guide/print', [AdmissionGuideController::class, 'publicPrint']);
 Route::get('/intakes', [AcademicSetupController::class, 'openIntakes']);
 Route::get('/programs/{program}/supervisors', [AcademicController::class, 'supervisors']);
 Route::get('/workflow-templates', [AcademicController::class, 'workflowTemplates']);
@@ -137,6 +142,11 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/students/import/{importId}', [StudentImportController::class, 'status']);
     Route::get('/students/import/{importId}/errors', [StudentImportController::class, 'errors']);
 
+    Route::get('/jupeb/matric/pending', [JupebMatricController::class, 'pending']);
+    Route::get('/jupeb/matric/template', [JupebMatricController::class, 'template']);
+    Route::post('/jupeb/matric/assign', [JupebMatricController::class, 'assign']);
+    Route::post('/jupeb/matric/import', [JupebMatricController::class, 'import']);
+
     Route::get('/colleges', [AcademicSetupController::class, 'applicantColleges']);
     Route::get('/programs', [AcademicController::class, 'programs']);
     Route::get('/applications', [ApplicationController::class, 'index']);
@@ -144,6 +154,8 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         ->middleware('permission:admissions.view');
     Route::get('/applications/sessions', [ApplicationController::class, 'sessions'])
         ->middleware('permission:admissions.view');
+    Route::get('/applications/clearance', [ApplicationClearanceController::class, 'index']);
+    Route::post('/applications/clearance/bulk', [ApplicationClearanceController::class, 'bulk']);
     Route::post('/applications', [ApplicationController::class, 'start']);
     Route::get('/applications/{application}', [ApplicationController::class, 'show']);
     Route::patch('/applications/{application}', [ApplicationController::class, 'staffUpdate']);
@@ -157,8 +169,10 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/applications/{application}/documents/{document}/file', [ApplicationController::class, 'streamDocument']);
     Route::get('/applications/{application}/passport', [ApplicationController::class, 'streamPassport']);
     Route::post('/applications/{application}/nin', [ApplicationController::class, 'verifyNin']);
+    Route::post('/applications/{application}/nin/resync', [ApplicationController::class, 'resyncNin']);
     Route::post('/applications/{application}/transition', [ApplicationController::class, 'transition']);
     Route::post('/applications/{application}/revert', [ApplicationController::class, 'revert']);
+    Route::post('/applications/{application}/clear', [ApplicationClearanceController::class, 'clear']);
     Route::patch('/applications/{application}/acceptance-fee', [ApplicationController::class, 'updateAcceptanceFee']);
 
     Route::get('/registrations', [RegistrationController::class, 'index'])
@@ -192,6 +206,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/wallet/import/{importId}/errors', [WalletImportController::class, 'errors']);
     Route::get('/invoices/{invoice}/receipt', [FinanceController::class, 'receipt']);
     Route::get('/transactions', [FinanceController::class, 'history']);
+    Route::get('/my-finance-status', [FinanceController::class, 'myFinanceStatus']);
     Route::get('/my-programme-fees', [FinanceController::class, 'myProgrammeFeeSchedule']);
     Route::get('/fees', [FinanceController::class, 'fees']);
     Route::get('/payments', [PaymentController::class, 'index']);
@@ -490,6 +505,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::post('/me/clinic/appointments', [ClinicController::class, 'bookAppointment']);
     Route::post('/me/clinic/appointments/{visit}/cancel', [ClinicController::class, 'cancelAppointment']);
     Route::get('/me/hostel', [HostelController::class, 'me']);
+    Route::get('/me/hostel/print', [HostelController::class, 'myPrint']);
     Route::post('/me/hostel/select', [HostelController::class, 'select']);
     Route::get('/clinic/settings', [ClinicController::class, 'settings']);
     Route::put('/clinic/settings', [ClinicController::class, 'updateSettings']);
@@ -562,6 +578,12 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         ->middleware('permission:transcripts.process');
     Route::post('/staff/transcript-requests/{transcriptRequest}/reject', [TranscriptRequestController::class, 'reject'])
         ->middleware('permission:transcripts.process');
+
+    Route::get('/staff/admission-guide', [AdmissionGuideController::class, 'show'])->middleware('permission:admissions.guide');
+    Route::put('/staff/admission-guide', [AdmissionGuideController::class, 'update'])->middleware('permission:admissions.guide');
+    Route::post('/staff/admission-guide/publish', [AdmissionGuideController::class, 'publish'])->middleware('permission:admissions.guide');
+    Route::post('/staff/admission-guide/unpublish', [AdmissionGuideController::class, 'unpublish'])->middleware('permission:admissions.guide');
+    Route::get('/staff/admission-guide/print', [AdmissionGuideController::class, 'print'])->middleware('permission:admissions.guide');
 
     Route::post('/announcements', [AnnouncementController::class, 'store'])->middleware('permission:announcements.manage');
     Route::patch('/announcements/{announcement}', [AnnouncementController::class, 'update'])->middleware('permission:announcements.manage');

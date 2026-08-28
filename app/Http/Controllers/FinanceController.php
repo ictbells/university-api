@@ -702,6 +702,18 @@ class FinanceController extends Controller
         return response()->json(['message' => 'Select at least one fee item.'], 422);
     }
 
+    public function myFinanceStatus(Request $request)
+    {
+        $student = $request->user()?->student;
+        if (! $student) {
+            return response()->json([
+                'message' => 'Financial status is available after you are admitted as a student.',
+            ], 422);
+        }
+
+        return $this->financeStatusPayload($student->loadMissing(['user', 'program', 'wallet']));
+    }
+
     public function studentStatus(Request $request)
     {
         abort_unless($request->user()->hasPermission('finance.invoices.manage'), 403);
@@ -715,8 +727,14 @@ class FinanceController extends Controller
             ? Student::query()->with(['user', 'program', 'wallet'])->findOrFail($data['student_id'])
             : $this->findStudentByMatric((string) $data['matric']);
 
-        $student->loadMissing(['user', 'program', 'wallet']);
+        return $this->financeStatusPayload($student->loadMissing(['user', 'program', 'wallet']));
+    }
 
+    /**
+     * @return array<string, mixed>
+     */
+    private function financeStatusPayload(Student $student): array
+    {
         $invoices = Invoice::query()
             ->with([
                 'items',

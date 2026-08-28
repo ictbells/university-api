@@ -253,6 +253,7 @@ class OfferAcceptancePortalTest extends TestCase
         $this->assertStringContainsString('Student Information Handbook', $html);
         $this->assertStringContainsString('Admission letter as issued by JAMB', $html);
         $this->assertStringContainsString('Only the best is good for Bells', $html);
+        $this->assertStringContainsString('BUT/AD/2026/20269876543CD', $html);
     }
 
     private function applicantWithOffer(string $stage, float $intakeAmount = 7000): User
@@ -261,7 +262,7 @@ class OfferAcceptancePortalTest extends TestCase
             ['slug' => 'applicant'],
             ['name' => 'Applicant', 'is_system' => true, 'is_active' => true],
         );
-        $user = User::factory()->create();
+        $user = User::factory()->create(['jamb_registration' => '20269876543CD']);
         $user->roles()->attach($role->id);
 
         $session = AcademicSession::query()->create(['label' => '2026/2027']);
@@ -286,6 +287,7 @@ class OfferAcceptancePortalTest extends TestCase
             'user_id' => $user->id,
             'intake_id' => $intake->id,
             'entry_mode' => 'utme',
+            'jamb_registration' => '20269876543CD',
             'stage' => $stage,
             'offer_reference' => 'OFF/2026/0001',
         ]);

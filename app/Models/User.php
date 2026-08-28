@@ -23,6 +23,7 @@ class User extends Authenticatable
         'name',
         'email',
         'phone',
+        'alternate_phone',
         'jamb_registration',
         'password',
         'status',
@@ -189,8 +190,30 @@ class User extends Authenticatable
             'unpaid_application_fee' => $unpaidAppFee,
             'unpaid_acceptance_fee' => $unpaidAcceptance,
             'application_id' => $application?->id,
+            'nin_verified' => $this->hasVerifiedNin(),
             'programme_fee_set' => $programmeFeeSet,
             'programme_fee_total' => $programmeFeeSet ? $programmeFeeTotal : null,
         ];
+    }
+
+    public function hasVerifiedNin(): bool
+    {
+        $student = $this->relationLoaded('student') ? $this->student : $this->student()->first();
+        if ($student?->nin_locked) {
+            return true;
+        }
+
+        $record = $this->relationLoaded('latestNinVerification')
+            ? $this->latestNinVerification
+            : $this->latestNinVerification()->first();
+        if ($record?->verified_at) {
+            return true;
+        }
+
+        $application = $this->relationLoaded('latestApplication')
+            ? $this->latestApplication
+            : $this->latestApplication()->first();
+
+        return (bool) $application?->ninVerified();
     }
 }

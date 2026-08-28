@@ -37,7 +37,7 @@ class OpenApiGenerator
     private array $operationOverrides = [
         'patch_/api/applications/{application}' => [
             'summary' => 'Update application file (staff)',
-            'description' => 'Staff with `admissions.view` can edit submitted application fields except application number, NIN, and documents. Email and JAMB registration must stay unique. JAMB is checked against uploaded candidate data (`validated` if found, otherwise `pending`). Change of programme is allowed for 100L–300L; the student level drops by one band except 100L, which stays 100L.',
+            'description' => 'Staff with `admissions.view` can edit submitted application fields except application number, NIN, and documents. Email and JAMB registration must stay unique. JAMB is checked against uploaded candidate data (`validated` if found, otherwise `pending`). Change of programme is allowed for 100L–300L. When the new programme is in the same college, the student keeps the current level and unpassed courses of the new programme at that level or below remain available to register. When the new programme is in a different college, the student level drops by one band except 100L, which stays 100L.',
         ],
         'get_/api/applications' => [
             'summary' => 'List applications (staff pipeline)',
@@ -47,6 +47,24 @@ class OpenApiGenerator
                 ['name' => 'entry_mode', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Filter by a single entry mode (`utme`, `de`, `transfer`, `jupeb`, `pg`).'],
                 ['name' => 'entry_modes', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Comma-separated entry modes for channel views.'],
             ],
+        ],
+        'get_/api/applications/clearance' => [
+            'summary' => 'List applicants for physical clearance',
+            'description' => 'Applicants who have paid acceptance and are waiting to be cleared on campus, or already cleared. Requires `admissions.view` or `admissions.clear`. Query filters match the applications list, plus `status` (`pending` default, or `cleared`).',
+            'parameters' => [
+                ['name' => 'status', 'in' => 'query', 'schema' => ['type' => 'string', 'enum' => ['pending', 'cleared']], 'description' => 'Default `pending`.'],
+                ['name' => 'entry_modes', 'in' => 'query', 'schema' => ['type' => 'string']],
+                ['name' => 'academic_session_id', 'in' => 'query', 'schema' => ['type' => 'integer']],
+                ['name' => 'search', 'in' => 'query', 'schema' => ['type' => 'string']],
+            ],
+        ],
+        'post_/api/applications/{application}/clear' => [
+            'summary' => 'Clear one admitted applicant',
+            'description' => 'Records physical clearance after acceptance payment and creates or reattaches the student record. Requires `admissions.clear`.',
+        ],
+        'post_/api/applications/clearance/bulk' => [
+            'summary' => 'Clear admitted applicants in bulk',
+            'description' => 'Clears eligible applicants by `ids`. Ineligible rows are skipped. Requires `admissions.clear`. Body: `ids` (1–200 application ids).',
         ],
         'get_/api/registrations' => [
             'summary' => 'List registrations',

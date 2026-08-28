@@ -13,7 +13,6 @@ use Illuminate\Support\Facades\Mail;
 class ApplicationAdmissionService
 {
     public function __construct(
-        private StudentCreationService $students,
         private Notifier $notifier,
     ) {}
 
@@ -50,12 +49,26 @@ class ApplicationAdmissionService
     private function handleAcceptanceFeePaid(Invoice $invoice): void
     {
         $app = Application::query()->find($invoice->application_id);
-        if (! $app || $app->student_id) {
+        if (! $app || $app->student_id || $app->physically_cleared_at) {
+            return;
+        }
+        if (in_array($app->stage, ['matriculated', 'rejected', 'withdrawn'], true)) {
             return;
         }
 
-        $app->update(['stage' => 'acceptance_paid']);
-        $this->students->createFromApplication($app->fresh());
+        $updates = ['stage' => 'acceptance_paid'];
+        if (! $app->acceptance_fee_invoice_id) {
+            $updates['acceptance_fee_invoice_id'] = $invoice->id;
+        }
+        $app->update($updates);
+        $this->notifier->send(
+            $app->user,
+            'acceptance_fee',
+            'Acceptance fee received',
+            'Come to campus with your original documents for physical clearance. Staff will clear you after verifying your documents.',
+            'admissions',
+            $app->id,
+        );
     }
 
     public function sendCredentialsEmail(Application $application): void

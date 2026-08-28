@@ -53,6 +53,11 @@ class AcademicController extends Controller
         }
 
         $programs = $query->orderBy('name')->get();
+        if ($modes === ['jupeb']) {
+            $programs = $programs->filter(
+                fn (Program $program) => $program->isOfferedAtJupebCentre()
+            )->values();
+        }
         $application = $request->user()?->latestApplication;
         if ($application && $application->entry_mode === 'pg') {
             $application->loadMissing(['steps', 'documents', 'refereeInvites']);

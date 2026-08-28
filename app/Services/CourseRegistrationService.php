@@ -22,6 +22,7 @@ use App\Models\User;
 use App\Support\GradeLetterResolver;
 use App\Support\GradeStatus;
 use App\Support\InstitutionLogo;
+use App\Support\LevelProgression;
 use App\Support\Studentship;
 use App\Support\StudyLevel;
 use App\Support\TuitionProgress;
@@ -56,6 +57,9 @@ class CourseRegistrationService
                 'window' => 'Closed',
                 'can_self_register' => false,
                 'cannot_register_reason' => 'No academic semester is current.',
+                'is_final_year' => LevelProgression::isFinalYear($student),
+                'can_request_extension' => false,
+                'can_uncheck_carry_over' => false,
                 'tuition_percent' => 0.0,
                 'tuition_ok' => false,
                 'limits' => [],
@@ -82,6 +86,7 @@ class CourseRegistrationService
         $units = $this->unitsByBucket($enrolled);
         $canSelfRegister = $this->studentCanMutate($student, $term, $extension, false);
         $blockReason = $canSelfRegister ? null : $this->studentMutateBlockReason($student, $term, $extension);
+        $isFinalYear = LevelProgression::isFinalYear($student);
 
         return [
             'student' => [
@@ -91,8 +96,12 @@ class CourseRegistrationService
                 'matric_number' => $student->matric_number,
                 'student_number' => $student->student_number,
                 'current_level' => $student->current_level,
+                'is_final_year' => $isFinalYear,
                 'program' => $student->program?->only(['id', 'name', 'code']),
             ],
+            'is_final_year' => $isFinalYear,
+            'can_request_extension' => $isFinalYear,
+            'can_uncheck_carry_over' => $isFinalYear,
             'term' => [
                 'id' => $term->id,
                 'name' => $term->name,
@@ -195,6 +204,8 @@ class CourseRegistrationService
         $enrolledIds = $this->enrolledRows($student, $term)->pluck('course_offering_id');
         $level = $this->studentLevel($student);
         $carryOverLookup = array_flip($carryOverCourseIds ?? $this->carryOverCourseIds($student, $term));
+        $passedCourseIds = $this->passedCourseLookup($student);
+        $levelsById = AcademicLevel::query()->get()->keyBy(fn (AcademicLevel $row) => (int) $row->id);
 
         return CourseOffering::query()
             ->with(['course.department.faculty', 'course.programs', 'lecturer.user'])
@@ -202,11 +213,18 @@ class CourseRegistrationService
             ->where('academic_term_id', $term->id)
             ->whereNotIn('id', $enrolledIds)
             ->get()
-            ->filter(fn (CourseOffering $offering) => $this->isVisibleToStudent($student, $offering, $level))
-            ->map(function (CourseOffering $offering) use ($carryOverLookup) {
+            ->filter(fn (CourseOffering $offering) => $this->isVisibleToStudent(
+                $student,
+                $offering,
+                $level,
+                $passedCourseIds,
+                $levelsById,
+            ))
+            ->map(function (CourseOffering $offering) use ($student, $carryOverLookup, $level, $levelsById) {
                 $taken = (int) ($offering->enrolled_count ?? $offering->enrolledCount());
                 $courseId = (int) ($offering->course_id ?? $offering->course?->id ?? 0);
                 $isCarryOver = $courseId > 0 && isset($carryOverLookup[$courseId]);
+                $isOutstanding = $this->isOutstandingOffering($student, $offering, $level, $levelsById);
 
                 return [
                     'id' => $offering->id,
@@ -218,6 +236,7 @@ class CourseRegistrationService
                     'bucket' => $offering->course?->course_type ?: 'departmental',
                     'required' => $isCarryOver || ($offering->course?->status ?: 'core') === 'required',
                     'is_carry_over' => $isCarryOver,
+                    'is_outstanding' => $isOutstanding && ! $isCarryOver,
                     'course' => $this->serializeCourse($offering->course),
                     'lecturer' => $offering->lecturer_display_name,
                 ];
@@ -390,7 +409,7 @@ class CourseRegistrationService
     /**
      * @param  list<int>  $offeringIds
      */
-    public function registerMany(Student $student, array $offeringIds, User $actor): array
+    public function registerMany(Student $student, array $offeringIds, User $actor, bool $asStaff = false, ?string $reason = null): array
     {
         $ids = array_values(array_unique(array_map('intval', $offeringIds)));
         if ($ids === []) {
@@ -400,17 +419,19 @@ class CourseRegistrationService
         $offerings = CourseOffering::query()
             ->with(['course', 'term'])
             ->whereIn('id', $ids)
-            ->get();
+            ->get()
+            ->sortBy(fn (CourseOffering $offering) => array_search((int) $offering->id, $ids, true))
+            ->values();
         if ($offerings->count() !== count($ids)) {
             $this->fail('course_offering_ids', 'One of the selected courses is not available.');
         }
 
-        return DB::transaction(function () use ($offerings, $student, $actor) {
+        return DB::transaction(function () use ($offerings, $student, $actor, $asStaff, $reason) {
             foreach ($offerings as $offering) {
-                $this->register($student, $offering, $actor, false);
+                $this->register($student, $offering, $actor, $asStaff, $reason);
             }
 
-            return $this->context($student->fresh(), ensureCarryOvers: false);
+            return $this->context($student->fresh(), ensureCarryOvers: false, forStaff: $asStaff);
         });
     }
 
@@ -430,7 +451,7 @@ class CourseRegistrationService
 
         $extension = $this->activeExtension($student, $term);
         if (! $asStaff) {
-            if ($enrollment->is_carry_over) {
+            if ($enrollment->is_carry_over && ! LevelProgression::isFinalYear($student)) {
                 $this->fail('enrollment', 'Carry-over courses cannot be dropped. Ask an academic officer.');
             }
             $this->assertStudentMayMutate($student, $term, $extension);
@@ -523,6 +544,9 @@ class CourseRegistrationService
 
     public function requestExtension(Student $student, AcademicTerm $term, int $units, string $reason, User $actor): RegistrationExtension
     {
+        if (! LevelProgression::isFinalYear($student)) {
+            $this->fail('student', 'Only final-year students may request a registration extension.');
+        }
         if ($term->registrationStatus() !== 'Late') {
             $this->fail('term', 'Extension requests are only accepted after normal registration closes.');
         }
@@ -724,6 +748,8 @@ class CourseRegistrationService
             ->whereIn('course_id', $courseIds)
             ->get();
 
+        $autoEnroll = ! LevelProgression::isFinalYear($student);
+
         foreach ($offerings as $offering) {
             $row = Enrollment::query()->firstOrNew([
                 'student_id' => $student->id,
@@ -734,6 +760,9 @@ class CourseRegistrationService
                     $row->update(['is_carry_over' => true]);
                 }
 
+                continue;
+            }
+            if (! $autoEnroll) {
                 continue;
             }
             $row->fill([
@@ -1133,7 +1162,12 @@ class CourseRegistrationService
             return;
         }
         if ($window === 'Late') {
-            $this->fail('window', 'Normal registration is closed. Request a registration extension to continue.');
+            $this->fail(
+                'window',
+                LevelProgression::isFinalYear($student)
+                    ? 'Normal registration is closed. Request a registration extension to continue.'
+                    : 'Normal registration is closed. Only final-year students may request an extension. Contact academic staff if you still need changes.',
+            );
         }
         $this->fail('window', 'Course registration is closed for this semester.');
     }
@@ -1190,8 +1224,13 @@ class CourseRegistrationService
         }
     }
 
-    private function isVisibleToStudent(Student $student, CourseOffering $offering, ?AcademicLevel $level): bool
-    {
+    private function isVisibleToStudent(
+        Student $student,
+        CourseOffering $offering,
+        ?AcademicLevel $level,
+        ?array $passedCourseIds = null,
+        ?Collection $levelsById = null,
+    ): bool {
         $course = $offering->course;
         if (! $course) {
             return false;
@@ -1206,11 +1245,105 @@ class CourseRegistrationService
         if (! $linked) {
             return false;
         }
-        if ($linked->pivot?->academic_level_id && $level && (int) $linked->pivot->academic_level_id !== (int) $level->id) {
+        $pivotLevelId = (int) ($linked->pivot?->academic_level_id ?? 0);
+        if (! $pivotLevelId || ! $level) {
+            return true;
+        }
+        if ($pivotLevelId === (int) $level->id) {
+            return true;
+        }
+
+        $pivotLevel = $this->academicLevelById($pivotLevelId, $levelsById);
+        if (! $pivotLevel || $this->academicLevelBand($pivotLevel) > $this->academicLevelBand($level)) {
             return false;
         }
 
-        return true;
+        $passed = $passedCourseIds ?? $this->passedCourseLookup($student);
+        $courseId = (int) $course->id;
+
+        return $courseId > 0 && ! isset($passed[$courseId]);
+    }
+
+    private function isOutstandingOffering(
+        Student $student,
+        CourseOffering $offering,
+        ?AcademicLevel $level,
+        ?Collection $levelsById = null,
+    ): bool {
+        if (! $level || ! $student->program_id) {
+            return false;
+        }
+        $offering->loadMissing('course.programs');
+        $course = $offering->course;
+        if (! $course) {
+            return false;
+        }
+        $linked = $course->programs->firstWhere('id', (int) $student->program_id);
+        $pivotLevelId = (int) ($linked?->pivot?->academic_level_id ?? 0);
+        if (! $pivotLevelId || $pivotLevelId === (int) $level->id) {
+            return false;
+        }
+        $pivotLevel = $this->academicLevelById($pivotLevelId, $levelsById);
+
+        return $pivotLevel !== null && $this->academicLevelBand($pivotLevel) < $this->academicLevelBand($level);
+    }
+
+    private function academicLevelById(int $id, ?Collection $levelsById = null): ?AcademicLevel
+    {
+        if ($levelsById) {
+            $row = $levelsById->get($id);
+
+            return $row instanceof AcademicLevel ? $row : null;
+        }
+
+        return AcademicLevel::query()->find($id);
+    }
+
+    private function academicLevelBand(AcademicLevel $level): int
+    {
+        $code = (string) $level->code;
+        if (preg_match('/(\d{3})/', $code, $match)) {
+            return (int) $match[1];
+        }
+        if (preg_match('/(\d+)/', $code, $match)) {
+            $n = (int) $match[1];
+
+            return $n < 100 ? $n * 100 : $n;
+        }
+
+        return (int) $level->sort_order;
+    }
+
+    /**
+     * @return array<int, true>
+     */
+    private function passedCourseLookup(Student $student): array
+    {
+        $rows = Enrollment::query()
+            ->with(['offering', 'grades'])
+            ->where('student_id', $student->id)
+            ->whereHas('grades')
+            ->get();
+
+        $passed = [];
+        foreach ($rows as $row) {
+            $courseId = (int) ($row->offering?->course_id ?? 0);
+            if ($courseId < 1) {
+                continue;
+            }
+            $grades = $row->grades
+                ->filter(fn ($g) => GradeStatus::isReleased((string) $g->status))
+                ->sortByDesc(fn ($g) => $g->sitting === 'supplementary' ? 1 : 0);
+            $grade = $grades->first();
+            if (! $grade) {
+                continue;
+            }
+            if (strtoupper(trim((string) $grade->letter)) !== 'F') {
+                $passed[$courseId] = true;
+            }
+        }
+
+        return $passed;
     }
 
     private function activeExtension(Student $student, AcademicTerm $term): ?RegistrationExtension

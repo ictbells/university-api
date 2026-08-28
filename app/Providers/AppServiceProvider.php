@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Models\User;
+use App\Support\PortalUrl;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Support\ServiceProvider;
 
@@ -26,12 +27,9 @@ class AppServiceProvider extends ServiceProvider
                 && $notifiable->isStudentPortalUser()
                 && ! $notifiable->isStaffPortalUser();
 
-            $front = rtrim(
-                $studentPortal
-                    ? config('app.student_url', env('STUDENT_URL', 'http://localhost:5174/student'))
-                    : config('app.frontend_url', env('FRONTEND_URL', 'http://localhost:5173')),
-                '/',
-            );
+            $front = $studentPortal
+                ? PortalUrl::studentBase()
+                : rtrim(PortalUrl::staff(), '/');
 
             return $front.'/reset-password?token='.$token.'&email='.urlencode($notifiable->getEmailForPasswordReset());
         });

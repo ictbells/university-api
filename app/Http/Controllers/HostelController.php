@@ -587,6 +587,20 @@ class HostelController extends Controller
         return $this->hostels->studentSnapshot($student);
     }
 
+    public function myPrint(Request $request)
+    {
+        $student = $request->user()->student;
+        abort_unless($student, 404, 'No student record.');
+
+        $html = $this->hostels->printRegistrationHtml($student);
+        $headers = ['Content-Type' => 'text/html; charset=UTF-8'];
+        if ($request->boolean('download')) {
+            $headers['Content-Disposition'] = 'attachment; filename="hostel-registration.html"';
+        }
+
+        return response($html, 200, $headers);
+    }
+
     public function select(Request $request)
     {
         $student = $request->user()->student;

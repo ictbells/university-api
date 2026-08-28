@@ -165,11 +165,7 @@ class GraduationService
 
     private function isFinalYear(Student $student): bool
     {
-        if (! $student->program) {
-            return false;
-        }
-
-        return LevelProgression::nextLevel((int) $student->current_level, $student->program) === null;
+        return LevelProgression::isFinalYear($student);
     }
 
     private function decorate(Student $student): Student

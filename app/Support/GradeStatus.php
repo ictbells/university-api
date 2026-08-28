@@ -60,6 +60,20 @@ final class GradeStatus
         return $status === self::RELEASED || $status === self::PUBLISHED;
     }
 
+    public static function label(string $status): string
+    {
+        return match ($status) {
+            self::DRAFT => 'Draft',
+            self::SUBMITTED => 'College submitted',
+            self::FACULTY_APPROVED => 'Deans approved',
+            self::BOARD_READY => 'Awaiting Senate',
+            self::CORRECTION_REQUIRED => 'Correction required',
+            self::BOARD_CLEARED => 'Senate cleared',
+            self::RELEASED, self::PUBLISHED => 'Released',
+            default => str_replace('_', ' ', $status),
+        };
+    }
+
     /** @return list<string> */
     public static function sittings(): array
     {

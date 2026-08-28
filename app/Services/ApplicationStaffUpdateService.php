@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Support\AdmissionEntryRules;
 use App\Support\ApplicationFormSteps;
 use App\Support\CandidateEligibility;
+use App\Support\PhoneNumber;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -47,6 +48,12 @@ class ApplicationStaffUpdateService
             $this->assertUniqueJamb($user, $application, $jamb);
         }
 
+        if (($application->entry_mode ?? '') === 'utme' && array_key_exists('utme', $data)) {
+            $nested = Request::create('/', 'POST', ['payload' => ['utme' => $data['utme']]]);
+            $validated = ApplicationFormSteps::validateUtme($nested, ['utme' => $data['utme']], false);
+            $data['utme'] = $validated['utme'] ?? null;
+        }
+
         if (($application->entry_mode ?? '') === 'transfer' && is_array($data['credit_assessment'] ?? null)
             && filled($data['credit_assessment']['decision'] ?? null)) {
             $nested = Request::create('/', 'POST', ['payload' => $data['credit_assessment']]);
@@ -70,22 +77,16 @@ class ApplicationStaffUpdateService
             $this->validateProgrammeChoices($application, $data);
 
             if ($student && $nextProgramId && $originalProgramId && $nextProgramId !== $originalProgramId) {
-                $levelNote = $this->applyProgrammeChange($student, $nextProgramId);
+                $fromProgramId = (int) $student->program_id ?: $originalProgramId;
+                $levelNote = $this->applyProgrammeChange($student, $fromProgramId, $nextProgramId);
             } elseif ($student && $nextProgramId && (int) $student->program_id !== $nextProgramId) {
                 $student->update(['program_id' => $nextProgramId]);
             }
 
-            $fullName = trim(collect([
-                $data['first_name'] ?? null,
-                $data['middle_name'] ?? null,
-                $data['last_name'] ?? null,
-            ])->filter()->implode(' ')) ?: $user->name;
-
             $user->update([
-                'name' => $fullName,
                 'email' => $data['email'],
-                'phone' => $data['phone'] ?? $user->phone,
                 'jamb_registration' => $jamb,
+                ...$this->alternatePhoneAttributes($data),
             ]);
 
             $application->update([
@@ -217,6 +218,11 @@ class ApplicationStaffUpdateService
                 'first_choice_program_id' => 'Select a first-choice programme.',
             ]);
         }
+        if (! AdmissionEntryRules::allowsSecondProgramme((string) $application->entry_mode) && $secondId) {
+            throw ValidationException::withMessages([
+                'second_choice_program_id' => 'JUPEB applicants may select only one programme.',
+            ]);
+        }
         if ($secondId && $secondId === $firstId) {
             throw ValidationException::withMessages([
                 'second_choice_program_id' => 'Second choice must differ from first choice.',
@@ -227,16 +233,19 @@ class ApplicationStaffUpdateService
             if (! $id) {
                 continue;
             }
-            $program = Program::query()->find($id);
+            $program = Program::query()->with('department.faculty')->find($id);
             abort_unless(
                 $program && $program->isOffered() && $program->acceptsEntryMode($application->entry_mode),
                 422,
                 'The selected programme is not available for this admission category.',
             );
+            if ($application->entry_mode === 'jupeb' && ! $program->isOfferedAtJupebCentre()) {
+                abort(422, 'JUPEB applicants can only choose a programme offered at a JUPEB centre.');
+            }
         }
     }
 
-    private function applyProgrammeChange(Student $student, int $programId): string
+    private function applyProgrammeChange(Student $student, int $fromProgramId, int $toProgramId): string
     {
         $stored = (int) $student->current_level;
         $band = $stored >= 100 ? $stored : $stored * 100;
@@ -246,16 +255,31 @@ class ApplicationStaffUpdateService
             ]);
         }
 
-        $nextLevel = $band === 100
+        $sameCollege = $this->programmesShareCollege($fromProgramId, $toProgramId);
+        $nextLevel = ($sameCollege || $band === 100)
             ? $stored
             : ($stored >= 100 ? $stored - 100 : max(1, $stored - 1));
 
         $student->update([
-            'program_id' => $programId,
+            'program_id' => $toProgramId,
             'current_level' => $nextLevel,
         ]);
 
+        if ($sameCollege) {
+            return 'programme changed within the same college; level stays '.$stored;
+        }
+
         return 'programme changed; level '.$stored.' to '.$nextLevel;
+    }
+
+    private function programmesShareCollege(int $fromProgramId, int $toProgramId): bool
+    {
+        $from = Program::query()->with('department')->find($fromProgramId);
+        $to = Program::query()->with('department')->find($toProgramId);
+        $fromFaculty = (int) ($from?->department?->faculty_id ?? 0);
+        $toFaculty = (int) ($to?->department?->faculty_id ?? 0);
+
+        return $fromFaculty > 0 && $fromFaculty === $toFaculty;
     }
 
     /**
@@ -264,20 +288,10 @@ class ApplicationStaffUpdateService
     private function writeSteps(Application $application, array $data, ?string $jamb): void
     {
         $this->mergeStep($application, 'biodata', [
-            'first_name' => $data['first_name'] ?? null,
-            'middle_name' => $data['middle_name'] ?? null,
-            'last_name' => $data['last_name'] ?? null,
-            'date_of_birth' => $data['date_of_birth'] ?? null,
-            'gender' => $data['gender'] ?? null,
-            'phone' => $data['phone'] ?? null,
-        ], ['nin', 'photo_path', 'nin_locked']);
+            'phone' => $application->user?->phone,
+        ], ['nin', 'photo_path', 'nin_locked', 'first_name', 'middle_name', 'last_name', 'date_of_birth', 'gender']);
 
         $this->mergeStep($application, 'personal_details', [
-            'first_name' => $data['first_name'] ?? null,
-            'middle_name' => $data['middle_name'] ?? null,
-            'last_name' => $data['last_name'] ?? null,
-            'date_of_birth' => $data['date_of_birth'] ?? null,
-            'gender' => $data['gender'] ?? null,
             'marital_status' => $data['marital_status'] ?? null,
             'religion' => $data['religion'] ?? null,
             'country' => $data['country'] ?? null,
@@ -285,7 +299,7 @@ class ApplicationStaffUpdateService
             'state_id' => $data['state_id'] ?? null,
             'lga' => $data['lga'] ?? null,
             'lga_id' => $data['lga_id'] ?? null,
-        ]);
+        ], ['first_name', 'middle_name', 'last_name', 'date_of_birth', 'gender']);
 
         $this->mergeStep($application, 'health_information', [
             'blood_group' => $data['blood_group'] ?? null,
@@ -311,7 +325,8 @@ class ApplicationStaffUpdateService
         ]);
 
         $this->mergeStep($application, 'application_form', [
-            'phone' => $data['phone'] ?? null,
+            'phone' => $application->user?->phone,
+            'alternate_phone' => $this->normalizedAlternatePhone($data) ?? $this->existingStepValue($application, 'application_form', 'alternate_phone'),
             'address' => $data['address'] ?? null,
             'email' => $data['email'] ?? null,
         ]);
@@ -414,17 +429,13 @@ class ApplicationStaffUpdateService
         $student->loadMissing('medicalProfile');
 
         $student->update([
-            'first_name' => $data['first_name'] ?? $student->first_name,
-            'middle_name' => $data['middle_name'] ?? $student->middle_name,
-            'last_name' => $data['last_name'] ?? $student->last_name,
-            'date_of_birth' => $data['date_of_birth'] ?? $student->date_of_birth,
-            'gender' => $data['gender'] ?? $student->gender,
             'marital_status' => $data['marital_status'] ?? $student->marital_status,
             'religion' => $data['religion'] ?? $student->religion,
             'country' => $data['country'] ?? $student->country,
             'state' => $data['state'] ?? $student->state,
             'lga' => $data['lga'] ?? $student->lga,
-            'phone' => $data['phone'] ?? $student->phone,
+            'phone' => $student->phone,
+            'alternate_phone' => $this->normalizedAlternatePhone($data) ?? $student->alternate_phone,
             'address' => $data['address'] ?? $student->address,
             'next_of_kin' => $data['next_of_kin'] ?? $student->next_of_kin,
             'next_of_kin_relationship' => $data['next_of_kin_relationship'] ?? $student->next_of_kin_relationship,
@@ -450,5 +461,38 @@ class ApplicationStaffUpdateService
         } elseif (($data['blood_group'] ?? null) || ($data['genotype'] ?? null) || ($data['has_medical_condition'] ?? false) || ($data['medical_condition_details'] ?? null)) {
             $student->medicalProfile()->create($medical);
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, string>
+     */
+    private function alternatePhoneAttributes(array $data): array
+    {
+        $normalized = $this->normalizedAlternatePhone($data);
+        if ($normalized !== null) {
+            return ['alternate_phone' => $normalized];
+        }
+
+        return [];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function normalizedAlternatePhone(array $data): ?string
+    {
+        if (! array_key_exists('alternate_phone', $data) || ! filled($data['alternate_phone'])) {
+            return null;
+        }
+
+        return PhoneNumber::normalize((string) $data['alternate_phone']);
+    }
+
+    private function existingStepValue(Application $application, string $stepKey, string $field): mixed
+    {
+        $payload = $application->steps()->where('step_key', $stepKey)->first()?->payload;
+
+        return is_array($payload) ? ($payload[$field] ?? null) : null;
     }
 }

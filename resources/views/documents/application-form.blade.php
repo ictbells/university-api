@@ -155,7 +155,8 @@
       <tr><th>Full Name</th><td>{{ $full_name }}</td></tr>
       <tr><th>JAMB Registration No</th><td>{{ $application->jamb_registration ?: $application->user?->jamb_registration ?: '—' }}</td></tr>
       <tr><th>Email</th><td>{{ $application->user?->email ?: '—' }}</td></tr>
-      <tr><th>Phone Number</th><td>{{ $val('phone', $contact) !== '—' ? $val('phone', $contact) : ($application->user?->phone ?: '—') }}</td></tr>
+      <tr><th>Phone from NIN</th><td>{{ $val('phone', $contact) !== '—' ? $val('phone', $contact) : ($application->user?->phone ?: '—') }}</td></tr>
+      <tr><th>Alternate Phone</th><td>{{ $val('alternate_phone', $contact) !== '—' ? $val('alternate_phone', $contact) : ($application->user?->alternate_phone ?: '—') }}</td></tr>
       <tr><th>Date of Birth</th><td>{{ !empty($biodata['date_of_birth']) ? \Illuminate\Support\Carbon::parse($biodata['date_of_birth'])->format('d F Y') : '—' }}</td></tr>
       <tr><th>Gender</th><td>{{ $val('gender') }}</td></tr>
       <tr><th>Marital Status</th><td>{{ $val('marital_status') }}</td></tr>
@@ -226,12 +227,11 @@
     @endforeach
 
     @php $utme = $academic['utme'] ?? []; @endphp
-    @if (!empty($utme['aggregate']) || !empty($utme['course_choice']) || !empty($utme['subjects']) || !empty($utme['institution_choices']))
+    @if (!empty($utme['aggregate']) || !empty($utme['subjects']))
       <h2>UTME / JAMB</h2>
       <table>
         <tr><th>Examination year</th><td>{{ $utme['exam_year'] ?? '—' }}</td></tr>
         <tr><th>Aggregate</th><td>{{ $utme['aggregate'] ?? '—' }}</td></tr>
-        <tr><th>Course choice</th><td>{{ $utme['course_choice'] ?? '—' }}</td></tr>
       </table>
       @if (!empty($utme['subjects']))
         <table>
@@ -239,17 +239,6 @@
             <tr>
               <th>{{ $row['subject'] ?? 'Subject' }}</th>
               <td>{{ $row['score'] ?? '—' }}</td>
-            </tr>
-          @endforeach
-        </table>
-      @endif
-      @if (!empty($utme['institution_choices']))
-        <h2>JAMB institution choices</h2>
-        <table>
-          @foreach ($utme['institution_choices'] as $choice)
-            <tr>
-              <th>Choice {{ $choice['choice_order'] ?? '' }}</th>
-              <td>{{ $choice['institution_name'] ?? '—' }}{{ !empty($choice['programme_name']) ? ' — '.$choice['programme_name'] : '' }}</td>
             </tr>
           @endforeach
         </table>

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Mail\StaffLoginNotificationMail;
 use App\Http\Requests\RegisterApplicantRequest;
 use App\Models\AcademicTerm;
+use App\Models\Application;
 use App\Models\Intake;
 use App\Models\Role;
 use App\Models\Setting;
@@ -20,7 +21,11 @@ use App\Services\TwoFactorChallengeService;
 use App\Support\ApplicantPassport;
 use App\Support\CandidateEligibility;
 use App\Support\PasswordRules;
+use App\Support\PhoneNumber;
 use App\Support\StudentPortalAuth;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -30,6 +35,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
+use Throwable;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -61,7 +67,9 @@ class AuthController extends Controller
         ]);
         Intake::requireAccepting((int) $data['intake_id']);
         $nin = $this->prembly->normalizeNin($data['nin']);
-        $this->prembly->assertNinAvailable($nin);
+        if ($this->prembly->ninIsLinked($nin)) {
+            return $this->existingNinAccountResponse();
+        }
         try {
             $mapped = $this->prembly->lookupIdentity($nin);
         } catch (RuntimeException $e) {
@@ -84,46 +92,81 @@ class AuthController extends Controller
     public function register(RegisterApplicantRequest $request): JsonResponse
     {
         $data = $request->validated();
-        $intake = Intake::requireAccepting((int) $data['intake_id']);
-        CandidateEligibility::assertQualifiedForIntake($intake, $data['jamb_registration'] ?? null);
-        $applicantRole = Role::query()->where('slug', 'applicant')->where('is_active', true)->firstOrFail();
-        try {
-            $mapped = $this->prembly->lookupIdentity($data['nin']);
-        } catch (RuntimeException $e) {
-            throw ValidationException::withMessages(['nin' => $e->getMessage()]);
-        }
-        $this->prembly->assertNinAvailable($data['nin']);
 
         try {
-            $user = DB::transaction(function () use ($data, $applicantRole, $mapped, $intake) {
+            $intake = Intake::requireAccepting((int) $data['intake_id']);
+            CandidateEligibility::assertQualifiedForIntake($intake, $data['jamb_registration'] ?? null);
+            $applicantRole = Role::query()->where('slug', 'applicant')->where('is_active', true)->first();
+            if (! $applicantRole) {
+                throw ValidationException::withMessages([
+                    'email' => 'Applicant registration is not available. Contact admissions.',
+                ]);
+            }
+            if ($this->prembly->ninIsLinked($data['nin'])) {
+                return $this->existingNinAccountResponse();
+            }
+            try {
+                $mapped = $this->prembly->lookupIdentity($data['nin']);
+            } catch (RuntimeException $e) {
+                throw ValidationException::withMessages(['nin' => $e->getMessage()]);
+            }
+            $this->prembly->assertNinAvailable($data['nin']);
+
+            $ninPhone = trim((string) ($mapped['phone'] ?? ''));
+            $alternatePhone = PhoneNumber::normalize($data['alternate_phone'] ?? null);
+
+            $user = DB::transaction(function () use ($data, $applicantRole, $mapped, $intake, $ninPhone, $alternatePhone) {
                 $user = User::query()->create([
                     'name' => $this->prembly->displayName($mapped),
                     'email' => $data['email'],
-                    'phone' => $data['phone'] ?: ($mapped['phone'] ?? null),
+                    'phone' => $ninPhone !== '' ? $ninPhone : null,
+                    'alternate_phone' => $alternatePhone,
                     'password' => $data['password'],
                     'status' => 'active',
                 ]);
                 $user->roles()->sync([$applicantRole->id]);
                 $this->prembly->verify($user, null, $data['nin'], $mapped);
-                $this->applicationStart->start($user, $intake, $data['jamb_registration'] ?? null);
+                $application = $this->applicationStart->start($user, $intake, $data['jamb_registration'] ?? null);
+                $this->storeAlternatePhoneOnApplication($application, $alternatePhone);
 
                 return $user;
             });
+
+            Auth::guard('web')->login($user);
+            if ($request->hasSession()) {
+                $request->session()->regenerate();
+            }
+            $token = $user->createToken('spa')->plainTextToken;
+            $this->audit->record('auth.register', 'Applicant account created', 'auth', 'user', $user->id, null, ['email' => $user->email, 'phone' => $user->phone, 'alternate_phone' => $user->alternate_phone]);
+
+            $response = $this->payload($user, $token, 'Registration successful');
+            $response->header('X-Auth-Token-Storage', 'sessionStorage');
+
+            return $response;
+        } catch (ValidationException|HttpResponseException $e) {
+            throw $e;
+        } catch (UniqueConstraintViolationException $e) {
+            $sql = $e->getMessage();
+            if (str_contains($sql, 'jamb_registration')) {
+                throw ValidationException::withMessages([
+                    'jamb_registration' => 'This JAMB number is already linked to an account.',
+                ]);
+            }
+            throw ValidationException::withMessages([
+                'email' => 'An account already exists with this email. Sign in instead.',
+            ]);
+        } catch (ModelNotFoundException $e) {
+            throw ValidationException::withMessages([
+                'email' => 'Applicant registration is not available. Contact admissions.',
+            ]);
         } catch (RuntimeException $e) {
             throw ValidationException::withMessages(['intake_id' => $e->getMessage()]);
+        } catch (Throwable $e) {
+            report($e);
+            throw ValidationException::withMessages([
+                'email' => 'Could not create the account. Try again or contact admissions.',
+            ]);
         }
-
-        Auth::guard('web')->login($user);
-        if ($request->hasSession()) {
-            $request->session()->regenerate();
-        }
-        $token = $user->createToken('spa')->plainTextToken;
-        $this->audit->record('auth.register', 'Applicant account created', 'auth', 'user', $user->id, null, ['email' => $user->email, 'phone' => $data['phone']]);
-
-        $response = $this->payload($user, $token, 'Registration successful');
-        $response->header('X-Auth-Token-Storage', 'sessionStorage');
-
-        return $response;
     }
 
     public function login(Request $request)
@@ -376,6 +419,18 @@ class AuthController extends Controller
         return response()->json(['message' => 'Password has been reset. You may sign in.']);
     }
 
+    private function existingNinAccountResponse(): JsonResponse
+    {
+        $message = PremblyService::EXISTING_ACCOUNT_MESSAGE;
+
+        return response()->json([
+            'message' => $message,
+            'errors' => ['nin' => [$message]],
+            'existing_account' => true,
+            'returning_student' => true,
+        ], 422);
+    }
+
     private function payload(User $user, ?string $token = null, ?string $message = null): JsonResponse
     {
         $user->load([
@@ -418,6 +473,7 @@ class AuthController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'phone' => $user->phone,
+                'alternate_phone' => $user->alternate_phone,
                 'status' => $user->status,
                 'student' => $user->student,
                 'staff' => $staff,
@@ -529,5 +585,21 @@ class AuthController extends Controller
             'normal_registration_closes_at' => optional($term->normal_registration_closes_at)?->toIso8601String(),
             'late_registration_closes_at' => optional($term->late_registration_closes_at)?->toIso8601String(),
         ];
+    }
+
+    private function storeAlternatePhoneOnApplication(Application $application, ?string $alternatePhone): void
+    {
+        if ($alternatePhone === null) {
+            return;
+        }
+
+        $step = $application->steps()->firstOrNew(['step_key' => 'application_form']);
+        $payload = is_array($step->payload) ? $step->payload : [];
+        $payload['alternate_phone'] = $alternatePhone;
+        $step->payload = $payload;
+        if (! $step->exists) {
+            $step->status = $step->status ?: 'pending';
+        }
+        $step->save();
     }
 }

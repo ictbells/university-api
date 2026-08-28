@@ -2,11 +2,13 @@
 
 namespace Database\Seeders;
 
+use App\Models\AdmissionGuide;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\User;
+use App\Support\AdmissionGuideContent;
 use App\Support\PermissionCatalog;
 use App\Support\WorkflowCatalog;
 use Illuminate\Database\Seeder;
@@ -49,6 +51,7 @@ class DatabaseSeeder extends Seeder
                 'admissions.recommend',
                 'admissions.approve',
                 'admissions.offer',
+                'admissions.clear',
                 'students.view_any',
             ])->pluck('id')],
             'hostel-officer' => ['Hostel Officer', true, Permission::query()->where('module', 'hostel')->pluck('id')],
@@ -77,6 +80,16 @@ class DatabaseSeeder extends Seeder
         Setting::setValue('security.password_rotation_days', '0');
         Setting::setValue('security.inactivity_logout_minutes', '0');
         Setting::setValue('studentship.years_after_graduation', '2');
+
+        $sample = AdmissionGuideContent::sample();
+        AdmissionGuide::query()->firstOrCreate(
+            ['title' => $sample['title']],
+            [
+                'intro' => $sample['intro'],
+                'sections' => $sample['sections'],
+                'published_at' => now(),
+            ]
+        );
 
         $user = User::query()->firstOrCreate(
             ['email' => 'support@cyctechservices.com'],

@@ -18,13 +18,32 @@ class AdmissionEntryRules
      *
      * @return list<array{key: string, label: string, required: bool, description?: string}>
      */
-    /**
-     * @param  array<string, mixed>|null  $context  Optional application context (NYSC status for PG).
-     * @return list<array{key: string, label: string, required: bool, description?: string}>
-     */
     public static function requiredDocuments(string $entryMode, ?Application $application = null): array
     {
-        if (in_array($entryMode, ['utme', 'jupeb'], true)) {
+        if ($entryMode === 'jupeb') {
+            return [
+                [
+                    'key' => 'passport',
+                    'label' => 'Passport',
+                    'required' => true,
+                    'description' => 'Passport photograph (usually captured from NIN verification).',
+                ],
+                [
+                    'key' => 'olevel_first_sitting',
+                    'label' => "O'Level Result (1st sitting)",
+                    'required' => true,
+                    'description' => "Scan or clear photo of your first sitting O'Level result.",
+                ],
+                [
+                    'key' => 'olevel_second_sitting',
+                    'label' => "O'Level Result (2nd sitting)",
+                    'required' => false,
+                    'description' => 'Optional — upload if you have a second sitting.',
+                ],
+            ];
+        }
+
+        if ($entryMode === 'utme') {
             return [
                 [
                     'key' => 'passport',
@@ -181,8 +200,14 @@ class AdmissionEntryRules
                 [
                     'key' => 'olevel_first_sitting',
                     'label' => "O'Level Result (1st sitting)",
+                    'required' => true,
+                    'description' => "Scan or clear photo of your first sitting O'Level result.",
+                ],
+                [
+                    'key' => 'olevel_second_sitting',
+                    'label' => "O'Level Result (2nd sitting)",
                     'required' => false,
-                    'description' => "Optional scan of your first sitting O'Level result.",
+                    'description' => 'Optional — upload if you have a second sitting.',
                 ],
                 [
                     'key' => 'supporting',
@@ -199,6 +224,18 @@ class AdmissionEntryRules
                 'label' => 'Passport',
                 'required' => true,
                 'description' => 'Passport photograph (usually captured from NIN verification).',
+            ],
+            [
+                'key' => 'olevel_first_sitting',
+                'label' => "O'Level Result (1st sitting)",
+                'required' => true,
+                'description' => "Scan or clear photo of your first sitting O'Level result.",
+            ],
+            [
+                'key' => 'olevel_second_sitting',
+                'label' => "O'Level Result (2nd sitting)",
+                'required' => false,
+                'description' => 'Optional — upload if you have a second sitting.',
             ],
             [
                 'key' => 'supporting',
@@ -249,5 +286,53 @@ class AdmissionEntryRules
         $index = array_search($entryMode, self::ENTRY_MODE_ORDER, true);
 
         return $index === false ? PHP_INT_MAX : $index;
+    }
+
+    public static function allowsSecondProgramme(string $entryMode): bool
+    {
+        return $entryMode !== 'jupeb';
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $sitting
+     */
+    public static function sittingIsNabteb(?array $sitting): bool
+    {
+        return strtoupper(trim((string) ($sitting['exam_type'] ?? ''))) === 'NABTEB';
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $sitting
+     */
+    public static function sittingHasContent(?array $sitting): bool
+    {
+        if (! is_array($sitting)) {
+            return false;
+        }
+        if (filled($sitting['exam_type'] ?? null)
+            || filled($sitting['exam_center'] ?? null)
+            || filled($sitting['exam_year'] ?? null)
+            || filled($sitting['exam_number'] ?? null)) {
+            return true;
+        }
+
+        return collect($sitting['results'] ?? [])->contains(
+            fn ($row) => filled($row['subject_id'] ?? null) || filled($row['grade'] ?? null)
+        );
+    }
+
+    /**
+     * NABTEB is a single-sitting exam and cannot be combined with another sitting.
+     *
+     * @param  array<string, mixed>|null  $first
+     * @param  array<string, mixed>|null  $second
+     */
+    public static function nabtebCombinedWithSecondSitting(?array $first, ?array $second): bool
+    {
+        if (! self::sittingHasContent($first) || ! self::sittingHasContent($second)) {
+            return false;
+        }
+
+        return self::sittingIsNabteb($first) || self::sittingIsNabteb($second);
     }
 }

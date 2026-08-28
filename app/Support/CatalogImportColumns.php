@@ -24,7 +24,7 @@ class CatalogImportColumns
     public static function all(string $type): array
     {
         return match ($type) {
-            'colleges' => ['name', 'code', 'campus_id'],
+            'colleges' => ['name', 'code', 'campus_id', 'is_jupeb_centre'],
             'departments' => ['name', 'code', 'college_id'],
             'programmes' => [
                 'name',
@@ -69,6 +69,7 @@ class CatalogImportColumns
                 'name' => 'College of Natural and Applied Sciences',
                 'code' => 'COLNAS',
                 'campus_id' => '1',
+                'is_jupeb_centre' => 'no',
             ]),
             'departments' => array_merge($row, [
                 'name' => 'Computer Science',
@@ -119,7 +120,7 @@ class CatalogImportColumns
                 '',
                 $order,
                 $skip,
-                'Required: name, campus_id. Optional: code.',
+                'Required: name, campus_id. Optional: code, is_jupeb_centre (yes/no). Mark yes if this college is a JUPEB centre.',
                 $ids,
             ],
             'departments' => [

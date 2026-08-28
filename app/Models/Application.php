@@ -116,6 +116,7 @@ class Application extends BaseModel
         'recommended' => 'admissions.recommend',
         'approved' => 'admissions.approve',
         'offer_issued' => 'admissions.offer',
+        'acceptance_paid' => 'admissions.clear',
         'matriculated' => 'admissions.matriculate',
     ];
 
@@ -201,7 +202,26 @@ class Application extends BaseModel
     {
         return [
             'submitted_at' => 'datetime',
+            'physically_cleared_at' => 'datetime',
         ];
+    }
+
+    public function physicallyClearedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'physically_cleared_by');
+    }
+
+    public function isAwaitingPhysicalClearance(): bool
+    {
+        if ($this->physically_cleared_at) {
+            return false;
+        }
+        if (in_array($this->stage, ['rejected', 'withdrawn'], true)) {
+            return false;
+        }
+        $this->loadMissing('acceptanceFeeInvoice');
+
+        return $this->acceptanceFeeInvoice?->status === 'paid';
     }
 
     public function user(): BelongsTo
@@ -212,6 +232,13 @@ class Application extends BaseModel
     public function intake(): BelongsTo
     {
         return $this->belongsTo(Intake::class);
+    }
+
+    public function applicationWindowOpen(): bool
+    {
+        $this->loadMissing('intake');
+
+        return (bool) $this->intake?->isAcceptingApplications();
     }
 
     public function academicSession(): BelongsTo

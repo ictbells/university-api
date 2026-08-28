@@ -108,7 +108,7 @@ class ApplicationListQuery
             });
         }
 
-        if ($user?->hasPermission('admissions.view')) {
+        if ($user?->hasPermission('admissions.view') || $user?->hasPermission('admissions.clear')) {
             RegistrationCriteria::excludeRegisteredApplications($query);
         } elseif ($user) {
             $query->where('user_id', $user->id);

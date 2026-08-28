@@ -42,6 +42,11 @@ class OfficeApprovalCatalog
             'admissions.revert' => ['nav_key' => 'admissions-undergraduate', 'label' => 'Revert last application decision', 'mutation' => self::MUTATION_UPDATE],
             'admissions.staff_update' => ['nav_key' => 'admissions-undergraduate', 'label' => 'Update application file', 'mutation' => self::MUTATION_UPDATE],
             'admissions.update_acceptance_fee' => ['nav_key' => 'admissions-undergraduate', 'label' => 'Update acceptance fee', 'mutation' => self::MUTATION_UPDATE],
+            'admissions.clear' => ['nav_key' => 'admissions-clearance-undergraduate', 'label' => 'Clear admitted applicant', 'mutation' => self::MUTATION_UPDATE],
+            'admissions.clear_bulk' => ['nav_key' => 'admissions-clearance-undergraduate', 'label' => 'Bulk-clear admitted applicants', 'mutation' => self::MUTATION_UPDATE],
+            'admission_guide.update' => ['nav_key' => 'admission-guide', 'label' => 'Update admission guide', 'mutation' => self::MUTATION_UPDATE],
+            'admission_guide.publish' => ['nav_key' => 'admission-guide', 'label' => 'Publish admission guide', 'mutation' => self::MUTATION_UPDATE],
+            'admission_guide.unpublish' => ['nav_key' => 'admission-guide', 'label' => 'Unpublish admission guide', 'mutation' => self::MUTATION_UPDATE],
             'medical.approve_appointment' => ['nav_key' => 'medical', 'label' => 'Approve clinic appointment', 'mutation' => self::MUTATION_UPDATE],
             'medical.reject_appointment' => ['nav_key' => 'medical', 'label' => 'Reject clinic appointment', 'mutation' => self::MUTATION_UPDATE],
             'medical.finalize_bill' => ['nav_key' => 'medical', 'label' => 'Finalize clinic bill', 'mutation' => self::MUTATION_UPDATE],
@@ -100,7 +105,7 @@ class OfficeApprovalCatalog
             'academic.destroy_session' => ['nav_key' => 'sessions', 'label' => 'Delete session', 'mutation' => self::MUTATION_DELETE],
             'academic.close_session' => ['nav_key' => 'sessions', 'label' => 'Close session and promote students', 'mutation' => self::MUTATION_UPDATE],
             'academic.graduate' => ['nav_key' => 'graduation', 'label' => 'Confirm graduation', 'mutation' => self::MUTATION_UPDATE],
-            'results.board_clear' => ['nav_key' => 'results-board', 'label' => 'Board clear results', 'mutation' => self::MUTATION_UPDATE],
+            'results.board_clear' => ['nav_key' => 'results-board', 'label' => 'Senate clear results', 'mutation' => self::MUTATION_UPDATE],
             'results.release' => ['nav_key' => 'results-release', 'label' => 'Release results to students', 'mutation' => self::MUTATION_UPDATE],
             'academic.store_term' => ['nav_key' => 'sessions', 'label' => 'Create term', 'mutation' => self::MUTATION_CREATE],
             'academic.update_term' => ['nav_key' => 'sessions', 'label' => 'Update term', 'mutation' => self::MUTATION_UPDATE],
@@ -144,6 +149,8 @@ class OfficeApprovalCatalog
             'transcripts.ready' => ['nav_key' => 'transcript-undergraduate', 'label' => 'Mark transcript ready', 'mutation' => self::MUTATION_UPDATE],
             'transcripts.reject' => ['nav_key' => 'transcript-undergraduate', 'label' => 'Reject transcript request', 'mutation' => self::MUTATION_UPDATE],
             'students.import' => ['nav_key' => 'import-students', 'label' => 'Import students', 'mutation' => self::MUTATION_CREATE],
+            'jupeb.matric.assign' => ['nav_key' => 'jupeb-matric', 'label' => 'Assign JUPEB matric number', 'mutation' => self::MUTATION_UPDATE],
+            'jupeb.matric.import' => ['nav_key' => 'jupeb-matric', 'label' => 'Import JUPEB matric numbers', 'mutation' => self::MUTATION_CREATE],
             'admissions.import_applicants' => ['nav_key' => 'import-applicants', 'label' => 'Import applicants', 'mutation' => self::MUTATION_CREATE],
             'admissions.import_candidate_data' => ['nav_key' => 'candidate-data', 'label' => 'Import candidate data', 'mutation' => self::MUTATION_CREATE],
             'finance.import_invoices' => ['nav_key' => 'import-invoices', 'label' => 'Import invoices', 'mutation' => self::MUTATION_CREATE],
@@ -157,10 +164,10 @@ class OfficeApprovalCatalog
             'results.store' => ['nav_key' => 'results-students', 'label' => 'Enter result', 'mutation' => self::MUTATION_CREATE],
             'results.update' => ['nav_key' => 'results-students', 'label' => 'Update result', 'mutation' => self::MUTATION_UPDATE],
             'results.destroy' => ['nav_key' => 'results-students', 'label' => 'Delete result', 'mutation' => self::MUTATION_DELETE],
-            'results.submit' => ['nav_key' => 'results-department', 'label' => 'Submit results', 'mutation' => self::MUTATION_UPDATE],
-            'results.faculty_approve' => ['nav_key' => 'results-approvals', 'label' => 'Faculty approve results', 'mutation' => self::MUTATION_UPDATE],
-            'results.faculty_return' => ['nav_key' => 'results-approvals', 'label' => 'Faculty return results', 'mutation' => self::MUTATION_UPDATE],
-            'results.import' => ['nav_key' => 'results-import', 'label' => 'Import results CSV', 'mutation' => self::MUTATION_CREATE],
+            'results.submit' => ['nav_key' => 'results-department', 'label' => 'College submit results', 'mutation' => self::MUTATION_UPDATE],
+            'results.faculty_approve' => ['nav_key' => 'results-approvals', 'label' => 'Committee of Deans approve results', 'mutation' => self::MUTATION_UPDATE],
+            'results.faculty_return' => ['nav_key' => 'results-approvals', 'label' => 'Committee of Deans return results', 'mutation' => self::MUTATION_UPDATE],
+            'results.import' => ['nav_key' => 'results-import', 'label' => 'Upload score', 'mutation' => self::MUTATION_CREATE],
             'results.update_grading_scale' => ['nav_key' => 'results-grading-scale', 'label' => 'Update grading scale', 'mutation' => self::MUTATION_UPDATE],
             'settings.update' => ['nav_key' => 'application-settings', 'label' => 'Update application settings', 'mutation' => self::MUTATION_UPDATE],
             'institution.update_settings' => ['nav_key' => 'application-settings', 'label' => 'Update institution settings', 'mutation' => self::MUTATION_UPDATE],
@@ -226,6 +233,15 @@ class OfficeApprovalCatalog
             'jupeb' => 'admissions-jupeb',
             'postgraduate', 'pg' => 'admissions-postgraduate',
             default => 'admissions-undergraduate',
+        };
+    }
+
+    public static function clearanceNavKey(?string $channel): string
+    {
+        return match ($channel) {
+            'jupeb' => 'admissions-clearance-jupeb',
+            'postgraduate', 'pg' => 'admissions-clearance-postgraduate',
+            default => 'admissions-clearance-undergraduate',
         };
     }
 

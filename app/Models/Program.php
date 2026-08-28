@@ -93,6 +93,13 @@ class Program extends BaseModel
         return $this->is_active !== false;
     }
 
+    public function isOfferedAtJupebCentre(): bool
+    {
+        $this->loadMissing('department.faculty');
+
+        return (bool) $this->department?->faculty?->is_jupeb_centre;
+    }
+
     protected static function booted(): void
     {
         static::saving(function (Program $program) {

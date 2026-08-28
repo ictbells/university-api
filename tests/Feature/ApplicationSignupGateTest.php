@@ -7,10 +7,13 @@ use App\Models\AcademicTerm;
 use App\Models\Application;
 use App\Models\CandidateData;
 use App\Models\Intake;
+use App\Models\NinVerification;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\PremblyService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class ApplicationSignupGateTest extends TestCase
@@ -180,6 +183,99 @@ class ApplicationSignupGateTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_register_rejects_an_invalid_alternate_phone(): void
+    {
+        $intake = $this->openApplicationSession();
+        $this->ensureApplicantRole();
+        $this->demoPrembly();
+        Http::fake();
+
+        $this->postJson('/api/register', $this->registerPayload([
+            'intake_id' => $intake->id,
+            'jamb_registration' => '20261234AB',
+            'alternate_phone' => '12345',
+        ]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['alternate_phone']);
+    }
+
+    public function test_register_stores_nin_phone_and_normalized_alternate_phone(): void
+    {
+        $intake = $this->openApplicationSession();
+        $this->ensureApplicantRole();
+        $this->demoPrembly();
+        Http::fake();
+
+        $this->postJson('/api/register', $this->registerPayload([
+            'intake_id' => $intake->id,
+            'jamb_registration' => '20261234AB',
+            'phone' => '08039999999',
+            'alternate_phone' => '0803 111 2222',
+        ]))
+            ->assertOk()
+            ->assertJsonPath('user.phone', '08030000000')
+            ->assertJsonPath('user.alternate_phone', '+2348031112222');
+
+        $user = User::query()->where('email', 'adaeze.okoye@gmail.com')->first();
+        $this->assertNotNull($user);
+        $this->assertSame('08030000000', $user->phone);
+        $this->assertSame('+2348031112222', $user->alternate_phone);
+
+        $form = Application::query()->where('user_id', $user->id)->first()
+            ?->steps()->where('step_key', 'application_form')->first();
+        $this->assertSame('08030000000', $form?->payload['phone'] ?? null);
+        $this->assertSame('+2348031112222', $form?->payload['alternate_phone'] ?? null);
+    }
+
+    public function test_application_form_locks_nin_phone_and_requires_a_valid_alternate(): void
+    {
+        $intake = $this->openApplicationSession();
+        $this->ensureApplicantRole();
+        $this->demoPrembly();
+        Http::fake();
+
+        $this->postJson('/api/register', $this->registerPayload([
+            'intake_id' => $intake->id,
+            'jamb_registration' => '20261234AB',
+            'alternate_phone' => '08031112222',
+        ]))->assertOk();
+
+        $user = User::query()->where('email', 'adaeze.okoye@gmail.com')->first();
+        $this->assertNotNull($user);
+        $application = Application::query()->where('user_id', $user->id)->first();
+        $this->assertNotNull($application);
+        $application->update(['stage' => 'form_in_progress']);
+        Sanctum::actingAs($user);
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'application_form',
+            'payload' => [
+                'phone' => '08039999999',
+                'alternate_phone' => 'not-a-number',
+                'address' => '12 Test Street, Ota',
+                'declaration' => true,
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['payload.alternate_phone']);
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'application_form',
+            'payload' => [
+                'phone' => '08039999999',
+                'alternate_phone' => '+1 202 555 0100',
+                'address' => '12 Test Street, Ota',
+                'declaration' => true,
+            ],
+        ])->assertOk();
+
+        $form = $application->steps()->where('step_key', 'application_form')->first();
+        $this->assertSame('08030000000', $form?->payload['phone'] ?? null);
+        $this->assertSame('+12025550100', $form?->payload['alternate_phone'] ?? null);
+        $this->assertSame('08030000000', $user->fresh()->phone);
+        $this->assertSame('+12025550100', $user->fresh()->alternate_phone);
+    }
+
     public function test_register_allows_postgraduate_without_jamb(): void
     {
         $term = $this->openApplicationSession()->term;
@@ -249,6 +345,93 @@ class ApplicationSignupGateTest extends TestCase
         $this->assertSame('validated', Application::query()->value('jamb_status'));
     }
 
+    public function test_register_accepts_an_email_without_public_dns(): void
+    {
+        $intake = $this->openApplicationSession();
+        $this->ensureApplicantRole();
+        $this->demoPrembly();
+        Http::fake();
+
+        $this->postJson('/api/register', $this->registerPayload([
+            'intake_id' => $intake->id,
+            'jamb_registration' => '20261234AB',
+            'email' => 'new.applicant@bells.test',
+        ]))
+            ->assertOk()
+            ->assertJsonPath('message', 'Registration successful');
+
+        $this->assertNotNull(User::query()->where('email', 'new.applicant@bells.test')->first());
+    }
+
+    public function test_nin_preview_and_register_tell_existing_holders_to_sign_in(): void
+    {
+        $intake = $this->openApplicationSession();
+        $this->ensureApplicantRole();
+        $this->demoPrembly();
+        Http::fake();
+        $user = User::factory()->create();
+        NinVerification::query()->create([
+            'user_id' => $user->id,
+            'nin' => '12345678901',
+            'mapped_fields' => ['first_name' => 'Adaeze', 'last_name' => 'Okoye'],
+            'raw_snapshot' => ['demo' => true],
+            'verified_at' => now(),
+        ]);
+
+        $this->postJson('/api/nin/preview', ['nin' => '12345678901', 'intake_id' => $intake->id])
+            ->assertStatus(422)
+            ->assertJsonPath('existing_account', true)
+            ->assertJsonPath('returning_student', true)
+            ->assertJsonPath('errors.nin.0', PremblyService::EXISTING_ACCOUNT_MESSAGE);
+
+        Http::assertNothingSent();
+
+        $this->postJson('/api/register', $this->registerPayload([
+            'intake_id' => $intake->id,
+            'jamb_registration' => '20261234AB',
+            'email' => 'new.returning@bells.test',
+        ]))
+            ->assertStatus(422)
+            ->assertJsonPath('existing_account', true)
+            ->assertJsonPath('returning_student', true);
+
+        $this->assertNull(User::query()->where('email', 'new.returning@bells.test')->first());
+        Http::assertNothingSent();
+    }
+
+    public function test_register_explains_when_email_is_already_taken(): void
+    {
+        $intake = $this->openApplicationSession();
+        $this->ensureApplicantRole();
+        $this->demoPrembly();
+        Http::fake();
+        User::factory()->create(['email' => 'adaeze.okoye@gmail.com']);
+
+        $this->postJson('/api/register', $this->registerPayload([
+            'intake_id' => $intake->id,
+            'jamb_registration' => '20261234AB',
+        ]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['email'])
+            ->assertJsonPath('errors.email.0', 'An account already exists with this email. Sign in instead.');
+    }
+
+    public function test_register_explains_when_applicant_role_is_missing(): void
+    {
+        $intake = $this->openApplicationSession();
+        $this->demoPrembly();
+        Http::fake();
+
+        $this->postJson('/api/register', $this->registerPayload([
+            'intake_id' => $intake->id,
+            'jamb_registration' => '20261234AB',
+        ]))
+            ->assertStatus(422)
+            ->assertJsonPath('errors.email.0', 'Applicant registration is not available. Contact admissions.');
+
+        $this->assertSame(0, User::query()->count());
+    }
+
     public function test_applicant_session_badge_uses_year_not_intake_category(): void
     {
         $intake = $this->openApplicationSession();
@@ -314,6 +497,7 @@ class ApplicationSignupGateTest extends TestCase
             'nin' => '12345678901',
             'email' => 'adaeze.okoye@gmail.com',
             'phone' => '08012345678',
+            'alternate_phone' => '08031112222',
             'password' => 'Secret1!x',
             'password_confirmation' => 'Secret1!x',
         ], $overrides);

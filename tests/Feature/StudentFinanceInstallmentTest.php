@@ -53,16 +53,23 @@ class StudentFinanceInstallmentTest extends TestCase
         $this->assertEquals('partial', $invoiceRow['status']);
         $this->assertEquals(25, $invoiceRow['installment_percent']);
 
-        // Payable installment on the invoice document stays settled for wallet/Paystack.
-        $this->assertEquals(0.0, (float) $tuition->fresh()->balance);
-        $this->assertEquals('paid', $tuition->fresh()->status);
-
-        $this->getJson('/api/finance/student-roster?student_id='.$student->id)
+        Sanctum::actingAs($student->user);
+        $own = $this->getJson('/api/my-finance-status')
             ->assertOk()
-            ->assertJsonPath('data.0.billed', 17000)
-            ->assertJsonPath('data.0.paid', 4250)
-            ->assertJsonPath('data.0.outstanding', 12750)
-            ->assertJsonPath('data.0.clearance', 'outstanding');
+            ->json();
+        $this->assertEquals(17000.0, $own['summary']['billed']);
+        $this->assertEquals(4250.0, $own['summary']['paid']);
+        $this->assertEquals(12750.0, $own['summary']['outstanding']);
+        $this->assertEquals($student->id, $own['student']['id']);
+    }
+
+    public function test_applicant_cannot_read_finance_status(): void
+    {
+        Sanctum::actingAs(User::factory()->create(['status' => 'active']));
+
+        $this->getJson('/api/my-finance-status')
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Financial status is available after you are admitted as a student.');
     }
 
     public function test_student_status_with_fees_and_partial_tuition(): void

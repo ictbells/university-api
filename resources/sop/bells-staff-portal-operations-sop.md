@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.35  
+**Version:** 1.43  
 **Effective date:** August 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -92,6 +92,7 @@ When creating or editing a role, tick the permissions that role should grant. Ch
 | `admissions.recommend` | Recommend admission |
 | `admissions.approve` | Approve admission |
 | `admissions.offer` | Issue admission offer |
+| `admissions.clear` | Clear admitted applicants after acceptance payment and physical verification |
 | `admissions.matriculate` | Matriculate students |
 | `admissions.pg.screen` … `admissions.pg.panel` | Postgraduate-specific review steps |
 | `admissions.import` | Upload JAMB candidate lists and import applicants from another portal |
@@ -166,6 +167,7 @@ Users with `settings.manage` configure policies under **System → Application s
 | **Studentship after graduation** | 1–10 years (default 2) | Years after registrar conferment before graduates become alumni and student-portal login is locked |
 | **Admissions contact** | Email, phone | Shown on student login and signup |
 | **Staff login support** | Label, email, phone | Shown on staff sign-in (default label: ICT & Registry support) |
+| **PG research / purpose length** | Min/max words (0–5000) | Word limits for postgraduate Research interest (default max 150) and Statement of purpose (default max 500). Min 0 = no floor. Max 0 = no word cap (character limits still apply). Enforced on the applicant form and staff application file; not on applicant import. |
 
 **Operational notes:**
 
@@ -206,9 +208,9 @@ When a section (for example Administration) contains a single dropdown whose lab
 
 **Courses** contains: Course catalog, Programme courses, Offerings, Course registration, Unit limits, Registration extensions.
 
-**Results** contains: Results dashboard, Result entry, CSV import, Department uploads, Faculty Approval, Board, Release, Grading scale. Grade changes appear under System → Audit (module `results`).
+**Results** contains: Results dashboard, Result entry, Upload Score, College, Committee of Deans, Senate, Release, Grading scale. Grade changes appear under System → Audit (module `results`).
 
-**Fees & payments** contains: Payment dashboard (university financial statement), Fee categories, Fee items, Rebates, Programme fees, Generate invoice, Invoices, Students Financial Status, Import invoices, Import wallet history. On Students Financial Status, **Billed** is 100% school fees plus other invoices; **Cleared** only when 100% of school fees is paid. Disabled invoices and rebates on those invoices are excluded from billed, rebated, paid, outstanding, and the university statement. On the Payment dashboard, **Collected** is fee payments (wallet top-ups are shown separately); **Cleared** student status is not the same as university receipts.
+**Fees & payments** contains: Payment dashboard (university financial statement), Fee categories, Fee items, Rebates, Programme fees, Generate invoice, Payments, Students Financial Status, Import invoices, Import wallet history. On Students Financial Status, **Billed** is 100% school fees plus other invoices; **Cleared** only when 100% of school fees is paid. Disabled invoices and rebates on those invoices are excluded from billed, rebated, paid, outstanding, and the university statement. On Payments and Students Financial Status, staff can **View receipt** for a paid invoice (and for a successful wallet top-up); the HTML is the same bursary receipt students receive, including **Particulars** (each fee line and amount). Admitted students see the same bursary position on the student portal **Financial status** page. On the Payment dashboard, **Collected** is fee payments (wallet top-ups are shown separately); **Cleared** student status is not the same as university receipts.
 
 ### 6.3 Office hierarchy
 
@@ -334,18 +336,21 @@ The **Applications** section is the active admissions pipeline, split by entry c
 - **Undergraduate** — UTME, Direct Entry, and Transfer (`admissions.view`)
 - **JUPEB** — JUPEB applicants (`admissions.view`)
 - **Postgraduate** — PG applicants (`admissions.view`)
+- **Physical clearance** — Undergraduate, JUPEB, and Postgraduate queues (`admissions.clear`). Link each channel separately in office setup.
 
 Staff advance complete files through:
 
-`submitted` → `screening` → `verification` → `shortlisting` → `recommended` → `approved` → `offer_issued` → matriculation
+`submitted` → `screening` → `verification` → `shortlisting` → `recommended` → `approved` → `offer_issued` → acceptance payment → **physical clearance** → matriculation
 
 When staff issue the offer (`offer_issued`, or postgraduate `admission`), the applicant is emailed at the address on their account. The message includes the programme, session, offer reference, acceptance-fee amount when known, and a link to the student portal to pay within two weeks and print the admission letter. A mail failure is logged and does not block the offer.
+
+After the applicant pays acceptance, the file waits at `acceptance_paid`. They come to campus with original documents. Admissions staff clear them **individually** or in **bulk** on the matching **Applications → Physical clearance** channel page (or the Clear action on that channel's pipeline). Clearing records the visit and creates (or reattaches) the student record. Already-matriculated files from before this step are treated as already cleared.
 
 Transfer files include a **credit assessment** step after verification (`admissions.credit_assess`). Postgraduate files may include extra PG review steps.
 
 Applicants who are **matriculated and have paid at least 25% of current-session tuition** leave Applications lists and appear under **Registrations**.
 
-Staff can open an application file to review biodata, form answers, documents, eligibility, and (where permitted) update fields. Identity fields stay locked when NIN was verified. NIN lookup fills **phone** and **address** on the user and the application form when Prembly returns them (fields stay editable if those values are missing). JAMB **programme** fields are chosen from the university programme catalogue, not typed freely. Each O’level sitting is limited to **nine** subjects.
+Staff can open an application file to review biodata, form answers, documents, eligibility, and (where permitted) update fields. Identity fields stay locked when NIN was verified. NIN lookup fills **phone** and **address** on the user and the application form when Prembly returns them (fields stay editable if those values are missing). JAMB **programme** fields are chosen from the university programme catalogue, not typed freely. Each O’level sitting is limited to **nine** subjects. **Change of programme** is allowed for 100L–300L registered students. If the new programme is in the **same college**, the student stays at the current level and unpassed courses of the new programme (current level and below) remain available to register. If the new programme is in a **different college**, the student drops one level band (100L stays 100L).
 
 From the application **Decision** panel, staff can **revert the last decision** (advance or rejection). That returns the file to the previous stage. Matriculated files and files whose acceptance fee has already been paid cannot be reverted. Office-head approval still applies where the office requires it.
 
@@ -370,7 +375,7 @@ Course registration, unit limits, and registration extensions are under **Academ
 | Academic Sessions | Academic sessions, terms, and end-of-session promotion | `academic.sessions.manage`, `academic.sessions.close` |
 | Levels | Study levels (100, 200, …) | `academic.levels.manage` |
 | Graduation | Confirm conferment and start the studentship clock | `academic.graduate` |
-| Import students | Create continuing students with a supplied matric number (`students.import`). Import invoices and wallet history first. Invoice rows also match old application number or JAMB. Login uses matric number. They appear under Registrations only when tuition invoices show at least 25% paid | `students.import` |
+| Import students | Create continuing students with a supplied matric number (`students.import`). Import invoices and wallet history first. Invoice rows also match old application number or JAMB. Login uses matric number. NIN is optional; they must verify NIN after they sign in and do not re-apply. They appear under Registrations only when tuition invoices show at least 25% paid | `students.import` |
 
 #### Catalogue bulk import
 
@@ -453,19 +458,21 @@ Leave the field blank unless the programme needs a different path. If none is se
 These are two calendars, not one record with a type flag.
 
 - **Admission session** — Academic → Admission Setup → Academic Sessions. Used by enrolled students (course registration, hostels, session close and promotion). A session becomes the live calendar only when one of its semesters is marked **Current**.
-- **Application session** — Academic → Application Setup → Application sessions (intake). Open when **Accepting applications** is on and today is within the open and close dates. Application and acceptance fees are **not** edited here; they live in **Fees & payments → Fee items** as `application_fee` and `acceptance_fee` lines **per entry mode** (UTME, DE, JUPEB, Transfer, PG). Invoices use the catalog amount and fall back to a stored session amount only if no catalog line exists.
+- **Application session** — Academic → Application Setup → Application sessions (intake). Open when **Accepting applications** is on and today is within the open and close dates. Application and acceptance fees are **not** edited here; they live in **Fees & payments → Fee items** as `application_fee` and `acceptance_fee` lines **per entry mode** (UTME, DE, JUPEB, Transfer, PG). Those catalog lines are reused when the category moves to a new academic session — do not create new fee items for the new year. Invoices use the catalog amount and fall back to a stored session amount only if no catalog line exists.
 
 **Lifecycle for a new year**
 
 1. Create the **admission session** (and semesters) **without** marking any semester current — the previous year stays current for enrolled students.
 2. Open **application sessions** on that admission session.
-3. **Stop accepting** when the application window ends.
+3. **Stop accepting** when the application window ends. Applicants in that category can still save a started form, but they cannot make a **final submit**.
 4. **Run admission** (review, offers, acceptance, matriculation).
 5. **Set a semester current** so this admission session becomes active for students.
 
 The platform blocks step 5 while any application session on that admission session is still accepting.
 
-New applicant **signup** on the student portal requires choosing a specific **application session** first. An open UTME session does not let a postgraduate or transfer applicant create an account. NIN preview and account creation are rejected unless that session is accepting. Successful NIN preview returns names plus **phone** and **address** when the identity provider supplies them, so the register step and later application form can be prefilled. UTME and Direct Entry also require a JAMB number; if a candidate list has been uploaded for that session, the number must appear on it. Signup then starts the application for the chosen session. If no session is accepting, the API returns *Applications are not open. There is no active application session, so you cannot create an account.* Staff applicant import and existing applicant login are not blocked.
+New applicant **signup** on the student portal requires choosing a specific **application session** first. An open UTME session does not let a postgraduate or transfer applicant create an account. NIN preview and account creation are rejected unless that session is accepting. Successful NIN preview returns names plus **phone** and **address** when the identity provider supplies them, so the register step and later application form can be prefilled. UTME and Direct Entry also require a JAMB number; if a candidate list has been uploaded for that session, the number must appear on it. Signup then starts the application for the chosen session. If no session is accepting, the API returns *Applications are not open. There is no active application session, so you cannot create an account.* Staff applicant import and existing applicant login are not blocked. A started application cannot be **submitted** after that category’s window closes (Accepting applications off, or outside the open/close dates). Saving progress is still allowed. An open window for a different category does not unlock submit.
+
+A NIN that already belongs to an applicant or student **cannot create a second account**. Signup tells them to sign in with matric number, application number, or JAMB (Forgot password if needed). Enrolled, withdrawn, and alumni students can start a **new application** on the same portal account. NIN biodata (names, date of birth, gender, NIN, NIN passport) stays locked; staff with **Re-verify NIN** use **Resync from NIN** on the file after a NIMC correction. When a later offer’s acceptance fee is paid, the existing student record is reused — **one matric number per person**.
 
 #### Candidate data
 
@@ -481,17 +488,17 @@ Upload JAMB candidate spreadsheets **before** new applicants register. Students 
 Use this when moving people from another admissions portal into this system.
 
 1. Select the **application session** (intake) and **category** (UTME, Direct Entry, JUPEB, Transfer, or Postgraduate). The session's entry mode must match the category.
-2. Download the **template** for that category and fill one row per applicant on the **Applicants** sheet. Do not rename columns. Extra sheets (**Campuses**, **Colleges**, **Departments**, **Programmes**, **Levels**, **States**, **LGAs**, **O-level subjects**) are lookup lists. Copy **ids** (not names from the old portal) for programme, state, LGA, and O-level subjects; import stores this system’s official titles. Do not enter college or department on the Applicants sheet. **Country** is Nigeria or Non-Nigeria. Maximum **two** O-level sittings (`sitting1_` / `sitting2_`; sitting 2 optional). UTME/JUPEB has **two** JAMB institution slots (`utme_institution_1` / `utme_programme_1` and `_2`) — enter institution and programme **names**, not ids. The application session is selected on the page, not in the file.
-3. Optionally tick **Verify NIN during upload (Prembly is called for every row)**. Failed NINs are skipped and no account is created. Leave this off to store NIN without live verification; the applicant can verify later in the form.
+2. Download the **template** for that category and fill one row per applicant on the **Applicants** sheet. Do not rename columns. Extra sheets (**Campuses**, **Colleges**, **Departments**, **Programmes**, **Levels**, **States**, **LGAs**, **O-level subjects**) are lookup lists. Copy **ids** (not names from the old portal) for programme, state, LGA, and O-level subjects; import stores this system’s official titles. Do not enter college or department on the Applicants sheet. **Country** is Nigeria or Non-Nigeria. Maximum **two** O-level sittings (`sitting1_` / `sitting2_`; sitting 2 optional). UTME/JUPEB four subject scores must add up to `utme_aggregate`. The application session is selected on the page, not in the file.
+3. Optionally tick **Verify NIN during upload (Prembly runs only for rows that include a NIN)**. Failed NINs are skipped and no account is created. Leave this off (or leave `nin` blank) for legacy files; the applicant verifies NIN when they sign in and continue the form.
 4. Optionally tick **Email portal passwords** (default on). If the spreadsheet `password` column is filled, that plaintext is hashed and stored and is not emailed unless this box is checked. If the column is blank, a new password is generated and emailed when the box is on.
 5. Upload `.xlsx`, `.xls`, or `.csv`. The job is queued when NIN verification is on **or** the file has 40 or more data rows (unless the queue driver is `sync`). Wait for the result summary.
 6. Download **failed rows** if any rows were skipped.
 
-**Required columns (all categories):** email, phone, nin, first_name, last_name, first_choice_programme_id. UTME and Direct Entry also require `jamb_registration`.
+**Required columns (all categories):** email, phone, first_name, last_name, first_choice_programme_id. UTME and Direct Entry also require `jamb_registration`. **NIN is optional** (legacy data often omits it). If a NIN is present it must be 11 digits.
 
 **Programme ids** must already exist for that entry mode (copy from the Programmes lookup sheet **id** column). **Documents are not imported** from Excel. Import **does not submit** the application: rows stay at **`form_in_progress`** so the applicant must re-upload required documents and submit after they sign in. Incomplete rows also stay in the form so they can finish missing fields. Import invoices first when application fee was already paid (keyed by `application_number` or `jamb_registration`); this step posts matching rows, links them to the application, and records the fee as paid. Otherwise an **unpaid** application fee is generated from the fee catalog for that session’s entry mode (falling back to the session amount if no catalog line exists).
 
-After import, the applicant signs in on the student portal with **application number or JAMB + password** (not email). Duplicate email, NIN, JAMB, or application number is skipped.
+After import, the applicant signs in on the student portal with **application number or JAMB + password** (not email) and **verifies NIN** in the application form if it was not verified during upload. Duplicate email, NIN, JAMB, or application number is skipped.
 
 ### 8.6 Academic — Courses and exam clearance
 
@@ -509,18 +516,18 @@ Import students lives under **Admission Setup** (§8.4).
 
 Result entry follows a controlled workflow before students can see grades on the student portal. **E-exam sync is out of scope** for this portal.
 
-**Statuses:** `draft` → `submitted` → `board_ready` (via faculty approval) → `board_cleared` → `released`. Returns use `correction_required`. Only `draft` and `correction_required` rows are editable. Students see only **released** grades; CGPA uses released rows only. Carry-over detection also ignores unreleased grades.
+**Statuses:** `draft` → `submitted` (College) → `board_ready` (Committee of Deans) → `board_cleared` (Senate) → `released`. Returns use `correction_required`. Only `draft` and `correction_required` rows are editable. Students see only **released** grades; CGPA uses released rows only. Carry-over detection also ignores unreleased grades.
 
 **Exam-officer roles** (seeded; assign the matching Academic portal links):
 
-| Role | Upload lane | Org scope | Board / Release |
-|------|-------------|-----------|-----------------|
+| Role | Upload lane | Org scope | Senate / Release |
+|------|-------------|---------|------------------|
 | Exam Officer (`exam-officer`) | All | Campus | Yes |
-| Faculty Exam Officer (`faculty-exam-officer`) | Faculty courses in their academic faculty | `staff.department_id` → faculty | No |
+| College Exam Officer (`faculty-exam-officer`) | College courses in their academic college | `staff.department_id` → college | No |
 | Department Exam Officer (`department-exam-officer`) | Departmental courses in their academic department | `staff.department_id` | No |
 | GS Exam Officer (`gs-exam-officer`) | General courses only | Campus general lane | No |
 
-Registrar and Super Admin remain campus-wide. Faculty approval of **general-lane** rows is not limited to the officer’s faculty. Create/update/import/submit/approve/board/release still go through the **HOD office inbox** (`officeGate`) when that office requires approval.
+Registrar and Super Admin remain campus-wide. Committee of Deans approval of **general-lane** rows is not limited to the officer’s college. Create/update/import/submit/approve/Senate/release still go through the **HOD office inbox** (`officeGate`) when that office requires approval.
 
 **Hold until registered:** Staff may enter or import a draft by student + course offering **before** the student registers. The row is tagged held (`registration_held`) until an enrolled registration exists; submit, approve, release, and GPA skip held rows. When the student later registers, the existing grade is attached to the enrollment.
 
@@ -528,23 +535,23 @@ Registrar and Super Admin remain campus-wide. Faculty approval of **general-lane
 |------|---------|------------|
 | Results dashboard | Counts by status (scoped to the officer’s lane) | `results.read` |
 | Result entry | Search students, pick a course offering, enter CA/exam/total; edit/delete drafts; transcript and results audit on the student record | `results.read` + `results.write` / `results.submit` |
-| CSV import | Bulk draft import (`matric,score` or ca/exam columns). Registration is optional. Offerings are lane-filtered. | `results.import` |
-| Department uploads | Department grade list, submit drafts, print department list. **Grade** is the A–F letter from the total score and grading scale (staff do not type it). Print requires a semester. | `results.submit` |
-| Faculty Approval | Faculty approve/return submitted grades (free-text return note); print faculty list | `results.faculty_approve` |
-| Board | Board-ready/cleared records list; board clear / request corrections; printable board list (faculty scope includes general-lane rows) | `results.board` |
+| Upload Score | Bulk draft import (`matric,score` or ca/exam columns). Registration is optional. Offerings are lane-filtered. | `results.import` |
+| College | College grade list, submit drafts to Committee of Deans, print college list. **Grade** is the A–F letter from the total score and grading scale (staff do not type it). Print requires a semester. | `results.submit` |
+| Committee of Deans | Approve/return college submissions (free-text return note); print committee list | `results.faculty_approve` |
+| Senate | Senate-ready/cleared records list; Senate clear / request corrections; printable Senate list (college scope includes general-lane rows) | `results.board` |
 | Release | Release board-cleared grades to students (scope-based; no force option in the UI) | `results.release` |
 | Grading scale | Edit letter boundaries (seeded default 5.0 scale) | `scales.manage` |
 
-Grade create/update/import/status changes are written to the platform **Audit** trail (`module = results`), not a separate Results audit screen. Result entry, approvals, board, and release lists accept **session**, **level**, **sitting**, **course**, and **matric** filters (term pickers stay where the list is term-based). Department / Faculty / Board lists download as HTML, PDF, or Word.
+Grade create/update/import/status changes are written to the platform **Audit** trail (`module = results`), not a separate Results audit screen. Result entry, College, Committee of Deans, Senate, and release lists accept **session**, **level**, **sitting**, **course**, and **matric** filters (term pickers stay where the list is term-based). College / Committee of Deans / Senate lists download as HTML, PDF, or Word.
 
 **Typical flow**
 
-1. Assign Results portal links under Department Setup (`results`, `results-students`, `results-department`, `results-approvals`, `results-board`, `results-release`, etc.) and grant the matching exam-officer role (or equivalent permissions). Faculty, department, and GS officers should not receive Board or Release links.
+1. Assign Results portal links under Department Setup (`results`, `results-students`, `results-department`, `results-approvals`, `results-board`, `results-release`, etc.) and grant the matching exam-officer role (or equivalent permissions). College, department, and GS officers should not receive Senate or Release links.
 2. Review **Grading scale** before first use.
-3. Enter or import drafts on Result entry / CSV import (registration may follow later).
-4. On **Department uploads**, review drafts and submit; print the department list as needed.
-5. On **Faculty Approval**, approve (or return with a note). Print the faculty list as needed. HOD inbox may still apply.
-6. On **Board**, review the records list, then board clear (may require office approval).
+3. Enter or import drafts on Result entry / Upload Score (registration may follow later).
+4. On **College**, review drafts and submit to the Committee of Deans; print the college list as needed.
+5. On **Committee of Deans**, approve for Senate (or return with a note). Print the committee list as needed. HOD inbox may still apply.
+6. On **Senate**, review the records list, then Senate clear (may require office approval).
 7. Release on Release (may require office approval). Students then see letter grades and CGPA.
 
 On the **student portal → Academic**, students can view and print an **unofficial** transcript (released grades only). It is marked unofficial, has **no signature lines**, and cannot be signed from the portal.
@@ -580,7 +587,7 @@ E-exam sync is not included in this release.
 
 ### 8.7 Services
 
-- **Fees & payments** — **Payment dashboard** (university financial statement: fee collections, invoices issued, outstanding receivables, wallet liability; download PDF/Excel/Word), **Fee categories** (charge types, including programme-schedule vs operational) and **Fee items** (priced lines: **application and acceptance fees per entry mode**, **official transcript fees per programme and transcript type**, **Clinic services** visit charges, and **school-fee installment shares**: any programme-schedule catalog line — tuition, ICT, laboratory, infrastructure, and the rest — can be tagged 1st/2nd/3rd/4th 25% or optional Full 100% pay-at-once; application, acceptance, and transcript fees stay online-only and cannot use shares), rebates, **Programme fees** (assign catalog lines to programmes with a naira override per line; select several levels at once when the amount is the same; copy a schedule to other programmes in the same college), invoice generation (enter matric number; the fee list is catalog **fee items**, not programme-fee assignments), invoices, student financial status, **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices filter by session and level; Programme fees filter by level. When schedule lines are tagged with installment shares, student school-fee invoices bill those fixed amounts (already-paid fee items are skipped; 50% bills unpaid 1st + 2nd slices). Untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices. Hostel **Accommodation** on a school-fee sheet is a schedule catalog item, not a hostel-bed charge.
+- **Fees & payments** — **Payment dashboard** (university financial statement: fee collections, invoices issued, outstanding receivables, wallet liability; download PDF/Excel/Word), **Fee categories** (charge types, including programme-schedule vs operational) and **Fee items** (priced lines: **application and acceptance fees per entry mode**, **official transcript fees per programme and transcript type**, **Clinic services** visit charges, and **school-fee installment shares**: any programme-schedule catalog line — tuition, ICT, laboratory, infrastructure, and the rest — can be tagged 1st/2nd/3rd/4th 25% or optional Full 100% pay-at-once; application, acceptance, and transcript fees stay online-only and cannot use shares), rebates, **Programme fees** (assign catalog lines to programmes with a naira override per line; select several levels at once when the amount is the same; copy a schedule to other programmes in the same college), invoice generation (enter matric number; the fee list is catalog **fee items**, not programme-fee assignments), **Payments** (staff can **View receipt** on a paid invoice or successful wallet top-up; the receipt includes **Particulars** — each fee line and amount, matching the student bursary receipt), **Students Financial Status** (same billed/paid/outstanding as the student portal **Financial status** page), **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices filter by session and level; Programme fees filter by level. When schedule lines are tagged with installment shares, student school-fee invoices bill those fixed amounts (already-paid fee items are skipped; 50% bills unpaid 1st + 2nd slices). Untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices. Hostel **Accommodation** on a school-fee sheet is a schedule catalog item, not a hostel-bed charge.
 
 #### Programme fees (25% matrix)
 
@@ -597,7 +604,7 @@ Use these when moving continuing students from another portal. **Do not** invent
 
 1. **Fees & payments → Import invoices.** Spreadsheet keyed by `matric_number`, `application_number`, or `jamb_registration` (at least one). Application fee is often paid with APP or JAMB before a matric exists. One row is one invoice. Extra rows with the same `invoice_number` add extra payments. Category may be `application_fee`, `tuition`, `acceptance_fee`, and the rest of the catalogue. Tuition requires `installment_percent` (25/50/75/100). `paid_amount` records money received on the invoice. If no matching student or applicant exists yet, rows stay **pending** until Import students or Import applicants runs. On **Import applicants**, matching pending `application_fee` rows are posted and linked; if none match, an unpaid fee is generated from the fee catalog for that session’s entry mode (falling back to the session amount if no catalog line exists).
 2. **Fees & payments → Import wallet history.** One row is one credit or debit. Replay is in `occurred_at` order. Wallet credit does **not** count as tuition paid. If a debit would take the wallet below zero, that row and remaining rows for the same matric are skipped.
-3. **Academic → Admission Setup → Import students.** Select an application session and category. Download the template and copy `programme_id` from the **Programmes** lookup **id** column and `current_level` from **Levels**. Required: email, phone, nin, first_name, last_name, programme_id, matric_number, current_level. Fill `old_application_number` and `jamb_registration` when those ids were used to pay fees. Creates a user (student role), a historical application at stage `matriculated`, and a student record with the **supplied** matric (not an auto-generated `BUT/{year}/M/{####}`). Then posts pending invoices (matched by matric, application number, or JAMB) and wallet rows. Paid `application_fee` / `acceptance_fee` rows are linked on the application so student finance shows the correct payment status.
+3. **Academic → Admission Setup → Import students.** Select an application session and category. Download the template and copy `programme_id` from the **Programmes** lookup **id** column and `current_level` from **Levels**. Required: email, phone, first_name, last_name, programme_id, matric_number, current_level. **NIN is optional** (legacy files often omit it). Imported students **do not re-apply**; they sign in with matric number and **must verify NIN** before using academic, hostel, and other student services. Fill `old_application_number` and `jamb_registration` when those ids were used to pay fees. Creates a user (student role), a historical application at stage `matriculated`, and a student record with the **supplied** matric (not an auto-generated `BUT/{year}/M/{####}`). Then posts pending invoices (matched by matric, application number, or JAMB) and wallet rows. Paid `application_fee` / `acceptance_fee` rows are linked on the application so student finance shows the correct payment status.
 
 If an old payment was wallet-funded, record `paid_amount` on the invoice sheet **and** a matching **debit** on the wallet sheet. These imports do not call Paystack and do not settle invoices from the wallet automatically.
 - **Clinic** — Queue, student charts, encounters, prescriptions, sick notes, NHIS-aware billing (`medical.view_any` / `medical.manage` / `medical.billing`). Enrol a student on NHIS by **matric number**. Coverage may be a **percent** of eligible lines (campus default if blank) or a **fixed naira amount**. Visit prices live in **Fees & payments → Fee items** under **Clinic services**. Clinic staff pick those lines and quantity; finalizing invoices the student for the NHIS-adjusted payable (wallet only; not Paystack).
@@ -664,10 +671,10 @@ Use the audit trail for compliance reviews and incident investigation.
 1. Open **Academic → Application Setup → Import applicants**.
 2. Choose category and matching application session.
 3. Download the template; fill from the old-portal export on the Applicants sheet. Copy programme **ids** from the Programmes lookup sheet. Leave `password` blank unless the old portal provided a reusable plaintext password (never paste a password hash).
-4. Leave **Verify NIN** off unless Prembly should run during the upload.
+4. Leave **Verify NIN** off unless Prembly should run during the upload for rows that already have a NIN. Leave `nin` blank when the old portal did not store it; applicants verify after they sign in.
 5. Upload the file and review created / skipped / emailed counts.
 6. Download failed rows, correct them, and re-upload only those rows.
-7. Tell applicants to sign in with application number or JAMB (not email) and the password they received (or the old plaintext password if it was supplied).
+7. Tell applicants to sign in with application number or JAMB (not email) and the password they received (or the old plaintext password if it was supplied), then verify NIN in the application form.
 
 ### 10.4 Configure registrations access for student records desk
 
@@ -768,6 +775,15 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.33 | Aug 2026 | Platform team | Department result print uses the selected semester; Grade is the A–F letter from the total score |
 | 1.34 | Aug 2026 | Platform team | New staff accounts are emailed their staff-portal login details |
 | 1.35 | Aug 2026 | Platform team | Programme fees may reuse one catalog item across 1st–4th 25% slices; 50%/75%/100% are student choices, not extra catalog stacks |
+| 1.36 | Aug 2026 | Platform team | Application settings set postgraduate research-interest and statement-of-purpose word limits |
+| 1.37 | Aug 2026 | Platform team | Final application submit is blocked when that category’s application window is closed |
+| 1.38 | Aug 2026 | Platform team | Fees & payments sidebar item Invoices is labelled Payments |
+| 1.39 | Aug 2026 | Platform team | Applicant and student import do not require NIN; imported students stay enrolled and verify NIN after login |
+| 1.39 | Aug 2026 | Platform team | Returning students sign in (not signup); NIN biodata is resynced by staff; one matric is reused on a later offer |
+| 1.40 | Aug 2026 | Platform team | Students have a Financial status page matching staff; staff can view paid-invoice receipts with the same particulars breakdown |
+| 1.41 | Aug 2026 | Platform team | Results processing is College → Committee of Deans → Senate (then Release) |
+| 1.42 | Aug 2026 | Platform team | Same-college change of programme keeps the student level; outstanding new-programme courses stay available to register |
+| 1.43 | Aug 2026 | Platform team | Results CSV import is labelled Upload Score |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

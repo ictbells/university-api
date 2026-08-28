@@ -67,6 +67,7 @@ class AcademicSetupController extends Controller
                 'id' => $faculty->id,
                 'name' => $faculty->name,
                 'code' => $faculty->code,
+                'is_jupeb_centre' => (bool) $faculty->is_jupeb_centre,
                 'campus' => $faculty->campus
                     ? ['id' => $faculty->campus->id, 'name' => $faculty->campus->name]
                     : null,
@@ -149,6 +150,7 @@ class AcademicSetupController extends Controller
             ->sortBy(fn (Intake $intake) => [AdmissionEntryRules::entryModeRank($intake->entry_mode), -$intake->id])
             ->values()
             ->map(function (Intake $intake) use ($invoices) {
+                $intake->setAttribute('is_accepting', $intake->isAcceptingApplications());
                 try {
                     $intake->setAttribute('resolved_application_fee_amount', $invoices->resolveApplicationFeeAmount($intake));
                 } catch (\Throwable) {

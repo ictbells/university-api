@@ -51,14 +51,25 @@ class CourseRegistrationController extends Controller
     {
         $data = $request->validate([
             'student_id' => 'required|exists:students,id',
-            'course_offering_id' => 'required|exists:course_offerings,id',
+            'course_offering_id' => 'required_without:course_offering_ids|exists:course_offerings,id',
+            'course_offering_ids' => 'required_without:course_offering_id|array|min:1',
+            'course_offering_ids.*' => 'integer|distinct|exists:course_offerings,id',
             'reason' => 'nullable|string|max:500',
         ]);
         $student = Student::query()->findOrFail($data['student_id']);
-        $offering = CourseOffering::query()->findOrFail($data['course_offering_id']);
+        $ids = isset($data['course_offering_ids'])
+            ? array_values(array_unique(array_map('intval', $data['course_offering_ids'])))
+            : [(int) $data['course_offering_id']];
+        $summary = count($ids) === 1 ? 'Staff course registration' : 'Staff bulk course registration';
 
-        return $this->officeGate('academic.staff_register', $student, $data, 'Staff course registration', function () use ($student, $offering, $request, $data) {
-            return $this->registration->register($student, $offering, $request->user(), true, $data['reason'] ?? null);
+        return $this->officeGate('academic.staff_register', $student, $data, $summary, function () use ($student, $ids, $request, $data) {
+            if (count($ids) === 1) {
+                $offering = CourseOffering::query()->findOrFail($ids[0]);
+
+                return $this->registration->register($student, $offering, $request->user(), true, $data['reason'] ?? null);
+            }
+
+            return $this->registration->registerMany($student, $ids, $request->user(), true, $data['reason'] ?? null);
         });
     }
 

@@ -13,6 +13,8 @@ use RuntimeException;
 
 class PremblyService
 {
+    public const EXISTING_ACCOUNT_MESSAGE = 'This NIN is already linked to an account. Sign in with your matric number, application number, or JAMB. Use Forgot password if needed.';
+
     public function __construct(private AuditWriter $audit) {}
 
     public function normalizeNin(string $nin): string
@@ -40,7 +42,7 @@ class PremblyService
         return $mapped !== null && ($mapped['raw']['demo'] ?? false) !== true;
     }
 
-    public function assertNinAvailable(string $nin, ?int $exceptUserId = null): void
+    public function ninIsLinked(string $nin, ?int $exceptUserId = null): bool
     {
         $nin = $this->normalizeNin($nin);
         $hash = NinCipher::hash($nin);
@@ -48,11 +50,20 @@ class PremblyService
         if ($exceptUserId) {
             $query->where('user_id', '!=', $exceptUserId);
         }
-        if ($query->exists() || Student::query()->where('nin_hash', $hash)->when(
+        if ($query->exists()) {
+            return true;
+        }
+
+        return Student::query()->where('nin_hash', $hash)->when(
             $exceptUserId,
             fn ($builder) => $builder->where('user_id', '!=', $exceptUserId)
-        )->exists()) {
-            throw ValidationException::withMessages(['nin' => 'This NIN is already linked to an account.']);
+        )->exists();
+    }
+
+    public function assertNinAvailable(string $nin, ?int $exceptUserId = null): void
+    {
+        if ($this->ninIsLinked($nin, $exceptUserId)) {
+            throw ValidationException::withMessages(['nin' => self::EXISTING_ACCOUNT_MESSAGE]);
         }
     }
 
@@ -203,6 +214,96 @@ class PremblyService
         return $record;
     }
 
+    public function resyncFromNin(Application $application, User $actor): NinVerification
+    {
+        $application->loadMissing(['user.student', 'student', 'steps']);
+        $user = $application->user;
+        if (! $user) {
+            throw ValidationException::withMessages(['nin' => 'This application has no applicant account.']);
+        }
+        $nin = $this->storedNin($application, $user);
+        if (! $nin) {
+            throw ValidationException::withMessages(['nin' => 'This file has no NIN to resync.']);
+        }
+        $this->assertNinAvailable($nin, $user->id);
+        try {
+            $mapped = $this->lookup($nin);
+        } catch (RuntimeException $e) {
+            $this->audit->record(
+                'identity.nin.resync_failed',
+                'Staff NIN resync failed',
+                'identity',
+                'application',
+                $application->id,
+                null,
+                ['nin' => NinCipher::redact($nin), 'error' => $e->getMessage()],
+                null,
+                $actor,
+            );
+            throw ValidationException::withMessages(['nin' => $e->getMessage()]);
+        }
+
+        $record = $this->verify($user, $application, $nin, $mapped);
+        $this->applyIdentityToStudent($user->student ?? $application->student, $record);
+        $name = $this->displayName($record->mapped_fields ?? []);
+        if ($name !== '') {
+            $user->update(['name' => $name]);
+        }
+        $this->audit->record(
+            'identity.nin.resync',
+            'Staff resynced NIN biodata from Prembly',
+            'identity',
+            'nin_verification',
+            $record->id,
+            null,
+            ['nin' => NinCipher::redact($nin), 'live' => $this->isLiveMapped($record->mapped_fields)],
+            null,
+            $actor,
+        );
+
+        return $record;
+    }
+
+    private function storedNin(Application $application, User $user): ?string
+    {
+        $biodata = $application->steps->firstWhere('step_key', 'biodata')?->payload
+            ?? $application->steps()->where('step_key', 'biodata')->value('payload');
+        $fromStep = is_array($biodata) ? trim((string) ($biodata['nin'] ?? '')) : '';
+        if ($fromStep !== '') {
+            return $this->normalizeNin($fromStep);
+        }
+        $fromStudent = trim((string) ($user->student?->nin ?: $application->student?->nin ?: ''));
+        if ($fromStudent !== '') {
+            return $this->normalizeNin($fromStudent);
+        }
+        $record = NinVerification::query()
+            ->where('user_id', $user->id)
+            ->whereNotNull('verified_at')
+            ->latest('id')
+            ->first();
+        $fromRecord = trim((string) ($record?->nin ?? ''));
+
+        return $fromRecord !== '' ? $this->normalizeNin($fromRecord) : null;
+    }
+
+    private function applyIdentityToStudent(?Student $student, NinVerification $record): void
+    {
+        if (! $student) {
+            return;
+        }
+        $mapped = $record->mapped_fields ?? [];
+        $student->update([
+            'nin' => $record->nin,
+            'first_name' => $mapped['first_name'] ?? $student->first_name,
+            'middle_name' => $mapped['middle_name'] ?? $student->middle_name,
+            'last_name' => $mapped['last_name'] ?? $student->last_name,
+            'date_of_birth' => $mapped['date_of_birth'] ?? $student->date_of_birth,
+            'gender' => $mapped['gender'] ?? $student->gender,
+            'photo_path' => $mapped['photo_path'] ?? $student->photo_path,
+            'nin_locked' => true,
+        ]);
+    }
+
     public function syncUserVerificationToApplication(User $user, Application $application): void
     {
         $record = NinVerification::query()
@@ -273,6 +374,9 @@ class PremblyService
         }
 
         $this->attachPassportDocument($application, $mapped['photo_path'] ?? null);
+        $user->loadMissing('student');
+        $application->loadMissing('student');
+        $this->applyIdentityToStudent($user->student ?? $application->student, $record);
 
         if (! $record->application_id) {
             $record->update(['application_id' => $application->id]);
@@ -288,7 +392,19 @@ class PremblyService
 
     private function attachPassportDocument(Application $application, ?string $photoPath): void
     {
-        if (! $photoPath || $application->documents()->where('doc_type', 'passport')->exists()) {
+        if (! $photoPath) {
+            return;
+        }
+
+        $existing = $application->documents()->where('doc_type', 'passport')->first();
+        if ($existing) {
+            if ($existing->path !== $photoPath) {
+                $existing->update([
+                    'path' => $photoPath,
+                    'original_name' => 'nin-passport.jpg',
+                ]);
+            }
+
             return;
         }
 

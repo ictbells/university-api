@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use App\Models\Intake;
 use App\Support\PasswordRules;
+use App\Support\PhoneNumber;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -34,17 +35,27 @@ class RegisterApplicantRequest extends FormRequest
     {
         return [
             'nin' => 'required|string|size:11',
-            'email' => 'required|string|email:rfc,dns|max:255|unique:users,email',
-            'phone' => 'required|string|max:30',
+            'email' => [
+                'required',
+                'string',
+                'email:rfc',
+                'max:255',
+                Rule::unique('users', 'email')->whereNull('deleted_at'),
+            ],
+            'phone' => 'nullable|string|max:30',
+            'alternate_phone' => ['required', 'string', 'max:30', new PhoneNumber],
             'password' => PasswordRules::rules(),
             'intake_id' => 'required|integer|exists:intakes,id',
-            'jamb_registration' => ['nullable', 'string', 'max:20', Rule::unique('users', 'jamb_registration')],
+            'jamb_registration' => ['nullable', 'string', 'max:20', Rule::unique('users', 'jamb_registration')->whereNull('deleted_at')],
         ];
     }
 
     public function messages(): array
     {
         return array_merge(PasswordRules::messages(), [
+            'email.email' => 'Enter a valid email address.',
+            'email.unique' => 'An account already exists with this email. Sign in instead.',
+            'jamb_registration.unique' => 'This JAMB number is already linked to an account.',
             'intake_id.required' => 'Select an application session before creating an account.',
             'intake_id.exists' => 'Select an application session before creating an account.',
         ]);

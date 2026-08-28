@@ -133,6 +133,54 @@ class ApplicantCollegeCatalogTest extends TestCase
         $this->assertSame($program->id, $application->fresh()->program_id);
     }
 
+    public function test_saving_programme_fills_college_and_department_from_the_programme(): void
+    {
+        $application = $this->formInProgressApplication();
+        $campus = Campus::query()->create(['name' => 'Main', 'is_active' => true]);
+        $faculty = Faculty::query()->create(['campus_id' => $campus->id, 'name' => 'College of Engineering']);
+        $department = Department::query()->create(['faculty_id' => $faculty->id, 'name' => 'Computer Engineering']);
+        $first = Program::query()->create([
+            'department_id' => $department->id,
+            'name' => 'B.Eng Computer Engineering',
+            'award_type' => 'B.Eng',
+            'study_level' => 'undergraduate',
+            'entry_modes' => ['utme'],
+            'duration_years' => 5,
+            'is_active' => true,
+        ]);
+        $secondFaculty = Faculty::query()->create(['campus_id' => $campus->id, 'name' => 'College of Natural Sciences']);
+        $secondDepartment = Department::query()->create(['faculty_id' => $secondFaculty->id, 'name' => 'Computer Science']);
+        $second = Program::query()->create([
+            'department_id' => $secondDepartment->id,
+            'name' => 'B.Sc Computer Science',
+            'award_type' => 'B.Sc',
+            'study_level' => 'undergraduate',
+            'entry_modes' => ['utme'],
+            'duration_years' => 4,
+            'is_active' => true,
+        ]);
+
+        Sanctum::actingAs($application->user);
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'programme_selection',
+            'payload' => [
+                'first_choice_program_id' => $first->id,
+                'second_choice_program_id' => $second->id,
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonPath('program_id', $first->id);
+
+        $payload = $application->fresh()->steps()->where('step_key', 'programme_selection')->value('payload');
+        $this->assertSame($first->id, $payload['first_choice_program_id']);
+        $this->assertSame($faculty->id, $payload['first_choice_college_id']);
+        $this->assertSame($department->id, $payload['first_choice_department_id']);
+        $this->assertSame($second->id, $payload['second_choice_program_id']);
+        $this->assertSame($secondFaculty->id, $payload['second_choice_college_id']);
+        $this->assertSame($secondDepartment->id, $payload['second_choice_department_id']);
+    }
+
     private function applicant(): User
     {
         $role = Role::query()->firstOrCreate(

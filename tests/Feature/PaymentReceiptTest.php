@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\Invoice;
 use App\Models\Payment;
+use App\Models\Permission;
+use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -115,5 +117,57 @@ class PaymentReceiptTest extends TestCase
         $this->assertStringContainsString('RCP-WLT01', $html);
         $this->assertStringContainsString('Ten Thousand Naira and Fifty Kobo Only', $html);
         $this->assertStringContainsString('Chidi Eze', $html);
+    }
+
+    public function test_staff_can_view_another_students_paid_invoice_receipt_with_breakdown(): void
+    {
+        $payer = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
+        $invoice = Invoice::query()->create([
+            'number' => 'INV-STAFF-RCP',
+            'user_id' => $payer->id,
+            'category' => 'tuition',
+            'amount' => 15000,
+            'full_amount' => 15000,
+            'balance' => 0,
+            'status' => 'paid',
+            'wallet_allowed' => true,
+        ]);
+        $invoice->items()->create(['description' => 'Tuition', 'amount' => 10000]);
+        $invoice->items()->create(['description' => 'ICT', 'amount' => 5000]);
+        $invoice->payments()->create([
+            'user_id' => $payer->id,
+            'method' => 'wallet',
+            'amount' => 15000,
+            'status' => 'successful',
+            'reference' => 'WALLET-STAFF-RCP',
+            'receipt_no' => 'RCP-STAFF01',
+            'purpose' => 'tuition',
+        ]);
+
+        $staff = User::factory()->create(['status' => 'active']);
+        $permission = Permission::query()->updateOrCreate(
+            ['key' => 'finance.invoices.manage'],
+            ['module' => 'finance', 'label' => 'Manage invoices'],
+        );
+        $role = Role::query()->create([
+            'name' => 'Bursary',
+            'slug' => 'bursary-receipt',
+            'is_system' => false,
+            'is_active' => true,
+        ]);
+        $role->permissions()->sync([$permission->id]);
+        $staff->roles()->attach($role->id);
+
+        Sanctum::actingAs($staff->fresh(['roles.permissions']));
+        $html = $this->get('/api/invoices/'.$invoice->id.'/receipt')
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('Official payment receipt', $html);
+        $this->assertStringContainsString('Particulars', $html);
+        $this->assertStringContainsString('Tuition', $html);
+        $this->assertStringContainsString('ICT', $html);
+        $this->assertStringContainsString('RCP-STAFF01', $html);
+        $this->assertStringContainsString('Ada Okoye', $html);
     }
 }

@@ -37,7 +37,7 @@
     table.courses td.units, table.courses th.units { text-align: center; width: 56px; }
     .totals { margin-top: 12px; font-size: 13px; }
     .empty { color: #64748b; font-style: italic; padding: 12px 0; }
-    .signs { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 36px; }
+    .signs { display: grid; grid-template-columns: 1fr 1fr; column-gap: 32px; row-gap: 48px; margin-top: 40px; }
     .sign-line { border-top: 1px solid #0f172a; padding-top: 6px; font-size: 12px; }
     .footer { margin-top: 28px; font-size: 11px; color: #64748b; text-align: center; font-family: "Segoe UI", system-ui, sans-serif; }
     @media print {
@@ -101,6 +101,8 @@
     <div class="signs">
       <div class="sign-line">Student signature / date</div>
       <div class="sign-line">Course adviser / date</div>
+      <div class="sign-line">Head of Department / date</div>
+      <div class="sign-line">Dean / date</div>
     </div>
 
     <p class="footer">Generated electronically on {{ $generated_at }} · {{ $institution['name'] }}</p>

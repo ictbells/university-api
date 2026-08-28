@@ -139,7 +139,7 @@ class ApplicationDocumentService
             'programme_kind' => $programmeKind,
             'session' => $session,
             'study_level' => $studyLevel,
-            'offer_reference' => $application->offer_reference,
+            'offer_reference' => $this->formatOfferReference($application),
             'letter_date' => $issuedAt->format('jS F, Y'),
             'acceptance_amount' => $amount,
             'acceptance_amount_words' => NairaWords::phrase($amount, only: false),
@@ -160,13 +160,49 @@ class ApplicationDocumentService
         ])->render();
     }
 
-    public function generateOfferReference(): string
+    public function generateOfferReference(Application $application): string
     {
-        do {
-            $ref = 'BUT/AD/'.now()->format('Y').Str::upper(Str::random(10));
-        } while (Application::query()->where('offer_reference', $ref)->exists());
+        $application->loadMissing(['user', 'intake.term']);
+        $base = $this->formatOfferReference($application);
+        $ref = $base;
+        $n = 1;
+        while (Application::query()->where('offer_reference', $ref)->where('id', '!=', $application->id)->exists()) {
+            $n++;
+            $ref = $base.'-'.$n;
+        }
 
         return $ref;
+    }
+
+    public function formatOfferReference(Application $application): string
+    {
+        $application->loadMissing(['user', 'intake.term']);
+        $year = $this->offerReferenceYear($application);
+        $suffix = $this->offerReferenceSuffix($application);
+
+        return 'BUT/AD/'.$year.'/'.$suffix;
+    }
+
+    private function offerReferenceYear(Application $application): string
+    {
+        $label = (string) ($application->intake?->term?->session_label ?? '');
+        if (preg_match('/^(\d{4})/', $label, $matches)) {
+            return $matches[1];
+        }
+
+        return now()->format('Y');
+    }
+
+    private function offerReferenceSuffix(Application $application): string
+    {
+        $jamb = null;
+        if (AdmissionEntryRules::requiresJambRegistration((string) $application->entry_mode)) {
+            $jamb = $application->jamb_registration ?: $application->user?->jamb_registration;
+        }
+
+        $value = strtoupper(preg_replace('/\s+/', '', (string) ($jamb ?: $application->application_number ?: $application->id)) ?? '');
+
+        return $value !== '' ? $value : (string) $application->id;
     }
 
     /**

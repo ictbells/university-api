@@ -201,18 +201,144 @@ class PgFormWorkflowTest extends TestCase
         ])->assertOk();
     }
 
+    public function test_research_interest_over_default_word_limit_is_rejected(): void
+    {
+        $application = $this->pgApplication($this->taught);
+        Sanctum::actingAs($application->user);
+        $this->saveProgramme($application, $this->taught);
+
+        $this->getJson("/api/applications/{$application->id}")
+            ->assertOk()
+            ->assertJsonPath('pg_word_limits.pg_research_interest_max_words', 150)
+            ->assertJsonPath('pg_word_limits.pg_statement_of_purpose_max_words', 500);
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'pg_research',
+            'payload' => [
+                'research_interest' => implode(' ', array_fill(0, 151, 'word')),
+                'statement_of_purpose' => 'I want to study computing at postgraduate level.',
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['payload.research_interest']);
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'pg_research',
+            'payload' => [
+                'research_interest' => implode(' ', array_fill(0, 150, 'word')),
+                'statement_of_purpose' => 'I want to study computing at postgraduate level.',
+            ],
+        ])->assertOk();
+    }
+
+    public function test_pg_cannot_submit_without_olevel_document(): void
+    {
+        $application = $this->readyPgApplication($this->taught, 'second_lower', 'not_applicable');
+        $application->documents()->where('doc_type', 'olevel_first_sitting')->delete();
+        Sanctum::actingAs($application->user);
+
+        $this->postJson("/api/applications/{$application->id}/submit", [
+            'submission_notice_accepted' => true,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('missing_documents.0', "O'Level Result (1st sitting)");
+        $this->assertSame('form_in_progress', $application->fresh()->stage);
+    }
+
     public function test_nysc_not_applicable_can_submit_without_certificate_and_third_class_still_submits(): void
     {
         $application = $this->readyPgApplication($this->taught, 'third', 'not_applicable');
         Sanctum::actingAs($application->user);
 
-        $response = $this->postJson("/api/applications/{$application->id}/submit");
+        $response = $this->postJson("/api/applications/{$application->id}/submit", [
+            'submission_notice_accepted' => true,
+        ]);
         $response->assertOk()
             ->assertJsonPath('eligibility.meets', false);
         $this->assertTrue(collect($response->json('eligibility.failed'))->contains(
             fn ($row) => str_contains((string) ($row['message'] ?? ''), 'Second Class Lower'),
         ));
         $this->assertSame('submitted', $application->fresh()->stage);
+    }
+
+    public function test_submit_requires_submission_notice_when_the_form_is_otherwise_complete(): void
+    {
+        $application = $this->readyPgApplication($this->taught, 'second_lower', 'not_applicable');
+        Sanctum::actingAs($application->user);
+
+        $this->postJson("/api/applications/{$application->id}/submit")
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['submission_notice_accepted']);
+        $this->assertSame('form_in_progress', $application->fresh()->stage);
+
+        $this->postJson("/api/applications/{$application->id}/submit", [
+            'submission_notice_accepted' => false,
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['submission_notice_accepted']);
+        $this->assertSame('form_in_progress', $application->fresh()->stage);
+    }
+
+    public function test_cannot_submit_when_the_category_application_window_is_closed(): void
+    {
+        $application = $this->readyPgApplication($this->taught, 'second_lower', 'not_applicable');
+        Sanctum::actingAs($application->user);
+
+        $this->getJson("/api/applications/{$application->id}")
+            ->assertOk()
+            ->assertJsonPath('application_window_open', true);
+
+        $this->pgIntake->update(['is_open' => false]);
+
+        $this->getJson("/api/applications/{$application->id}")
+            ->assertOk()
+            ->assertJsonPath('application_window_open', false);
+
+        $this->postJson("/api/applications/{$application->id}/submit", [
+            'submission_notice_accepted' => true,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('code', Intake::INTAKE_NOT_ACCEPTING_CODE)
+            ->assertJsonPath('message', Intake::CLOSED_SUBMIT_MESSAGE);
+        $this->assertSame('form_in_progress', $application->fresh()->stage);
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'pg_research',
+            'payload' => [
+                'research_interest' => 'Computing',
+                'proposed_area' => 'Software systems',
+                'statement_of_purpose' => 'I want to study this programme.',
+                'supervisor_preferences' => [],
+            ],
+        ])->assertOk();
+    }
+
+    public function test_cannot_submit_after_the_category_close_date(): void
+    {
+        $application = $this->readyPgApplication($this->taught, 'second_lower', 'not_applicable');
+        Sanctum::actingAs($application->user);
+
+        $this->pgIntake->update(['closes_on' => now()->subDay()->toDateString()]);
+
+        $this->postJson("/api/applications/{$application->id}/submit", [
+            'submission_notice_accepted' => true,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('code', Intake::INTAKE_NOT_ACCEPTING_CODE);
+        $this->assertSame('form_in_progress', $application->fresh()->stage);
+    }
+
+    public function test_submit_still_works_when_another_category_window_is_closed(): void
+    {
+        $application = $this->readyPgApplication($this->taught, 'second_lower', 'not_applicable');
+        Sanctum::actingAs($application->user);
+
+        $this->ugIntake->update(['is_open' => false]);
+
+        $this->postJson("/api/applications/{$application->id}/submit", [
+            'submission_notice_accepted' => true,
+        ])->assertOk()
+            ->assertJsonPath('stage', 'submitted');
     }
 
     public function test_ug_and_pg_engine_transitions_and_unwired_stage_is_rejected(): void
@@ -232,7 +358,7 @@ class PgFormWorkflowTest extends TestCase
 
         $taught = $this->readyPgApplication($this->taught, 'second_lower', 'not_applicable');
         Sanctum::actingAs($taught->user);
-        $this->postJson("/api/applications/{$taught->id}/submit")->assertOk();
+        $this->postJson("/api/applications/{$taught->id}/submit", ['submission_notice_accepted' => true])->assertOk();
         Sanctum::actingAs($staff);
         $this->postJson("/api/applications/{$taught->id}/transition", ['to_stage' => 'screening'])->assertOk();
         $this->postJson("/api/applications/{$taught->id}/transition", ['to_stage' => 'recommendation'])->assertOk();
@@ -241,7 +367,7 @@ class PgFormWorkflowTest extends TestCase
         $research = $this->readyPgApplication($this->research, 'first', 'completed');
         Sanctum::actingAs($research->user);
         $this->saveResearch($research);
-        $this->postJson("/api/applications/{$research->id}/submit")->assertOk();
+        $this->postJson("/api/applications/{$research->id}/submit", ['submission_notice_accepted' => true])->assertOk();
         Sanctum::actingAs($staff);
         $this->postJson("/api/applications/{$research->id}/transition", ['to_stage' => 'screening'])->assertOk();
         $this->postJson("/api/applications/{$research->id}/transition", ['to_stage' => 'proposal_review'])->assertOk();
@@ -313,8 +439,11 @@ class PgFormWorkflowTest extends TestCase
                 return false;
             }
             $token = $mail->plainToken;
+            $html = $mail->render();
 
-            return true;
+            return $token
+                && str_contains($html, '/referee/'.$token)
+                && preg_match('#https?://[^\s"\']+/referee/'.preg_quote($token, '#').'#', $html) === 1;
         });
         $this->assertNotEmpty($token);
 
@@ -336,6 +465,102 @@ class PgFormWorkflowTest extends TestCase
         });
         $expired->update(['expires_at' => now()->subDay()]);
         $this->getJson("/api/referee/{$expiredToken}")->assertStatus(403);
+    }
+
+    public function test_staff_can_change_referee_email_and_resend_invite(): void
+    {
+        Mail::fake();
+        $application = $this->pgApplication($this->taught);
+        Sanctum::actingAs($application->user);
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'pg_referees',
+            'payload' => [
+                'referees' => [
+                    ['name' => 'Prof One', 'email' => 'one@example.com', 'institution' => 'UI', 'position' => 'Professor'],
+                    ['name' => 'Prof Two', 'email' => 'two@example.com', 'institution' => 'OAU', 'position' => 'Reader'],
+                ],
+            ],
+        ])->assertOk();
+
+        $invite = $application->refereeInvites()->where('email', 'one@example.com')->first();
+        $this->assertNotNull($invite);
+        $oldToken = null;
+        Mail::assertSent(RefereeInviteMail::class, function (RefereeInviteMail $mail) use ($invite, &$oldToken) {
+            if ($mail->invite->id !== $invite->id) {
+                return false;
+            }
+            $oldToken = $mail->plainToken;
+
+            return true;
+        });
+
+        $this->postJson("/api/applications/{$application->id}/referees/{$invite->id}/resend", [
+            'email' => 'new.ref@example.com',
+        ])->assertForbidden();
+
+        $staff = $this->staffUser(['admissions.view'], ['home', 'admissions-postgraduate']);
+        Sanctum::actingAs($staff);
+        Mail::fake();
+
+        $this->postJson("/api/applications/{$application->id}/referees/{$invite->id}/resend", [
+            'email' => 'two@example.com',
+        ])->assertStatus(422);
+
+        $this->postJson("/api/applications/{$application->id}/referees/{$invite->id}/resend", [
+            'email' => 'new.ref@example.com',
+        ])->assertOk()
+            ->assertJsonPath('referees.0.email', 'new.ref@example.com');
+
+        $this->assertSame('new.ref@example.com', $invite->fresh()->email);
+        $step = $application->steps()->where('step_key', 'pg_referees')->first();
+        $emails = collect($step?->payload['referees'] ?? [])->pluck('email')->map(fn ($email) => strtolower((string) $email));
+        $this->assertTrue($emails->contains('new.ref@example.com'));
+        $this->assertFalse($emails->contains('one@example.com'));
+
+        Mail::assertSent(RefereeInviteMail::class, fn (RefereeInviteMail $mail) => $mail->hasTo('new.ref@example.com'));
+        $this->getJson("/api/referee/{$oldToken}")->assertStatus(403);
+
+        $this->postJson("/api/applications/{$application->id}/referees/{$invite->id}/resend")
+            ->assertOk();
+        Mail::assertSent(RefereeInviteMail::class, 2);
+    }
+
+    public function test_staff_cannot_change_email_after_referee_submits(): void
+    {
+        Mail::fake();
+        Storage::fake(config('filesystems.default', 'local'));
+        $application = $this->pgApplication($this->taught);
+        Sanctum::actingAs($application->user);
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'pg_referees',
+            'payload' => [
+                'referees' => [
+                    ['name' => 'Prof One', 'email' => 'one@example.com', 'institution' => 'UI', 'position' => 'Professor'],
+                    ['name' => 'Prof Two', 'email' => 'two@example.com', 'institution' => 'OAU', 'position' => 'Reader'],
+                ],
+            ],
+        ])->assertOk();
+
+        $invite = $application->refereeInvites()->where('email', 'one@example.com')->first();
+        $token = null;
+        Mail::assertSent(RefereeInviteMail::class, function (RefereeInviteMail $mail) use ($invite, &$token) {
+            if ($mail->invite->id !== $invite->id) {
+                return false;
+            }
+            $token = $mail->plainToken;
+
+            return true;
+        });
+        $this->post("/api/referee/{$token}", [
+            'file' => UploadedFile::fake()->create('letter.pdf', 80, 'application/pdf'),
+        ])->assertOk();
+
+        $staff = $this->staffUser(['admissions.view'], ['home', 'admissions-postgraduate']);
+        Sanctum::actingAs($staff);
+        $this->postJson("/api/applications/{$application->id}/referees/{$invite->id}/resend", [
+            'email' => 'new.ref@example.com',
+        ])->assertStatus(422);
+        $this->assertSame('one@example.com', $invite->fresh()->email);
     }
 
     public function test_course_registration_open_vs_closed_and_enrolment_completes(): void
@@ -563,6 +788,7 @@ class PgFormWorkflowTest extends TestCase
         }
         $application->documents()->create(['doc_type' => 'degree_certificate', 'path' => 'docs/degree.pdf', 'original_name' => 'degree.pdf']);
         $application->documents()->create(['doc_type' => 'academic_transcript', 'path' => 'docs/transcript.pdf', 'original_name' => 'transcript.pdf']);
+        $application->documents()->create(['doc_type' => 'olevel_first_sitting', 'path' => 'docs/olevel.pdf', 'original_name' => 'olevel.pdf']);
         if ($nysc !== 'not_applicable') {
             $application->documents()->create(['doc_type' => 'nysc_certificate', 'path' => 'docs/nysc.pdf', 'original_name' => 'nysc.pdf']);
         }

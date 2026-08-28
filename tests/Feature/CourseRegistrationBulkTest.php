@@ -12,7 +12,11 @@ use App\Models\Enrollment;
 use App\Models\Faculty;
 use App\Models\Grade;
 use App\Models\Invoice;
+use App\Models\OfficeDepartment;
+use App\Models\Permission;
 use App\Models\Program;
+use App\Models\Role;
+use App\Models\Staff;
 use App\Models\Student;
 use App\Models\StudentLevelProgression;
 use App\Models\User;
@@ -56,6 +60,10 @@ class CourseRegistrationBulkTest extends TestCase
         $this->assertStringContainsString('CHM101', $html);
         $this->assertStringContainsString('ADA OKOYE', $html);
         $this->assertStringContainsString('Unit total:</strong> 4', $html);
+        $this->assertStringContainsString('Student signature / date', $html);
+        $this->assertStringContainsString('Course adviser / date', $html);
+        $this->assertStringContainsString('Head of Department / date', $html);
+        $this->assertStringContainsString('Dean / date', $html);
         $this->assertStringNotContainsString('>Note<', $html);
         $this->assertStringNotContainsString('Faculty ', $html);
         $this->assertStringNotContainsString('Departmental ', $html);
@@ -294,6 +302,155 @@ class CourseRegistrationBulkTest extends TestCase
         );
     }
 
+    public function test_only_final_year_students_may_request_an_extension(): void
+    {
+        [$user, , , $student] = $this->openStudentWithTwoOfferings();
+        AcademicTerm::query()->where('is_current', true)->update([
+            'normal_registration_closes_at' => now()->subDays(2),
+            'late_registration_closes_at' => now()->addDays(10),
+        ]);
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/academic/my-registration/extension', [
+            'requested_units' => 15,
+            'reason' => 'I missed the window.',
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('student');
+
+        $student->update(['current_level' => 400]);
+        $user->unsetRelation('student');
+        $this->postJson('/api/academic/my-registration/extension', [
+            'requested_units' => 15,
+            'reason' => 'I missed the window.',
+        ])->assertSuccessful();
+    }
+
+    public function test_final_year_student_can_leave_a_carry_over_unchecked(): void
+    {
+        [$user, $gst, , $student] = $this->openStudentWithTwoOfferings();
+        $previousSession = AcademicSession::query()->create([
+            'label' => '2025/2026',
+            'starts_on' => '2025-10-01',
+            'ends_on' => '2026-09-30',
+            'closed_at' => now()->subDay(),
+        ]);
+        $previousTerm = AcademicTerm::query()->create([
+            'academic_session_id' => $previousSession->id,
+            'name' => 'First',
+            'session_label' => '2025/2026',
+            'is_current' => false,
+        ]);
+        $this->failCourseInTerm($student, $gst->course_id, $previousTerm);
+        $student->update(['current_level' => 400]);
+        Sanctum::actingAs($user);
+
+        $available = $this->getJson('/api/academic/my-registration')
+            ->assertOk()
+            ->assertJsonPath('is_final_year', true)
+            ->assertJsonPath('can_uncheck_carry_over', true)
+            ->assertJsonCount(0, 'enrollments')
+            ->json('available');
+
+        $gstRow = collect($available)->firstWhere('id', $gst->id);
+        $this->assertNotNull($gstRow);
+        $this->assertTrue($gstRow['is_carry_over']);
+        $this->assertFalse(
+            Enrollment::query()->where('course_offering_id', $gst->id)->where('status', 'enrolled')->exists()
+        );
+    }
+
+    public function test_final_year_student_can_drop_a_registered_carry_over(): void
+    {
+        [$user, $gst, , $student] = $this->openStudentWithTwoOfferings();
+        $previousSession = AcademicSession::query()->create([
+            'label' => '2025/2026',
+            'starts_on' => '2025-10-01',
+            'ends_on' => '2026-09-30',
+            'closed_at' => now()->subDay(),
+        ]);
+        $previousTerm = AcademicTerm::query()->create([
+            'academic_session_id' => $previousSession->id,
+            'name' => 'First',
+            'session_label' => '2025/2026',
+            'is_current' => false,
+        ]);
+        $this->failCourseInTerm($student, $gst->course_id, $previousTerm);
+        $student->update(['current_level' => 400]);
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/academic/my-registration', [
+            'course_offering_ids' => [$gst->id],
+        ])->assertOk();
+        $enrollment = Enrollment::query()
+            ->where('course_offering_id', $gst->id)
+            ->where('status', 'enrolled')
+            ->firstOrFail();
+        $this->assertTrue((bool) $enrollment->is_carry_over);
+
+        $this->postJson("/api/academic/my-registration/enrollments/{$enrollment->id}/drop")
+            ->assertOk();
+        $this->assertSame('dropped', $enrollment->fresh()->status);
+    }
+
+    public function test_non_final_year_student_cannot_drop_a_carry_over(): void
+    {
+        [$user, $gst, , $student] = $this->openStudentWithTwoOfferings();
+        $previousSession = AcademicSession::query()->create([
+            'label' => '2025/2026',
+            'starts_on' => '2025-10-01',
+            'ends_on' => '2026-09-30',
+            'closed_at' => now()->subDay(),
+        ]);
+        $previousTerm = AcademicTerm::query()->create([
+            'academic_session_id' => $previousSession->id,
+            'name' => 'First',
+            'session_label' => '2025/2026',
+            'is_current' => false,
+        ]);
+        $this->failCourseInTerm($student, $gst->course_id, $previousTerm);
+        Sanctum::actingAs($user);
+
+        $enrollmentId = $this->getJson('/api/academic/my-registration')
+            ->assertOk()
+            ->assertJsonPath('enrollments.0.is_carry_over', true)
+            ->json('enrollments.0.id');
+
+        $this->postJson("/api/academic/my-registration/enrollments/{$enrollmentId}/drop")
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('enrollment');
+    }
+
+    public function test_staff_can_register_a_single_course(): void
+    {
+        [, $gst, , $student] = $this->openStudentWithTwoOfferings();
+        Sanctum::actingAs($this->staffRegistrar());
+
+        $this->postJson('/api/academic/course-registration/enroll', [
+            'student_id' => $student->id,
+            'course_offering_id' => $gst->id,
+        ])->assertSuccessful();
+
+        $this->assertTrue(
+            Enrollment::query()->where('course_offering_id', $gst->id)->where('status', 'enrolled')->exists()
+        );
+    }
+
+    public function test_staff_can_register_courses_in_bulk(): void
+    {
+        [, $gst, $chm, $student] = $this->openStudentWithTwoOfferings();
+        Sanctum::actingAs($this->staffRegistrar());
+
+        $this->postJson('/api/academic/course-registration/enroll', [
+            'student_id' => $student->id,
+            'course_offering_ids' => [$gst->id, $chm->id],
+        ])
+            ->assertSuccessful()
+            ->assertJsonCount(2, 'enrollments');
+
+        $this->assertSame(2, Enrollment::query()->where('status', 'enrolled')->count());
+    }
+
     /**
      * @return array{0: User, 1: CourseOffering, 2: CourseOffering, 3: Student}
      */
@@ -362,6 +519,7 @@ class CourseRegistrationBulkTest extends TestCase
             'balance' => 0,
             'status' => 'paid',
             'installment_percent' => 100,
+            'academic_session_id' => $session->id,
         ]);
         $gstOffering = CourseOffering::query()->create([
             'course_id' => $gst->id,
@@ -375,6 +533,33 @@ class CourseRegistrationBulkTest extends TestCase
         ]);
 
         return [$user, $gstOffering, $chmOffering, $student];
+    }
+
+    private function staffRegistrar(): User
+    {
+        $role = Role::query()->create([
+            'name' => 'Registry',
+            'slug' => 'registry-reg-'.substr(sha1(uniqid('', true)), 0, 10),
+            'is_active' => true,
+        ]);
+        $role->permissions()->sync(
+            Permission::query()->where('key', 'academic.enrollments.manage')->pluck('id'),
+        );
+        $office = OfficeDepartment::query()->create([
+            'name' => 'Registry',
+            'code' => 'REG-'.substr(sha1(uniqid('', true)), 0, 6),
+            'is_active' => true,
+        ]);
+        $office->syncNavKeys(['course-registration']);
+        $user = User::factory()->create(['status' => 'active']);
+        $user->roles()->attach($role->id);
+        Staff::query()->create([
+            'user_id' => $user->id,
+            'staff_number' => 'ST-REG-'.substr(sha1(uniqid('', true)), 0, 6),
+            'office_department_id' => $office->id,
+        ]);
+
+        return $user->fresh(['roles.permissions', 'staff']);
     }
 
     private function failCourseInTerm(Student $student, int $courseId, AcademicTerm $term): void

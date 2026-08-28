@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Application;
 use App\Models\Intake;
+use App\Models\Role;
 use App\Models\User;
 use App\Support\ApplicationReference;
 use App\Support\CandidateEligibility;
@@ -14,6 +15,7 @@ class ApplicationStartService
         private InvoiceService $invoices,
         private AuditWriter $audit,
         private PremblyService $prembly,
+        private ReturningApplicantPrefill $prefill,
     ) {}
 
     public function start(User $user, Intake $intake, ?string $jambRegistration = null, ?int $programId = null): Application
@@ -34,7 +36,11 @@ class ApplicationStartService
             ->when($sessionId, fn ($query) => $query->where('academic_session_id', $sessionId))
             ->first();
         if ($existing) {
-            $this->prembly->syncUserVerificationToApplication($user, $existing);
+            $this->ensureApplicantRole($user);
+            if (in_array($existing->stage, ['started', 'awaiting_application_fee', 'fee_paid', 'form_in_progress'], true)) {
+                $this->prembly->syncUserVerificationToApplication($user, $existing);
+                $this->prefill->apply($user, $existing);
+            }
 
             return $existing->fresh()->load(['applicationFeeInvoice', 'intake.term', 'steps', 'documents']);
         }
@@ -65,9 +71,19 @@ class ApplicationStartService
         }
         $invoice = $this->invoices->createApplicationFeeInvoice($user, $intake, $application->id);
         $application->update(['application_fee_invoice_id' => $invoice->id]);
+        $this->ensureApplicantRole($user);
         $this->prembly->syncUserVerificationToApplication($user, $application);
+        $this->prefill->apply($user, $application);
         $this->audit->record('application.started', 'Application started ('.$intake->entry_mode.')', 'admissions', 'application', $application->id, null, $application);
 
         return $application->fresh(['applicationFeeInvoice', 'steps', 'documents', 'intake.term']);
+    }
+
+    private function ensureApplicantRole(User $user): void
+    {
+        $applicantRole = Role::query()->where('slug', 'applicant')->where('is_active', true)->first();
+        if ($applicantRole) {
+            $user->roles()->syncWithoutDetaching([$applicantRole->id]);
+        }
     }
 }

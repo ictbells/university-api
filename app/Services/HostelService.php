@@ -15,6 +15,8 @@ use App\Models\HostelRoom;
 use App\Models\Invoice;
 use App\Models\Setting;
 use App\Models\Student;
+use App\Support\ApplicantPassport;
+use App\Support\InstitutionLogo;
 use App\Support\TuitionProgress;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -629,6 +631,91 @@ class HostelService
                 'amount' => (float) $allocatedHostel->due_amount,
             ] : null,
         ];
+    }
+
+    public function printRegistrationHtml(Student $student): string
+    {
+        $this->ensureStaleSessionAllocationsReleased();
+        $student->loadMissing(['program', 'user', 'application.steps']);
+        $allocation = $this->currentSessionAllocation($student->id, 'allocated')
+            ?: $this->currentSessionAllocation($student->id, 'pending');
+        if (! $allocation) {
+            throw ValidationException::withMessages([
+                'allocation' => 'Request or receive a hostel bed before you can print this form.',
+            ]);
+        }
+
+        $allocation->loadMissing(['bed.room.block.hostel', 'academicTerm.session']);
+        $bed = $allocation->bed;
+        $room = $bed?->room;
+        $block = $room?->block;
+        $hostel = $block?->hostel;
+        $term = $allocation->academicTerm;
+
+        $last = strtoupper(trim((string) $student->last_name));
+        $given = strtoupper(trim(collect([$student->first_name, $student->middle_name])->filter()->implode(' ')));
+        $fullName = $last !== '' && $given !== '' ? $last.', '.$given : ($given ?: $last ?: strtoupper((string) $student->user?->name));
+
+        $kin = $student->application?->steps?->firstWhere('step_key', 'next_of_kin')?->payload ?? [];
+        $contact = $student->application?->steps?->firstWhere('step_key', 'application_form')?->payload
+            ?? $student->application?->steps?->firstWhere('step_key', 'contact')?->payload
+            ?? [];
+        $phone = $student->phone
+            ?: $student->user?->phone
+            ?: (is_array($contact) ? ($contact['phone'] ?? $contact['alternate_phone'] ?? null) : null);
+        $parentPhone = $student->next_of_kin_phone
+            ?: $student->sponsor_phone
+            ?: (is_array($kin) ? ($kin['next_of_kin_phone'] ?? $kin['sponsor_phone'] ?? null) : null);
+
+        $gender = strtolower((string) ($hostel?->gender === 'mixed' ? $student->gender : ($hostel?->gender ?: $student->gender)));
+        $genderPrefix = $gender !== '' ? ucfirst($gender) : null;
+        $hostelName = trim((string) ($hostel?->name ?? ''));
+        if ($genderPrefix && $hostelName !== '' && preg_match('/^'.preg_quote($genderPrefix, '/').'\b/i', $hostelName)) {
+            $genderPrefix = null;
+        }
+        $roomNumber = trim((string) ($room?->number ?? ''));
+        $roomLabel = $roomNumber === ''
+            ? null
+            : (preg_match('/^\s*room\b/i', $roomNumber) ? $roomNumber : 'Room '.$roomNumber);
+        $allocated = collect([
+            $genderPrefix,
+            $hostelName !== '' ? $hostelName : null,
+            $block?->name,
+            $roomLabel,
+        ])->filter()->implode(' ');
+
+        $extras = [];
+        if ($room) {
+            $type = $room->normalizedRoomType();
+            if ($type !== HostelRoom::TYPE_STANDARD) {
+                $extras[] = HostelRoom::roomTypeLabel($type);
+            }
+        }
+
+        $allocatedAt = $allocation->allocated_at ? Carbon::parse($allocation->allocated_at) : now();
+        $photoPath = $student->photo_path
+            ?: ($student->user ? ApplicantPassport::relativePathForUser($student->user) : null);
+
+        return view('documents.hostel-registration', [
+            'institution' => [
+                'name' => (string) Setting::getValue('university_name', 'Bells University of Technology'),
+                'motto' => (string) Setting::getValue('university_motto', 'Chords of Knowledge'),
+            ],
+            'logo_data_uri' => InstitutionLogo::dataUri(),
+            'photo_data_uri' => ApplicantPassport::dataUri($photoPath),
+            'session' => $term?->session_label ?: $term?->session?->label ?: '—',
+            'semester' => $term?->name ?: '—',
+            'date' => $allocatedAt->format('d/m/Y'),
+            'matric_number' => $student->matric_number ?: $student->student_number ?: '—',
+            'full_name' => $fullName !== '' ? $fullName : '—',
+            'programme' => $student->program?->name ?: '—',
+            'gender' => $student->gender ? ucfirst(strtolower((string) $student->gender)) : '—',
+            'phone' => $phone ?: '—',
+            'parent_phone' => $parentPhone ?: '—',
+            'allocated_hostel' => $allocated !== '' ? $allocated : '—',
+            'additional_information' => $extras !== [] ? implode(', ', $extras) : null,
+            'generated_at' => now()->format('d M Y, h:i A'),
+        ])->render();
     }
 
     /**

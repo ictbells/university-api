@@ -45,6 +45,7 @@ class InstitutionController extends Controller
         return response()->json([
             ...AdmissionsContactSettings::all(),
             ...StaffSupportContactSettings::all(),
+            ...\App\Support\PgResearchWordLimits::all(),
             'nin_live' => $premblyConfigured,
             'prembly_configured' => $premblyConfigured,
             'applications_open' => Intake::hasAccepting(),
@@ -135,6 +136,7 @@ class InstitutionController extends Controller
             'campus_id' => 'required|exists:campuses,id',
             'name' => 'required|string',
             'code' => 'nullable|string',
+            'is_jupeb_centre' => 'sometimes|boolean',
         ]);
 
         return $this->officeGate('academic.store_faculty', null, $data, 'Create college', function () use ($data) {
@@ -152,6 +154,7 @@ class InstitutionController extends Controller
             'campus_id' => 'sometimes|exists:campuses,id',
             'name' => 'sometimes|string',
             'code' => 'nullable|string',
+            'is_jupeb_centre' => 'sometimes|boolean',
         ]);
 
         return $this->officeGate('academic.update_faculty', $faculty, ['faculty_id' => $faculty->id, ...$data], 'Update college', function () use ($faculty, $data, $before) {

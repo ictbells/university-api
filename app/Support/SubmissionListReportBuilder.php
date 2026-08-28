@@ -469,15 +469,10 @@ final class SubmissionListReportBuilder
 
     private static function statusLabel(?string $status): string
     {
-        return match ($status) {
-            GradeStatus::DRAFT => 'Draft',
-            GradeStatus::CORRECTION_REQUIRED => 'Correction required',
-            GradeStatus::SUBMITTED => 'Submitted',
-            GradeStatus::FACULTY_APPROVED => 'Faculty approved',
-            GradeStatus::BOARD_READY => 'Board ready',
-            GradeStatus::BOARD_CLEARED => 'Board cleared',
-            GradeStatus::RELEASED => 'Released',
-            default => $status ? str_replace('_', ' ', $status) : 'Board list',
-        };
+        if (! $status) {
+            return 'Senate list';
+        }
+
+        return GradeStatus::label($status);
     }
 }

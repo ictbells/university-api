@@ -124,20 +124,23 @@ class ApplicantImportTest extends TestCase
         $this->assertContains('lga_id', $headers);
         $this->assertContains('sitting1_subject_1_id', $headers);
         $this->assertContains('sitting2_exam_type', $headers);
-        $this->assertContains('utme_institution_1', $headers);
-        $this->assertContains('utme_institution_2', $headers);
+        $this->assertContains('utme_aggregate', $headers);
+        $this->assertContains('utme_subject_1', $headers);
+        $this->assertContains('utme_score_4', $headers);
         $this->assertNotContains('state', $headers);
         $this->assertNotContains('lga', $headers);
         $this->assertNotContains('sitting1_subject_1', $headers);
-        $this->assertNotContains('utme_institution_3', $headers);
-        $this->assertNotContains('utme_institution_4', $headers);
+        $this->assertNotContains('utme_institution_1', $headers);
+        $this->assertNotContains('utme_course_choice', $headers);
 
         $instructions = collect($spreadsheet->getSheetByName('Instructions')->toArray(null, true, true, false))
             ->flatten()
             ->filter()
             ->implode(' ');
         $this->assertStringContainsString('copy ids from this workbook', strtolower($instructions));
-        $this->assertStringContainsString('exactly 2 jamb institution', strtolower($instructions));
+        $this->assertStringContainsString('four subject scores whose total equals utme_aggregate', strtolower($instructions));
+        $this->assertStringContainsString('nin is optional', strtolower($instructions));
+        $this->assertStringContainsString('Required columns: email, phone, first_name, last_name, first_choice_programme_id, jamb_registration', $instructions);
     }
 
     public function test_import_creates_unsubmitted_application_and_allows_student_login(): void
@@ -198,6 +201,41 @@ class ApplicantImportTest extends TestCase
             ->assertJsonFragment(['missing' => ['required_documents']]);
         $this->assertSame('form_in_progress', $application->fresh()->stage);
         $this->assertNull($application->fresh()->submitted_at);
+    }
+
+    public function test_import_allows_blank_nin(): void
+    {
+        Mail::fake();
+        Sanctum::actingAs($this->staffUser());
+        $file = $this->spreadsheet([
+            'email' => 'legacy.nin@example.com',
+            'phone' => '08030000021',
+            'password' => 'OldPortal1!',
+            'nin' => '',
+            'jamb_registration' => '12345678XY',
+        ]);
+
+        $this->post('/api/applicants/import', [
+            'file' => $file,
+            'intake_id' => $this->intake->id,
+            'entry_mode' => 'utme',
+            'verify_nin' => '1',
+            'send_credentials' => '0',
+        ], ['Accept' => 'application/json'])->assertOk()
+            ->assertJsonPath('data.created', 1)
+            ->assertJsonPath('data.nin_failed', 0);
+
+        $application = Application::query()->where('jamb_registration', '12345678XY')->first();
+        $this->assertNotNull($application);
+        $this->assertFalse($application->ninVerified());
+
+        $this->postJson('/api/login', [
+            'portal' => 'student',
+            'login' => '12345678XY',
+            'password' => 'OldPortal1!',
+        ])->assertOk()
+            ->assertJsonPath('is_student', false)
+            ->assertJsonPath('nin_verified', false);
     }
 
     public function test_credentials_mail_sends_jamb_or_application_number_by_entry_mode(): void

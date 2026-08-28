@@ -189,7 +189,7 @@ class WorkflowEngine
         if (! $last || ! $last->from_stage || $last->to_stage !== $application->stage) {
             return null;
         }
-        if (in_array($application->stage, ['matriculated', 'fee_paid', 'form_in_progress', 'awaiting_application_fee'], true)) {
+        if (in_array($application->stage, ['matriculated', 'acceptance_paid', 'fee_paid', 'form_in_progress', 'awaiting_application_fee'], true)) {
             return null;
         }
 
@@ -207,6 +207,8 @@ class WorkflowEngine
     public function revertLastDecision(Application $application, User $actor, ?string $reason = null): Application
     {
         abort_if($application->stage === 'matriculated', 422, 'A matriculated application cannot be reverted.');
+        abort_if($application->stage === 'acceptance_paid', 422, 'An application with a paid acceptance fee cannot be reverted.');
+        abort_if($application->physically_cleared_at, 422, 'A physically cleared application cannot be reverted.');
         abort_if(
             $application->student_id || Student::query()->where('application_id', $application->id)->exists(),
             422,

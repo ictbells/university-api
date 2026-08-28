@@ -223,7 +223,7 @@ class MedicalController extends Controller
             $rules['matric_number'] = 'required|string|max:80';
         } else {
             $rules['blood_type'] = 'nullable|string';
-            $rules['genotype'] = 'nullable|string|in:AA,AS,AC,SS,SC,CC';
+            $rules['genotype'] = 'nullable|string|in:AA,AS,AC,SS,SC,CC,Other';
             $rules['has_medical_condition'] = 'nullable|boolean';
             $rules['allergies'] = 'nullable|string';
             $rules['conditions'] = 'nullable|string';

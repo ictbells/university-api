@@ -43,6 +43,7 @@ class ApplicantImportColumns
         return array_merge([
             'email',
             'phone',
+            'alternate_phone',
             'password',
             'nin',
             'first_name',
@@ -85,16 +86,11 @@ class ApplicantImportColumns
             'jamb_registration',
             'utme_aggregate',
             'utme_year',
-            'utme_course_choice',
             'utme_english_score',
         ];
         for ($i = 1; $i <= 4; $i++) {
             $cols[] = "utme_subject_{$i}";
             $cols[] = "utme_score_{$i}";
-        }
-        for ($i = 1; $i <= 2; $i++) {
-            $cols[] = "utme_institution_{$i}";
-            $cols[] = "utme_programme_{$i}";
         }
 
         return $cols;
@@ -173,7 +169,7 @@ class ApplicantImportColumns
      */
     public static function required(string $entryMode): array
     {
-        $required = ['email', 'phone', 'nin', 'first_name', 'last_name', 'first_choice_programme_id'];
+        $required = ['email', 'phone', 'first_name', 'last_name', 'first_choice_programme_id'];
         if (in_array($entryMode, AdmissionEntryRules::JAMB_ENTRY_MODES, true)) {
             $required[] = 'jamb_registration';
         }
@@ -186,6 +182,7 @@ class ApplicantImportColumns
         $row = array_fill_keys(self::forMode($entryMode), '');
         $row['email'] = 'ada.okoye@example.com';
         $row['phone'] = '08030000000';
+        $row['alternate_phone'] = '08031112222';
         $row['password'] = '';
         $row['nin'] = '12345678901';
         $row['first_name'] = 'Adaeze';
@@ -212,7 +209,6 @@ class ApplicantImportColumns
         if ($entryMode === 'utme' || $entryMode === 'jupeb') {
             $row['utme_aggregate'] = '250';
             $row['utme_year'] = '2025';
-            $row['utme_course_choice'] = 'Computer Science';
             $row['utme_english_score'] = '65';
             $row['utme_subject_1'] = 'English Language';
             $row['utme_score_1'] = '65';
@@ -222,10 +218,6 @@ class ApplicantImportColumns
             $row['utme_score_3'] = '58';
             $row['utme_subject_4'] = 'Chemistry';
             $row['utme_score_4'] = '57';
-            $row['utme_institution_1'] = 'Bells University of Technology';
-            $row['utme_programme_1'] = 'Computer Science';
-            $row['utme_institution_2'] = 'University of Lagos';
-            $row['utme_programme_2'] = 'Computer Science';
         }
         if ($entryMode === 'de') {
             $row['jamb_de_number'] = '12345678DE';

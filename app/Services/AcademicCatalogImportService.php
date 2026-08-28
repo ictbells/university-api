@@ -140,6 +140,7 @@ class AcademicCatalogImportService
             'campus_id' => $campus->id,
             'name' => $name,
             'code' => $code !== '' ? $code : null,
+            'is_jupeb_centre' => $this->boolish($data['is_jupeb_centre'] ?? null),
         ]);
     }
 

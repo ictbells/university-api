@@ -47,18 +47,17 @@ class ApplicationFormSteps
         $request->merge(['payload' => $payload]);
         $payload = $request->validate([
             'payload.utme' => ($required ? 'required' : 'nullable').'|array',
-            'payload.utme.aggregate' => ($required ? 'required' : 'nullable').'|string|max:20',
-            'payload.utme.course_choice' => ($required ? 'required' : 'nullable').'|string|max:190',
+            'payload.utme.aggregate' => ($required ? 'required' : 'nullable').'|numeric|min:0|max:400',
             'payload.utme.exam_year' => ($required ? 'required' : 'nullable').'|string|max:10',
-            'payload.utme.english_score' => 'nullable|numeric|min:0|max:400',
+            'payload.utme.english_score' => 'nullable|numeric|min:0|max:100',
             'payload.utme.subjects' => ($required ? 'required' : 'nullable').'|array|max:4'.($required ? '|min:4' : ''),
             'payload.utme.subjects.*.subject' => ($required ? 'required' : 'nullable').'|string|max:120',
-            'payload.utme.subjects.*.score' => ($required ? 'required' : 'nullable').'|numeric|min:0|max:400',
-            'payload.utme.institution_choices' => ($required ? 'required' : 'nullable').'|array|max:2',
-            'payload.utme.institution_choices.*.choice_order' => 'nullable|integer|min:1|max:2',
-            'payload.utme.institution_choices.*.institution_name' => 'nullable|string|max:190',
-            'payload.utme.institution_choices.*.programme_name' => 'nullable|string|max:190',
+            'payload.utme.subjects.*.score' => ($required ? 'required' : 'nullable').'|numeric|min:0|max:100',
         ])['payload'] + $payload;
+
+        if (is_array($payload['utme'] ?? null)) {
+            $payload['utme'] = self::normalizeStoredUtme($payload['utme']);
+        }
 
         if ($required) {
             $subjects = collect($payload['utme']['subjects'] ?? [])
@@ -68,34 +67,71 @@ class ApplicationFormSteps
                     'payload.utme.subjects' => ['Enter all four UTME subject scores.'],
                 ]);
             }
-            $choices = collect($payload['utme']['institution_choices'] ?? [])
-                ->filter(fn ($row) => filled($row['institution_name'] ?? null));
-            if ($choices->count() < 2) {
-                throw ValidationException::withMessages([
-                    'payload.utme.institution_choices' => ['Provide both JAMB institution choices.'],
-                ]);
-            }
-        }
-
-        if (is_array($payload['utme'] ?? null)) {
-            $payload['utme']['subjects'] = collect($payload['utme']['subjects'] ?? [])
-                ->take(4)
-                ->values()
-                ->all();
-            $payload['utme']['institution_choices'] = collect($payload['utme']['institution_choices'] ?? [])
-                ->values()
-                ->take(2)
-                ->map(function ($row, $index) {
-                    return [
-                        'choice_order' => (int) ($row['choice_order'] ?? ($index + 1)),
-                        'institution_name' => $row['institution_name'] ?? '',
-                        'programme_name' => $row['programme_name'] ?? '',
-                    ];
-                })
-                ->all();
+            self::assertAggregateMatchesSubjects($payload['utme']);
+        } elseif (is_array($payload['utme'] ?? null) && self::utmeHasCompleteScores($payload['utme'])) {
+            self::assertAggregateMatchesSubjects($payload['utme']);
         }
 
         return $payload;
+    }
+
+    /**
+     * @param  array<string, mixed>  $utme
+     * @return array<string, mixed>
+     */
+    public static function normalizeStoredUtme(array $utme): array
+    {
+        unset($utme['course_choice'], $utme['institution_choices']);
+        $utme['subjects'] = collect($utme['subjects'] ?? [])
+            ->take(4)
+            ->values()
+            ->all();
+
+        return $utme;
+    }
+
+    /**
+     * @param  array<string, mixed>  $utme
+     */
+    public static function utmeHasCompleteScores(array $utme): bool
+    {
+        $subjects = collect($utme['subjects'] ?? [])
+            ->filter(fn ($row) => filled($row['score'] ?? null));
+
+        return $subjects->count() === 4 && is_numeric($utme['aggregate'] ?? null);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $subjects
+     */
+    public static function subjectScoresTotal(array $subjects): float
+    {
+        return (float) collect($subjects)->sum(fn ($row) => is_numeric($row['score'] ?? null) ? (float) $row['score'] : 0);
+    }
+
+    /**
+     * @param  array<string, mixed>  $utme
+     */
+    public static function aggregateMatchesSubjectTotal(array $utme): bool
+    {
+        if (! is_numeric($utme['aggregate'] ?? null)) {
+            return false;
+        }
+
+        return abs(self::subjectScoresTotal($utme['subjects'] ?? []) - (float) $utme['aggregate']) < 0.005;
+    }
+
+    /**
+     * @param  array<string, mixed>  $utme
+     */
+    public static function assertAggregateMatchesSubjects(array $utme, string $attribute = 'payload.utme.aggregate'): void
+    {
+        if (! self::aggregateMatchesSubjectTotal($utme)) {
+            $total = self::subjectScoresTotal($utme['subjects'] ?? []);
+            throw ValidationException::withMessages([
+                $attribute => ['The four subject scores total '.$total.', which must match the aggregate.'],
+            ]);
+        }
     }
 
     /**
@@ -189,13 +225,10 @@ class ApplicationFormSteps
             return true;
         }
         $subjects = collect($utme['subjects'] ?? [])->filter(fn ($row) => filled($row['subject'] ?? null) || filled($row['score'] ?? null));
-        $choices = collect($utme['institution_choices'] ?? [])->filter(fn ($row) => filled($row['institution_name'] ?? null));
 
         return blank($utme['aggregate'] ?? null)
-            && blank($utme['course_choice'] ?? null)
             && blank($utme['exam_year'] ?? null)
-            && $subjects->isEmpty()
-            && $choices->isEmpty();
+            && $subjects->isEmpty();
     }
 
     public static function assessmentAcceptsTransfer(?array $payload): bool
@@ -252,11 +285,12 @@ class ApplicationFormSteps
     public static function validatePgResearch(Request $request, array $payload, ?Program $program): array
     {
         $research = (bool) ($program?->is_research_degree);
+        $limits = PgResearchWordLimits::all();
         $request->merge(['payload' => $payload]);
         $payload = $request->validate([
-            'payload.research_interest' => ($research ? 'required' : 'nullable').'|string|max:2000',
+            'payload.research_interest' => ($research ? 'required' : 'nullable').'|string|max:'.PgResearchWordLimits::charMax(2000, $limits['pg_research_interest_max_words']),
             'payload.proposed_area' => ($research ? 'required' : 'nullable').'|string|max:500',
-            'payload.statement_of_purpose' => 'required|string|max:8000',
+            'payload.statement_of_purpose' => 'required|string|max:'.PgResearchWordLimits::charMax(8000, $limits['pg_statement_of_purpose_max_words']),
             'payload.publications' => 'nullable|array',
             'payload.publications.*.title' => 'nullable|string|max:250',
             'payload.publications.*.year' => 'nullable|string|max:10',
@@ -264,6 +298,8 @@ class ApplicationFormSteps
             'payload.supervisor_preferences' => ($research ? 'required' : 'nullable').'|array',
             'payload.supervisor_preferences.*' => 'nullable|integer|exists:staff,id',
         ])['payload'] + $payload;
+
+        PgResearchWordLimits::assertPayload($payload);
 
         $prefs = collect($payload['supervisor_preferences'] ?? [])->filter()->values()->all();
         $payload['supervisor_preferences'] = $prefs;

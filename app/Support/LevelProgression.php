@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\Program;
+use App\Models\Student;
 
 class LevelProgression
 {
@@ -42,5 +43,17 @@ class LevelProgression
         }
 
         return min($current + self::stepForProgram($program), $final);
+    }
+
+    public static function isFinalYear(Student $student): bool
+    {
+        $program = $student->relationLoaded('program')
+            ? $student->getRelation('program')
+            : $student->program;
+        if (! $program) {
+            return false;
+        }
+
+        return self::nextLevel((int) $student->current_level, $program) === null;
     }
 }

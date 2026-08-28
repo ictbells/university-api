@@ -90,7 +90,8 @@ class ReportDatasetCatalog
                 self::col('email', 'Email', 'string', 'users.email'),
                 self::col('stage', 'Stage', 'enum', 'applications.stage', options: [
                     'started', 'submitted', 'screening', 'verification', 'shortlisting',
-                    'recommended', 'approved', 'offer_issued', 'matriculated', 'rejected',
+                    'recommended', 'approved', 'offer_issued', 'awaiting_acceptance_fee',
+                    'acceptance_paid', 'matriculated', 'rejected',
                 ]),
                 self::col('entry_mode', 'Entry mode', 'enum', 'applications.entry_mode', options: ['utme', 'de', 'transfer', 'jupeb', 'pg']),
                 self::col('programme', 'Programme', 'string', 'programs.name'),

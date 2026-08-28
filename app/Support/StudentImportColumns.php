@@ -12,6 +12,7 @@ class StudentImportColumns
         return [
             'email',
             'phone',
+            'alternate_phone',
             'password',
             'nin',
             'first_name',
@@ -56,7 +57,6 @@ class StudentImportColumns
         return [
             'email',
             'phone',
-            'nin',
             'first_name',
             'last_name',
             'programme_id',
@@ -73,6 +73,7 @@ class StudentImportColumns
         $row = array_fill_keys(self::all(), '');
         $row['email'] = 'ada.student@example.com';
         $row['phone'] = '08030000000';
+        $row['alternate_phone'] = '08031112222';
         $row['nin'] = '12345678901';
         $row['first_name'] = 'Adaeze';
         $row['middle_name'] = 'Chioma';

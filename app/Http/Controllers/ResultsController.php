@@ -200,7 +200,7 @@ class ResultsController extends Controller
         $data = $request->validate(['ids' => 'required|array|min:1', 'ids.*' => 'integer|exists:grades,id']);
         ResultOfficerScope::assertCanActOnGrades($request->user(), $data['ids']);
 
-        return $this->officeGate('results.submit', null, $data, 'Submit results', fn () => $this->workflow->submit($data['ids'], $request->user()));
+        return $this->officeGate('results.submit', null, $data, 'College submit results', fn () => $this->workflow->submit($data['ids'], $request->user()));
     }
 
     public function facultyApprove(Request $request)
@@ -209,7 +209,7 @@ class ResultsController extends Controller
         $data = $request->validate(['ids' => 'required|array|min:1', 'ids.*' => 'integer|exists:grades,id']);
         ResultOfficerScope::assertFacultyApprove($request->user(), $data['ids']);
 
-        return $this->officeGate('results.faculty_approve', null, $data, 'Faculty approve results', fn () => $this->workflow->facultyApprove($data['ids'], $request->user()));
+        return $this->officeGate('results.faculty_approve', null, $data, 'Committee of Deans approve results', fn () => $this->workflow->facultyApprove($data['ids'], $request->user()));
     }
 
     public function facultyReturn(Request $request)
@@ -226,7 +226,7 @@ class ResultsController extends Controller
             'results.faculty_return',
             null,
             $data,
-            'Faculty return results',
+            'Committee of Deans return results',
             fn () => $this->workflow->facultyReturn($data['ids'], $request->user(), $data['note'] ?? null),
         );
     }
@@ -247,7 +247,7 @@ class ResultsController extends Controller
             'results.board_clear',
             null,
             $data,
-            'Board clear results',
+            'Senate clear results',
             fn () => $this->workflow->boardClear(
                 (int) $data['academic_term_id'],
                 isset($data['faculty_id']) ? (int) $data['faculty_id'] : null,
@@ -348,7 +348,7 @@ class ResultsController extends Controller
             'results.import',
             null,
             $payload,
-            'Import results CSV',
+            'Upload score',
             fn () => $this->entry->importCsv(
                 (string) $payload['csv'],
                 (int) $payload['course_offering_id'],
@@ -585,8 +585,8 @@ class ResultsController extends Controller
         $suffix = ! empty($report['is_supplementary']) ? '-supplementary' : '';
 
         $label = match ($scope) {
-            'department' => 'department-results',
-            'faculty' => 'faculty-results',
+            'department' => 'college-results',
+            'faculty' => 'deans-results',
             default => 'senate-list',
         };
 

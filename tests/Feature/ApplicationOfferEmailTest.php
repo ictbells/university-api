@@ -37,7 +37,7 @@ class ApplicationOfferEmailTest extends TestCase
             'acceptance_fee_amount' => 25000,
         ])->assertOk();
 
-        $this->assertNotNull($application->fresh()->offer_reference);
+        $this->assertSame('BUT/AD/2026/20261234567AB', $application->fresh()->offer_reference);
 
         Mail::assertSent(AdmissionOfferMail::class, function (AdmissionOfferMail $mail) use ($applicant, $application) {
             $fresh = $application->fresh(['user', 'program', 'intake.term', 'acceptanceFeeInvoice']);
@@ -68,10 +68,23 @@ class ApplicationOfferEmailTest extends TestCase
         Mail::assertNothingSent();
     }
 
+    public function test_offer_reference_uses_application_number_when_jamb_is_absent(): void
+    {
+        [$application] = $this->approvedApplication(jamb: null);
+        Sanctum::actingAs($this->staffUser(['admissions.offer']));
+
+        $this->postJson("/api/applications/{$application->id}/transition", [
+            'to_stage' => 'offer_issued',
+            'acceptance_fee_amount' => 25000,
+        ])->assertOk();
+
+        $this->assertSame('BUT/AD/2026/APP/2026/01001', $application->fresh()->offer_reference);
+    }
+
     /**
      * @return array{0: Application, 1: User}
      */
-    private function approvedApplication(): array
+    private function approvedApplication(?string $jamb = '20261234567AB'): array
     {
         foreach (PermissionCatalog::all() as $perm) {
             Permission::query()->updateOrCreate(['key' => $perm['key']], $perm);
@@ -111,6 +124,7 @@ class ApplicationOfferEmailTest extends TestCase
         $applicant = User::factory()->create([
             'name' => 'Ada Okoye',
             'email' => 'ada.okoye@example.com',
+            'jamb_registration' => $jamb,
         ]);
         $application = Application::query()->create([
             'application_number' => 'APP/2026/01001',
@@ -118,6 +132,7 @@ class ApplicationOfferEmailTest extends TestCase
             'intake_id' => $intake->id,
             'program_id' => $program->id,
             'entry_mode' => 'utme',
+            'jamb_registration' => $jamb,
             'stage' => 'approved',
         ]);
 

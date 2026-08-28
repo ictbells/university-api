@@ -14,6 +14,7 @@ use App\Support\ApplicantImportColumns;
 use App\Support\ApplicationReference;
 use App\Support\ImportLookupSheets;
 use App\Support\NinCipher;
+use App\Support\PhoneNumber;
 use App\Support\SpreadsheetImport;
 use App\Support\StudentImportColumns;
 use Illuminate\Http\UploadedFile;
@@ -50,7 +51,8 @@ class StudentImportService
                 '4. Copy current_level from the Levels sheet (code column). Use 100, 200, 300, 400, or 500 (or 1–5, stored as 100–500).',
                 '5. Lookup sheets (Campuses, Colleges, Departments, Programmes, Levels) are for reference. Import reads only the Students sheet.',
                 '6. Leave password blank to generate a new password. Tick Email portal passwords on upload to send it.',
-                '7. Fill old_application_number and jamb_registration when application fee was paid with those ids (before a matric existed). Duplicate email, NIN, JAMB, matric number, or old application number is skipped.',
+                '7. NIN is optional (legacy files often omit it). If a NIN is present it must be 11 digits. Imported students do not re-apply; they must verify NIN when they sign in. If Verify NIN is checked on upload, Prembly runs only for rows that have a NIN.',
+                '8. Fill old_application_number and jamb_registration when application fee was paid with those ids (before a matric existed). Duplicate email, NIN, JAMB, matric number, or old application number is skipped.',
                 '',
                 'Required columns: '.implode(', ', StudentImportColumns::required()),
             ],
@@ -214,10 +216,7 @@ class StudentImportService
             throw new RuntimeException('Invalid email address.');
         }
 
-        $nin = NinCipher::normalize($data['nin']);
-        if (strlen($nin) !== 11) {
-            throw new RuntimeException('NIN must be 11 digits.');
-        }
+        $nin = $this->optionalNin($data);
 
         $jamb = strtoupper(str_replace(' ', '', (string) ($data['jamb_registration'] ?? '')));
         $oldNumber = strtoupper(trim((string) ($data['old_application_number'] ?? '')));
@@ -246,6 +245,7 @@ class StudentImportService
             'name' => $name,
             'email' => $email,
             'phone' => trim($data['phone']),
+            'alternate_phone' => $this->alternatePhone($data),
             'jamb_registration' => $jamb !== '' ? $jamb : null,
             'password' => $plainPassword,
             'status' => 'active',
@@ -266,6 +266,7 @@ class StudentImportService
             'jamb_registration' => $jamb !== '' ? $jamb : null,
             'jamb_status' => $jamb !== '' ? 'pending' : null,
             'stage' => 'matriculated',
+            'physically_cleared_at' => now(),
             'current_step' => 'required_documents',
             'submitted_at' => now(),
         ]);
@@ -280,7 +281,7 @@ class StudentImportService
 
         $this->writeSteps($application, $data, $program, $nin, $verifyNin);
 
-        if ($verifyNin) {
+        if ($verifyNin && $nin !== '') {
             try {
                 $this->prembly->verify($user, $application, $nin);
             } catch (ValidationException $e) {
@@ -326,7 +327,7 @@ class StudentImportService
             'last_name' => $data['last_name'],
             'date_of_birth' => SpreadsheetImport::parseDate($data['date_of_birth'] ?? null),
             'gender' => $data['gender'] ?? '',
-            'nin_locked' => $verifyNin,
+            'nin_locked' => $verifyNin && $nin !== '',
         ]);
         $this->saveStep($application, 'personal_details', [
             'marital_status' => $data['marital_status'] ?? '',
@@ -357,6 +358,7 @@ class StudentImportService
         ]);
         $this->saveStep($application, 'application_form', [
             'phone' => $data['phone'] ?? '',
+            'alternate_phone' => $this->alternatePhone($data),
             'address' => $data['address'] ?? '',
         ]);
         $this->saveStep($application, 'programme_selection', [
@@ -379,6 +381,23 @@ class StudentImportService
         $step->save();
     }
 
+    /**
+     * @param  array<string, string>  $data
+     */
+    private function alternatePhone(array $data): ?string
+    {
+        $raw = trim((string) ($data['alternate_phone'] ?? ''));
+        if ($raw === '') {
+            return null;
+        }
+        $normalized = PhoneNumber::normalize($raw);
+        if ($normalized === null) {
+            throw new RuntimeException('Enter a valid Nigerian or international alternate phone number.');
+        }
+
+        return $normalized;
+    }
+
     private function resolveProgram(string $value, string $entryMode): Program
     {
         $id = SpreadsheetImport::parseId($value, 'programme_id');
@@ -397,19 +416,37 @@ class StudentImportService
         return $program;
     }
 
+    /**
+     * @param  array<string, string>  $data
+     */
+    private function optionalNin(array $data): string
+    {
+        $nin = NinCipher::normalize((string) ($data['nin'] ?? ''));
+        if ($nin === '') {
+            return '';
+        }
+        if (strlen($nin) !== 11) {
+            throw new RuntimeException('NIN must be 11 digits.');
+        }
+
+        return $nin;
+    }
+
     private function assertNotDuplicate(string $email, string $nin, string $jamb, string $oldNumber, string $matric): void
     {
         if (User::query()->whereRaw('LOWER(email) = ?', [$email])->exists()) {
             throw new RuntimeException('An account with this email already exists.');
         }
-        $hash = NinCipher::hash($nin);
-        if (\App\Models\NinVerification::query()->where('nin_hash', $hash)->exists()) {
-            throw new RuntimeException('This NIN is already linked to an account.');
-        }
-        foreach (ApplicationStep::query()->where('step_key', 'biodata')->cursor() as $step) {
-            $payload = is_array($step->payload) ? $step->payload : [];
-            if (NinCipher::normalize((string) ($payload['nin'] ?? '')) === $nin) {
+        if ($nin !== '') {
+            $hash = NinCipher::hash($nin);
+            if (\App\Models\NinVerification::query()->where('nin_hash', $hash)->exists()) {
                 throw new RuntimeException('This NIN is already linked to an account.');
+            }
+            foreach (ApplicationStep::query()->where('step_key', 'biodata')->cursor() as $step) {
+                $payload = is_array($step->payload) ? $step->payload : [];
+                if (NinCipher::normalize((string) ($payload['nin'] ?? '')) === $nin) {
+                    throw new RuntimeException('This NIN is already linked to an account.');
+                }
             }
         }
         if ($jamb !== '' && User::query()->where('jamb_registration', $jamb)->exists()) {

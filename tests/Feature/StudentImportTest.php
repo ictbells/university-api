@@ -100,6 +100,13 @@ class StudentImportTest extends TestCase
         $programmes = $spreadsheet->getSheetByName('Programmes')->toArray(null, true, true, false);
         $codes = collect($programmes)->skip(1)->map(fn ($row) => (string) ($row[1] ?? ''));
         $this->assertTrue($codes->contains('BSC-CS'));
+
+        $instructions = collect($spreadsheet->getSheetByName('Instructions')->toArray(null, true, true, false))
+            ->flatten()
+            ->filter()
+            ->implode(' ');
+        $this->assertStringContainsString('nin is optional', strtolower($instructions));
+        $this->assertStringContainsString('Required columns: email, phone, first_name, last_name, programme_id, matric_number, current_level', $instructions);
     }
 
     public function test_invoice_import_holds_rows_until_student_exists(): void
@@ -160,6 +167,8 @@ class StudentImportTest extends TestCase
         $this->assertSame(200, (int) $student->current_level);
         $this->assertSame('matriculated', $student->application->stage);
         $this->assertTrue($student->user->roles()->where('slug', 'student')->exists());
+        $this->assertFalse($student->nin_locked);
+        $this->assertFalse($student->application->ninVerified());
 
         $invoice = Invoice::query()->where('student_id', $student->id)->first();
         $this->assertNotNull($invoice);
@@ -181,7 +190,55 @@ class StudentImportTest extends TestCase
             'portal' => 'student',
             'login' => 'BUT/2019/M/0001',
             'password' => 'OldPortal1!',
-        ])->assertOk();
+        ])->assertOk()
+            ->assertJsonPath('is_student', true)
+            ->assertJsonPath('nin_verified', false);
+    }
+
+    public function test_import_allows_blank_nin_and_student_verifies_without_reapplying(): void
+    {
+        Mail::fake();
+        config([
+            'services.prembly.key' => '',
+            'services.prembly.app_id' => '',
+            'services.prembly.allow_demo' => true,
+        ]);
+        Sanctum::actingAs($this->staffUser(['students.import'], ['import-students']));
+
+        $this->post('/api/students/import', [
+            'file' => $this->spreadsheet('Students', StudentImportColumns::all(), array_merge(StudentImportColumns::sample(), [
+                'programme_id' => (string) $this->program->id,
+                'email' => 'legacy.student@example.com',
+                'nin' => '',
+                'matric_number' => 'BUT/2019/M/0088',
+                'password' => 'OldPortal1!',
+            ])),
+            'intake_id' => $this->intake->id,
+            'entry_mode' => 'utme',
+            'verify_nin' => '1',
+            'send_credentials' => '0',
+        ], ['Accept' => 'application/json'])->assertOk()
+            ->assertJsonPath('data.created', 1)
+            ->assertJsonPath('data.nin_failed', 0);
+
+        $student = Student::query()->where('matric_number', 'BUT/2019/M/0088')->first();
+        $this->assertNotNull($student);
+        $this->assertFalse($student->nin_locked);
+        $this->assertSame('matriculated', $student->application->stage);
+
+        Sanctum::actingAs($student->user);
+        $this->postJson("/api/applications/{$student->application_id}/nin", ['nin' => '12345678901'])
+            ->assertOk();
+
+        $student->refresh();
+        $this->assertTrue($student->nin_locked);
+        $this->assertTrue($student->application->fresh()->ninVerified());
+        $this->assertSame('matriculated', $student->application->fresh()->stage);
+
+        $this->getJson('/api/me')
+            ->assertOk()
+            ->assertJsonPath('is_student', true)
+            ->assertJsonPath('nin_verified', true);
     }
 
     public function test_wallet_debit_that_would_go_negative_skips_remaining_rows_for_that_matric(): void

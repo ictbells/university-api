@@ -18,6 +18,8 @@ class Intake extends BaseModel
 
     public const INTAKE_NOT_ACCEPTING_MESSAGE = 'This application session is not accepting applications.';
 
+    public const CLOSED_SUBMIT_MESSAGE = 'The application window for this category has closed. You cannot submit your application.';
+
     protected $fillable = ['academic_term_id', 'name', 'entry_mode', 'opens_on', 'closes_on', 'is_open', 'application_fee_amount', 'acceptance_fee_amount'];
 
     protected function casts(): array

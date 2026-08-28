@@ -27,6 +27,8 @@ use App\Support\ApplicationFormSteps;
 use App\Support\ApplicationListQuery;
 use App\Support\CandidateEligibility;
 use App\Support\ProgrammeEligibility;
+use App\Support\PgResearchWordLimits;
+use App\Support\PhoneNumber;
 use App\Support\RegistrationCriteria;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -188,9 +190,11 @@ class ApplicationController extends Controller
     {
         $this->authorizeStaffEdit($request, $application);
 
+        $wordLimits = PgResearchWordLimits::all();
         $data = $request->validate([
             'email' => 'required|email|max:190',
             'phone' => 'nullable|string|max:30',
+            'alternate_phone' => ['nullable', 'string', 'max:30', new PhoneNumber],
             'jamb_registration' => 'nullable|string|max:20',
             'first_name' => 'required|string|max:80',
             'middle_name' => 'nullable|string|max:80',
@@ -229,9 +233,9 @@ class ApplicationController extends Controller
             'nysc_year' => 'nullable|string|max:10',
             'nysc_exemption_reason' => 'nullable|string|max:500',
             'professional_qualifications' => 'nullable|array',
-            'research_interest' => 'nullable|string|max:2000',
+            'research_interest' => 'nullable|string|max:'.PgResearchWordLimits::charMax(2000, $wordLimits['pg_research_interest_max_words']),
             'proposed_area' => 'nullable|string|max:500',
-            'statement_of_purpose' => 'nullable|string|max:8000',
+            'statement_of_purpose' => 'nullable|string|max:'.PgResearchWordLimits::charMax(8000, $wordLimits['pg_statement_of_purpose_max_words']),
             'publications' => 'nullable|array',
             'supervisor_preferences' => 'nullable|array',
             'referees' => 'nullable|array',
@@ -245,6 +249,35 @@ class ApplicationController extends Controller
             'transfer_background' => 'nullable|array',
             'credit_assessment' => 'nullable|array',
         ]);
+        PgResearchWordLimits::assertPayload($data, '');
+
+        if (AdmissionEntryRules::nabtebCombinedWithSecondSitting(
+            is_array($data['first_sitting'] ?? null) ? $data['first_sitting'] : null,
+            is_array($data['second_sitting'] ?? null) ? $data['second_sitting'] : null,
+        )) {
+            return response()->json([
+                'message' => "NABTEB uses one sitting only. Remove the second sitting or choose a different exam type.",
+            ], 422);
+        }
+
+        if (! AdmissionEntryRules::allowsSecondProgramme((string) ($application->entry_mode ?? ''))) {
+            if (! empty($data['second_choice_program_id'])) {
+                return response()->json([
+                    'message' => 'JUPEB applicants may select only one programme.',
+                ], 422);
+            }
+            $data['second_choice_program_id'] = null;
+            $data['second_choice_college_id'] = null;
+            $data['second_choice_department_id'] = null;
+        }
+        if (($application->entry_mode ?? '') === 'jupeb' && ! empty($data['first_choice_program_id'])) {
+            $program = Program::query()->with('department.faculty')->find($data['first_choice_program_id']);
+            if ($program && ! $program->isOfferedAtJupebCentre()) {
+                return response()->json([
+                    'message' => 'JUPEB applicants can only choose a programme offered at a JUPEB centre.',
+                ], 422);
+            }
+        }
 
         return $this->officeGate(
             'admissions.staff_update',
@@ -380,8 +413,8 @@ class ApplicationController extends Controller
         if ($data['step_key'] === 'health_information') {
             $request->merge(['payload' => $payload]);
             $payload = $request->validate([
-                'payload.blood_group' => 'required|string|in:A+,A-,B+,B-,AB+,AB-,O+,O-',
-                'payload.genotype' => 'required|string|in:AA,AS,AC,SS,SC,CC',
+                'payload.blood_group' => 'required|string|in:A+,A-,B+,B-,AB+,AB-,O+,O-,Other',
+                'payload.genotype' => 'required|string|in:AA,AS,AC,SS,SC,CC,Other',
                 'payload.has_medical_condition' => 'required|boolean',
                 'payload.medical_condition_details' => 'nullable|string|max:2000',
             ])['payload'] + $payload;
@@ -410,12 +443,17 @@ class ApplicationController extends Controller
             ])['payload'] + $payload;
         }
         if ($data['step_key'] === 'application_form') {
+            $existing = is_array($step->payload) ? $step->payload : [];
+            $ninPhone = trim((string) ($existing['phone'] ?? $application->user?->phone ?? ''));
             $request->merge(['payload' => $payload]);
             $payload = $request->validate([
-                'payload.phone' => 'required|string|max:30',
+                'payload.alternate_phone' => ['required', 'string', 'max:30', new PhoneNumber],
                 'payload.address' => 'required|string|max:500',
                 'payload.declaration' => 'accepted',
             ])['payload'] + $payload;
+            $payload['phone'] = $ninPhone !== '' ? $ninPhone : null;
+            $payload['alternate_phone'] = PhoneNumber::normalize($payload['alternate_phone'] ?? null);
+            $application->user?->update(['alternate_phone' => $payload['alternate_phone']]);
         }
         if ($data['step_key'] === 'academic_qualifications') {
             $request->merge(['payload' => $payload]);
@@ -469,6 +507,14 @@ class ApplicationController extends Controller
                     $payload['second_sitting'] = null;
                 }
             }
+            if (AdmissionEntryRules::nabtebCombinedWithSecondSitting(
+                is_array($payload['first_sitting'] ?? null) ? $payload['first_sitting'] : null,
+                is_array($payload['second_sitting'] ?? null) ? $payload['second_sitting'] : null,
+            )) {
+                return response()->json([
+                    'message' => "NABTEB uses one sitting only. Remove the second sitting or choose a different exam type.",
+                ], 422);
+            }
         }
         if ($data['step_key'] === 'utme') {
             $payload = ApplicationFormSteps::validateUtme($request, $payload, true);
@@ -480,8 +526,19 @@ class ApplicationController extends Controller
                 'payload.second_choice_program_id' => 'nullable|integer|exists:programs,id|different:payload.first_choice_program_id',
             ])['payload'] + $payload;
             $payload['program_id'] = (int) $payload['first_choice_program_id'];
-            if (empty($payload['second_choice_program_id'])) {
+            if (! AdmissionEntryRules::allowsSecondProgramme((string) $application->entry_mode)) {
+                if (! empty($payload['second_choice_program_id'])) {
+                    return response()->json([
+                        'message' => 'JUPEB applicants may select only one programme.',
+                    ], 422);
+                }
                 $payload['second_choice_program_id'] = null;
+                $payload['second_choice_college_id'] = null;
+                $payload['second_choice_department_id'] = null;
+            } elseif (empty($payload['second_choice_program_id'])) {
+                $payload['second_choice_program_id'] = null;
+                $payload['second_choice_college_id'] = null;
+                $payload['second_choice_department_id'] = null;
             }
 
             $choices = ['first_choice_program_id' => 'first choice'];
@@ -489,12 +546,21 @@ class ApplicationController extends Controller
                 $choices['second_choice_program_id'] = 'second choice';
             }
             foreach ($choices as $key => $label) {
-                $program = Program::query()->find($payload[$key]);
+                $program = Program::query()->with('department.faculty')->find($payload[$key]);
                 if (! $program || ! $program->isOffered() || ! $program->acceptsEntryMode($application->entry_mode)) {
                     return response()->json([
                         'message' => 'The selected '.$label.' programme is not available for your admission category.',
                     ], 422);
                 }
+                if ($application->entry_mode === 'jupeb' && ! $program->isOfferedAtJupebCentre()) {
+                    return response()->json([
+                        'message' => 'JUPEB applicants can only choose a programme offered at a JUPEB centre.',
+                    ], 422);
+                }
+                $prefix = $key === 'first_choice_program_id' ? 'first_choice' : 'second_choice';
+                $payload[$prefix.'_program_id'] = $program->id;
+                $payload[$prefix.'_department_id'] = $program->department_id;
+                $payload[$prefix.'_college_id'] = $program->department?->faculty_id;
             }
         }
         if ($data['step_key'] === 'direct_entry') {
@@ -539,6 +605,12 @@ class ApplicationController extends Controller
     public function submit(Request $request, Application $application)
     {
         $this->authorizeOwner($request, $application);
+        if (! $application->applicationWindowOpen()) {
+            return response()->json([
+                'message' => Intake::CLOSED_SUBMIT_MESSAGE,
+                'code' => Intake::INTAKE_NOT_ACCEPTING_CODE,
+            ], 422);
+        }
         $application->ensureFormSteps();
         if (! $application->ninVerified()) {
             return response()->json(['message' => 'Verify your NIN before submitting your application.'], 422);
@@ -557,6 +629,10 @@ class ApplicationController extends Controller
                 'missing_documents' => $missingDocs,
             ], 422);
         }
+        $request->validate(
+            ['submission_notice_accepted' => ['required', 'accepted']],
+            ['submission_notice_accepted.accepted' => 'Confirm the submission notice before submitting your application.'],
+        );
         $application->steps()->where('step_key', 'required_documents')->update(['status' => 'complete']);
         $application->update([
             'stage' => 'submitted',
@@ -649,9 +725,13 @@ class ApplicationController extends Controller
     {
         $this->authorizeOwner($request, $application);
         $data = $request->validate(['nin' => 'required|string']);
-        if (! in_array($application->stage, ['fee_paid', 'form_in_progress'], true)
-            && ! $request->user()->hasPermission('identity.verify_nin')) {
-            return response()->json(['message' => 'NIN can only be verified during the form.'], 422);
+        $formWindow = in_array($application->stage, ['fee_paid', 'form_in_progress'], true);
+        $staffCanVerify = $request->user()->hasPermission('identity.verify_nin');
+        $studentSelfVerify = $application->user_id === $request->user()->id
+            && $request->user()->isStudent()
+            && ! $application->ninVerified();
+        if (! $formWindow && ! $staffCanVerify && ! $studentSelfVerify) {
+            return response()->json(['message' => 'NIN can only be verified during the form or after you sign in as a student.'], 422);
         }
         $record = $this->prembly->verify($request->user(), $application, $data['nin']);
 
@@ -659,6 +739,15 @@ class ApplicationController extends Controller
             ...$record->only(['id', 'nin', 'mapped_fields', 'verified_at']),
             'live' => $this->prembly->isLiveMapped($record->mapped_fields),
         ]);
+    }
+
+    public function resyncNin(Request $request, Application $application)
+    {
+        $this->authorizeStaffEdit($request, $application);
+        abort_unless($request->user()->hasPermission('identity.verify_nin'), 403);
+        $this->prembly->resyncFromNin($application, $request->user());
+
+        return $this->decorateFile($application->fresh(['steps', 'documents', 'user', 'student', 'program']));
     }
 
     public function transition(Request $request, Application $application)
@@ -787,7 +876,7 @@ class ApplicationController extends Controller
     private function issueOffer(Application $application, ?float $acceptanceFeeAmount = null): void
     {
         if (! $application->offer_reference) {
-            $application->update(['offer_reference' => $this->documents->generateOfferReference()]);
+            $application->update(['offer_reference' => $this->documents->generateOfferReference($application)]);
         }
         try {
             $this->invoices->ensureAcceptanceFeeInvoice($application, $acceptanceFeeAmount);
@@ -861,11 +950,52 @@ class ApplicationController extends Controller
 
     public function resendReferee(Request $request, Application $application, RefereeInvite $invite)
     {
-        $this->authorizeOwner($request, $application);
         abort_unless((int) $invite->application_id === (int) $application->id, 404);
-        $this->referees->resend($application, $invite);
 
-        return response()->json(['referees' => $this->referees->statusFor($application->fresh('refereeInvites'))]);
+        if ($request->filled('email') || $request->filled('name')) {
+            $this->authorizeStaffEdit($request, $application);
+        } else {
+            $this->authorizeOwner($request, $application);
+        }
+
+        abort_if($invite->status === 'submitted', 422, 'This referee has already submitted a letter.');
+
+        $data = $request->validate([
+            'email' => 'nullable|email|max:190',
+            'name' => 'nullable|string|max:120',
+        ]);
+        $email = isset($data['email']) ? strtolower(trim((string) $data['email'])) : null;
+        $name = isset($data['name']) ? trim((string) $data['name']) : null;
+        $before = ['id' => $invite->id, 'email' => $invite->email, 'name' => $invite->name];
+        $changed = ($email && $email !== strtolower((string) $invite->email))
+            || ($name !== null && $name !== '' && $name !== (string) $invite->name);
+
+        if ($changed) {
+            $invite = $this->referees->updateContact($application, $invite, array_filter([
+                'email' => $email,
+                'name' => $name,
+            ], fn ($value) => $value !== null && $value !== ''));
+        }
+
+        $this->referees->resend($application, $invite);
+        $this->audit->record(
+            $changed ? 'application.referee_email_changed' : 'application.referee_resent',
+            $changed
+                ? 'Changed referee email and resent the recommendation request'
+                : 'Resent referee recommendation request',
+            'admissions',
+            'application',
+            $application->id,
+            $before,
+            ['id' => $invite->id, 'email' => $invite->email, 'name' => $invite->name],
+        );
+
+        return response()->json([
+            'referees' => $this->referees->statusFor($application->fresh('refereeInvites')),
+            'message' => $changed
+                ? 'Referee email updated and invite sent.'
+                : 'Invite resent.',
+        ]);
     }
 
     private function ensureAcceptanceInvoiceIfOffered(Application $application): void
@@ -887,6 +1017,9 @@ class ApplicationController extends Controller
             AdmissionEntryRules::requiredDocuments((string) $application->entry_mode, $application),
         );
 
+        $application->setAttribute('pg_word_limits', PgResearchWordLimits::all());
+        $application->setAttribute('application_window_open', $application->applicationWindowOpen());
+
         return $application;
     }
 
@@ -896,7 +1029,7 @@ class ApplicationController extends Controller
     private function rejectIfProgrammeMissing(Application $application): ?JsonResponse
     {
         $programId = ProgrammeEligibility::firstChoiceId($application);
-        $program = $programId ? Program::query()->find($programId) : null;
+        $program = $programId ? Program::query()->with('department.faculty')->find($programId) : null;
         if (
             ! $program
             || ! $program->isOffered()
@@ -904,6 +1037,11 @@ class ApplicationController extends Controller
         ) {
             return response()->json([
                 'message' => 'Select a programme before submitting your application.',
+            ], 422);
+        }
+        if ($application->entry_mode === 'jupeb' && ! $program->isOfferedAtJupebCentre()) {
+            return response()->json([
+                'message' => 'JUPEB applicants can only choose a programme offered at a JUPEB centre.',
             ], 422);
         }
 

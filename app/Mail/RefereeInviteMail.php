@@ -4,6 +4,7 @@ namespace App\Mail;
 
 use App\Models\Application;
 use App\Models\RefereeInvite;
+use App\Support\PortalUrl;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
@@ -29,8 +30,6 @@ class RefereeInviteMail extends Mailable
 
     public function content(): Content
     {
-        $portal = rtrim((string) config('app.student_url'), '/');
-
         return new Content(
             markdown: 'mail.referee-invite',
             with: [
@@ -38,7 +37,7 @@ class RefereeInviteMail extends Mailable
                 'applicantName' => $this->application->user?->name,
                 'applicationNumber' => $this->application->application_number,
                 'programme' => $this->application->program?->name,
-                'portalUrl' => $portal.'/referee/'.$this->plainToken,
+                'portalUrl' => PortalUrl::refereeInvite($this->plainToken),
             ],
         );
     }
