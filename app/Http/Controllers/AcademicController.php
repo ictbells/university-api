@@ -6,13 +6,16 @@ use App\Models\AcademicLevel;
 use App\Models\AcademicTerm;
 use App\Models\Course;
 use App\Models\Program;
+use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\Student;
 use App\Models\WorkflowTemplate;
 use App\Services\AcademicCatalogImportService;
 use App\Services\AuditWriter;
+use App\Support\InstitutionLogo;
 use App\Support\ListSessionLevelFilter;
 use App\Support\ProgrammeEligibility;
+use App\Support\ReceiptInstitution;
 use App\Support\StudyLevel;
 use App\Support\WorkflowCatalog;
 use Illuminate\Http\Request;
@@ -482,12 +485,16 @@ class AcademicController extends Controller
         $payload = \App\Support\TranscriptBuilder::unsignedForStudent($target, $sessionId, $termId);
 
         if ($request->input('format') === 'html') {
-            $target->loadMissing('program');
+            $target->loadMissing(['program.department.faculty']);
+            $institution = ReceiptInstitution::details();
+            $institution['office'] = (string) Setting::getValue('registrar_office_title', 'Office of the Registrar');
 
             return response()->view('reports.unsigned-transcript', [
+                'institution' => $institution,
+                'logo_data_uri' => InstitutionLogo::dataUri(),
                 'report' => [
-                    'university' => (string) \App\Models\Setting::getValue('university_name', 'Bells University of Technology'),
-                    'generated_at' => now()->format('d M Y H:i'),
+                    'university' => $institution['name'],
+                    'generated_at' => now()->format('d M Y, h:i A'),
                     'scope_label' => $payload['scope_label'] ?? null,
                     'gpa' => $payload['gpa'] ?? null,
                     'total_credits' => $payload['total_credits'] ?? null,
@@ -495,9 +502,12 @@ class AcademicController extends Controller
                     'terms' => $payload['terms'] ?? [],
                     'notice' => $payload['notice'] ?? null,
                     'student' => [
-                        'name' => trim(($target->first_name ?? '').' '.($target->last_name ?? '')),
+                        'name' => trim(collect([$target->first_name, $target->middle_name, $target->last_name])->filter()->implode(' ')),
                         'matric_number' => $target->matric_number,
                         'programme' => $target->program?->name,
+                        'department' => $target->program?->department?->name,
+                        'faculty' => $target->program?->department?->faculty?->name,
+                        'level' => $target->current_level,
                     ],
                 ],
             ]);

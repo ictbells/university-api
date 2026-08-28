@@ -302,6 +302,10 @@ class GradeWorkflowTest extends TestCase
         $html->assertSee('UNSIGNED — FOR STUDENT VIEWING ONLY', false);
         $html->assertSee('CSC101', false);
         $html->assertSee('Pending', false);
+        $html->assertSee('Office of the Registrar', false);
+        $html->assertSee('Bells University of Technology', false);
+        $html->assertDontSee('>CA</th>', false);
+        $html->assertDontSee('>Exam</th>', false);
     }
 
     public function test_student_unsigned_transcript_filters_by_session_and_semester(): void

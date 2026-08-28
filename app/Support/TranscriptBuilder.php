@@ -341,10 +341,28 @@ final class TranscriptBuilder
             'pending' => $released === null,
             'letter' => $released ? ($released->resolvedLetter() ?: null) : null,
             'points' => $released ? $released->resolvedGradePoints() : null,
-            'score' => $released && $released->score !== null && $released->score !== '' ? (float) $released->score : null,
+            'score' => self::unsignedTotalScore($released),
             'ca_score' => $released && $released->ca_score !== null && $released->ca_score !== '' ? (float) $released->ca_score : null,
             'exam_score' => $released && $released->exam_score !== null && $released->exam_score !== '' ? (float) $released->exam_score : null,
             'course' => $course ? $course->only(['id', 'code', 'title', 'units']) : null,
         ];
+    }
+
+    private static function unsignedTotalScore(?Grade $released): ?float
+    {
+        if (! $released) {
+            return null;
+        }
+        if ($released->score !== null && $released->score !== '') {
+            return (float) $released->score;
+        }
+
+        $hasCa = $released->ca_score !== null && $released->ca_score !== '';
+        $hasExam = $released->exam_score !== null && $released->exam_score !== '';
+        if (! $hasCa && ! $hasExam) {
+            return null;
+        }
+
+        return (float) ($hasCa ? $released->ca_score : 0) + (float) ($hasExam ? $released->exam_score : 0);
     }
 }
