@@ -68,8 +68,8 @@ class ResultsController extends Controller
         if ($request->filled('academic_term_id')) {
             $query->forTerm((int) $request->input('academic_term_id'));
         }
-        ListSessionLevelFilter::applySessionToTermRelation($query, $request, 'offering.term');
-        ListSessionLevelFilter::applyToStudentRelation($query, $request, 'student');
+        $query->forSession(ListSessionLevelFilter::sessionId($request));
+        $query->forLevel(ListSessionLevelFilter::levelCode($request));
         if ($request->filled('faculty_id')) {
             $query->forFaculty((int) $request->input('faculty_id'));
         }
@@ -337,7 +337,12 @@ class ResultsController extends Controller
         abort_unless($request->user()->hasPermission('results.read'), 403);
         $search = trim((string) $request->input('search', ''));
         $query = Student::query()->with('program:id,name,code')->orderBy('matric_number');
-        ListSessionLevelFilter::applyToStudents($query, $request);
+        if ($level = ListSessionLevelFilter::levelCode($request)) {
+            $values = Grade::levelMatchValues($level);
+            if ($values !== []) {
+                $query->whereIn('current_level', $values);
+            }
+        }
         if ($search !== '') {
             $like = '%'.$search.'%';
             $query->where(function ($q) use ($like) {

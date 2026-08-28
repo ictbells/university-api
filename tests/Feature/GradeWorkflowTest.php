@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AcademicLevel;
 use App\Models\AcademicSession;
 use App\Models\AcademicTerm;
 use App\Models\Campus;
@@ -392,6 +393,37 @@ class GradeWorkflowTest extends TestCase
             ->assertOk()
             ->assertJsonPath('layout', 'student_matrix')
             ->assertJsonPath('students.0.matric', 'BU/2020/001');
+    }
+
+    public function test_draft_queue_filters_use_offering_and_student_on_the_grade(): void
+    {
+        Sanctum::actingAs($this->staffUser);
+        AcademicLevel::query()->create([
+            'name' => '100 Level',
+            'code' => '100',
+            'study_level' => 'undergraduate',
+            'sort_order' => 1,
+            'is_active' => true,
+        ]);
+        $gradeId = $this->postJson('/api/academic/results/grades', [
+            'enrollment_id' => $this->enrollment->id,
+            'score' => 71,
+        ])->assertOk()->json('id');
+
+        $departmentId = (int) $this->enrollment->offering->course->department_id;
+        $facultyId = (int) $this->enrollment->offering->course->department->faculty_id;
+
+        $this->getJson('/api/academic/results/grades?'.http_build_query([
+            'status' => 'draft',
+            'academic_term_id' => $this->term->id,
+            'academic_session_id' => $this->term->academic_session_id,
+            'level' => '100 Level',
+            'faculty_id' => $facultyId,
+            'department_id' => $departmentId,
+            'per_page' => 5000,
+        ]))
+            ->assertOk()
+            ->assertJsonFragment(['id' => $gradeId]);
     }
 
     public function test_department_officer_cannot_write_outside_departmental_lane(): void

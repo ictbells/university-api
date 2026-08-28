@@ -175,7 +175,9 @@ class Grade extends BaseModel
         return $query->where(function (Builder $q) use ($departmentId) {
             $q->where('department_id', $departmentId)
                 ->orWhereHas('offering.course', fn (Builder $c) => $c->where('department_id', $departmentId))
-                ->orWhereHas('enrollment.offering.course', fn (Builder $c) => $c->where('department_id', $departmentId));
+                ->orWhereHas('enrollment.offering.course', fn (Builder $c) => $c->where('department_id', $departmentId))
+                ->orWhereHas('student.program', fn (Builder $p) => $p->where('department_id', $departmentId))
+                ->orWhereHas('enrollment.student.program', fn (Builder $p) => $p->where('department_id', $departmentId));
         });
     }
 
@@ -184,11 +186,78 @@ class Grade extends BaseModel
         return $query->where(function (Builder $q) use ($facultyId, $includeGeneralLane) {
             $q->where('faculty_id', $facultyId)
                 ->orWhereHas('offering.course.department', fn (Builder $d) => $d->where('faculty_id', $facultyId))
-                ->orWhereHas('enrollment.offering.course.department', fn (Builder $d) => $d->where('faculty_id', $facultyId));
+                ->orWhereHas('enrollment.offering.course.department', fn (Builder $d) => $d->where('faculty_id', $facultyId))
+                ->orWhereHas('student.program.department', fn (Builder $d) => $d->where('faculty_id', $facultyId))
+                ->orWhereHas('enrollment.student.program.department', fn (Builder $d) => $d->where('faculty_id', $facultyId));
             if ($includeGeneralLane) {
                 $q->orWhere('upload_lane', GradeStatus::LANE_GENERAL);
             }
         });
+    }
+
+    public function scopeForSession(Builder $query, ?int $sessionId): Builder
+    {
+        if (! $sessionId) {
+            return $query;
+        }
+
+        return $query->where(function (Builder $q) use ($sessionId) {
+            $q->whereHas('offering.term', fn (Builder $t) => $t->where('academic_session_id', $sessionId))
+                ->orWhereHas('enrollment.offering.term', fn (Builder $t) => $t->where('academic_session_id', $sessionId));
+        });
+    }
+
+    public function scopeForLevel(Builder $query, ?string $level): Builder
+    {
+        $values = self::levelMatchValues($level);
+        if ($values === []) {
+            return $query;
+        }
+
+        return $query->where(function (Builder $q) use ($values) {
+            $q->whereHas('student', fn (Builder $s) => $s->whereIn('current_level', $values))
+                ->orWhereHas('enrollment.student', fn (Builder $s) => $s->whereIn('current_level', $values));
+        });
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function levelMatchValues(?string $level): array
+    {
+        $raw = trim((string) $level);
+        if ($raw === '') {
+            return [];
+        }
+
+        $digits = preg_match('/(\d{2,3})/', $raw, $match) ? $match[1] : null;
+        $values = array_filter([
+            $raw,
+            $digits,
+            $digits ? $digits.'L' : null,
+            $digits ? $digits.' Level' : null,
+        ]);
+
+        $catalog = AcademicLevel::query()
+            ->where(function (Builder $q) use ($raw, $digits) {
+                $q->where('code', $raw)->orWhere('name', $raw);
+                if ($digits) {
+                    $q->orWhere('code', $digits)
+                        ->orWhere('code', $digits.'L')
+                        ->orWhere('name', 'like', $digits.'%');
+                }
+            })
+            ->get(['code', 'name']);
+
+        foreach ($catalog as $row) {
+            $values[] = (string) $row->code;
+            $values[] = (string) $row->name;
+            if (preg_match('/(\d{2,3})/', (string) $row->code.(string) $row->name, $match)) {
+                $values[] = $match[1];
+            }
+        }
+
+        return array_values(array_unique(array_filter(array_map('strval', $values))));
     }
 
     public static function attachEnrollment(Enrollment $enrollment): int
