@@ -195,6 +195,15 @@ class ResultsController extends Controller
         });
     }
 
+    public function departmentSubmit(Request $request)
+    {
+        abort_unless($request->user()->hasPermission('results.department_submit'), 403);
+        $data = $request->validate(['ids' => 'required|array|min:1', 'ids.*' => 'integer|exists:grades,id']);
+        ResultOfficerScope::assertCanActOnGrades($request->user(), $data['ids']);
+
+        return $this->officeGate('results.department_submit', null, $data, 'Department submit results', fn () => $this->workflow->departmentSubmit($data['ids'], $request->user()));
+    }
+
     public function submit(Request $request)
     {
         abort_unless($request->user()->hasPermission('results.submit'), 403);
@@ -202,6 +211,25 @@ class ResultsController extends Controller
         ResultOfficerScope::assertCanActOnGrades($request->user(), $data['ids']);
 
         return $this->officeGate('results.submit', null, $data, 'College submit results', fn () => $this->workflow->submit($data['ids'], $request->user()));
+    }
+
+    public function collegeReturn(Request $request)
+    {
+        abort_unless($request->user()->hasPermission('results.submit'), 403);
+        $data = $request->validate([
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer|exists:grades,id',
+            'note' => 'nullable|string|max:2000',
+        ]);
+        ResultOfficerScope::assertCanActOnGrades($request->user(), $data['ids']);
+
+        return $this->officeGate(
+            'results.college_return',
+            null,
+            $data,
+            'College return results',
+            fn () => $this->workflow->collegeReturn($data['ids'], $request->user(), $data['note'] ?? null),
+        );
     }
 
     public function facultyApprove(Request $request)
@@ -491,6 +519,7 @@ class ResultsController extends Controller
     {
         abort_unless(
             $request->user()->hasPermission('results.read')
+                || $request->user()->hasPermission('results.department_submit')
                 || $request->user()->hasPermission('results.submit')
                 || $request->user()->hasPermission('results.faculty_approve')
                 || $request->user()->hasPermission('results.board'),

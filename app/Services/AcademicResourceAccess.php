@@ -81,6 +81,11 @@ class AcademicResourceAccess
         }
 
         if ($resourceKey === 'results-department'
+            && ($user->hasPermission('results.department_submit') || $user->hasPermission('results.read'))) {
+            return true;
+        }
+
+        if ($resourceKey === 'results-college'
             && ($user->hasPermission('results.submit') || $user->hasPermission('results.read'))) {
             return true;
         }

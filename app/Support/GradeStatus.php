@@ -6,6 +6,8 @@ final class GradeStatus
 {
     public const DRAFT = 'draft';
 
+    public const DEPARTMENT_SUBMITTED = 'department_submitted';
+
     public const SUBMITTED = 'submitted';
 
     public const FACULTY_APPROVED = 'faculty_approved';
@@ -35,6 +37,7 @@ final class GradeStatus
     {
         return [
             self::DRAFT,
+            self::DEPARTMENT_SUBMITTED,
             self::SUBMITTED,
             self::FACULTY_APPROVED,
             self::BOARD_READY,
@@ -64,6 +67,7 @@ final class GradeStatus
     {
         return match ($status) {
             self::DRAFT => 'Draft',
+            self::DEPARTMENT_SUBMITTED => 'Department submitted',
             self::SUBMITTED => 'College submitted',
             self::FACULTY_APPROVED => 'Deans approved',
             self::BOARD_READY => 'Awaiting Senate',

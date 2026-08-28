@@ -78,6 +78,7 @@ class PermissionCatalog
             ['key' => 'exam_clearance.view', 'module' => 'academic', 'label' => 'View exam clearance'],
             ['key' => 'results.read', 'module' => 'academic', 'label' => 'View results and printable lists'],
             ['key' => 'results.write', 'module' => 'academic', 'label' => 'Enter and edit draft results'],
+            ['key' => 'results.department_submit', 'module' => 'academic', 'label' => 'Department submit results to College'],
             ['key' => 'results.submit', 'module' => 'academic', 'label' => 'College submit results to Committee of Deans'],
             ['key' => 'results.faculty_approve', 'module' => 'academic', 'label' => 'Committee of Deans approve or return results'],
             ['key' => 'results.board', 'module' => 'academic', 'label' => 'Senate clear or request corrections'],

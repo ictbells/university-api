@@ -49,7 +49,7 @@ class GradeWorkflowTest extends TestCase
         $this->seed(GradingScaleSeeder::class);
 
         $keys = [
-            'results.read', 'results.write', 'results.submit', 'results.faculty_approve',
+            'results.read', 'results.write', 'results.department_submit', 'results.submit', 'results.faculty_approve',
             'results.board', 'results.release', 'results.import', 'scales.manage',
         ];
         $role = Role::query()->firstOrCreate(
@@ -66,7 +66,7 @@ class GradeWorkflowTest extends TestCase
             'is_active' => true,
         ]);
         $office->syncNavKeys([
-            'results', 'results-students', 'results-import', 'results-approvals',
+            'results', 'results-students', 'results-import', 'results-department', 'results-college', 'results-approvals',
             'results-board', 'results-release', 'results-grading-scale',
         ]);
         Staff::query()->create([
@@ -148,6 +148,10 @@ class GradeWorkflowTest extends TestCase
         $this->assertEquals(GradeStatus::DRAFT, $create->json('status'));
         $this->assertEquals('A', $create->json('letter'));
 
+        $this->postJson('/api/academic/results/department-submit', ['ids' => [$gradeId]])
+            ->assertOk()
+            ->assertJsonPath('updated', 1);
+
         $this->postJson('/api/academic/results/submit', ['ids' => [$gradeId]])
             ->assertOk()
             ->assertJsonPath('updated', 1);
@@ -184,6 +188,35 @@ class GradeWorkflowTest extends TestCase
         $html->assertSee('not signed', false);
         $html->assertDontSee('Signature', false);
         $html->assertDontSee('Registrar', false);
+    }
+
+    public function test_college_cannot_skip_the_department_step_and_can_return_to_department(): void
+    {
+        Sanctum::actingAs($this->staffUser);
+
+        $gradeId = $this->postJson('/api/academic/results/grades', [
+            'enrollment_id' => $this->enrollment->id,
+            'score' => 64,
+        ])->assertOk()->json('id');
+
+        $this->postJson('/api/academic/results/submit', ['ids' => [$gradeId]])
+            ->assertOk()
+            ->assertJsonPath('updated', 0);
+        $this->assertEquals(GradeStatus::DRAFT, Grade::query()->find($gradeId)?->status);
+
+        $this->postJson('/api/academic/results/department-submit', ['ids' => [$gradeId]])
+            ->assertOk()
+            ->assertJsonPath('updated', 1);
+        $this->assertEquals(GradeStatus::DEPARTMENT_SUBMITTED, Grade::query()->find($gradeId)?->status);
+
+        $this->postJson('/api/academic/results/college-return', [
+            'ids' => [$gradeId],
+            'note' => 'Fix CA total',
+        ])->assertOk()->assertJsonPath('updated', 1);
+
+        $returned = Grade::query()->find($gradeId);
+        $this->assertEquals(GradeStatus::CORRECTION_REQUIRED, $returned?->status);
+        $this->assertEquals('Fix CA total', $returned?->correction_note);
     }
 
     public function test_student_transcript_hides_unreleased_grades(): void
@@ -747,7 +780,7 @@ class GradeWorkflowTest extends TestCase
         $this->assertTrue($grade->registration_held);
         $this->assertEquals(GradeStatus::DRAFT, $grade->status);
 
-        $this->postJson('/api/academic/results/submit', ['ids' => [$grade->id]])
+        $this->postJson('/api/academic/results/department-submit', ['ids' => [$grade->id]])
             ->assertOk()
             ->assertJsonPath('updated', 0);
 
@@ -761,6 +794,12 @@ class GradeWorkflowTest extends TestCase
         $grade->refresh();
         $this->assertFalse($grade->registration_held);
         $this->assertEquals($enrollment->id, $grade->enrollment_id);
+
+        $this->postJson('/api/academic/results/department-submit', ['ids' => [$grade->id]])
+            ->assertOk()
+            ->assertJsonPath('updated', 1);
+
+        $this->assertEquals(GradeStatus::DEPARTMENT_SUBMITTED, $grade->fresh()->status);
 
         $this->postJson('/api/academic/results/submit', ['ids' => [$grade->id]])
             ->assertOk()

@@ -416,14 +416,16 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::post('/academic/registration-extensions/{extension}/review', [RegistrationExtensionController::class, 'review']);
     });
 
-    Route::middleware('academic.resource:results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale')->group(function () {
+    Route::middleware('academic.resource:results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale')->group(function () {
         Route::get('/academic/results/dashboard', [ResultsController::class, 'dashboard']);
         Route::get('/academic/results/meta', [ResultsController::class, 'meta']);
         Route::get('/academic/results/grades', [ResultsController::class, 'index']);
         Route::post('/academic/results/grades', [ResultsController::class, 'store']);
         Route::patch('/academic/results/grades/{grade}', [ResultsController::class, 'update']);
         Route::delete('/academic/results/grades/{grade}', [ResultsController::class, 'destroy']);
+        Route::post('/academic/results/department-submit', [ResultsController::class, 'departmentSubmit']);
         Route::post('/academic/results/submit', [ResultsController::class, 'submit']);
+        Route::post('/academic/results/college-return', [ResultsController::class, 'collegeReturn']);
         Route::post('/academic/results/faculty-approve', [ResultsController::class, 'facultyApprove']);
         Route::post('/academic/results/faculty-return', [ResultsController::class, 'facultyReturn']);
         Route::post('/academic/results/board-scopes/clear', [ResultsController::class, 'boardClear']);

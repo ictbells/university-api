@@ -18,17 +18,52 @@ class GradeWorkflowService
      * @param  list<int>  $ids
      * @return array{updated: int, errors: list<string>}
      */
-    public function submit(array $ids, Authenticatable $actor): array
+    public function departmentSubmit(array $ids, Authenticatable $actor): array
     {
         return $this->transitionMany(
             $ids,
             [GradeStatus::DRAFT, GradeStatus::CORRECTION_REQUIRED],
+            GradeStatus::DEPARTMENT_SUBMITTED,
+            $actor,
+            fn (Grade $r) => [
+                'correction_note' => null,
+            ],
+        );
+    }
+
+    /**
+     * @param  list<int>  $ids
+     * @return array{updated: int, errors: list<string>}
+     */
+    public function submit(array $ids, Authenticatable $actor): array
+    {
+        return $this->transitionMany(
+            $ids,
+            [GradeStatus::DEPARTMENT_SUBMITTED],
             GradeStatus::SUBMITTED,
             $actor,
             fn (Grade $r) => [
                 'submitted_at' => now(),
                 'correction_note' => null,
             ],
+        );
+    }
+
+    /**
+     * @param  list<int>  $ids
+     * @return array{updated: int, errors: list<string>}
+     */
+    public function collegeReturn(array $ids, Authenticatable $actor, ?string $note = null): array
+    {
+        return $this->transitionMany(
+            $ids,
+            [GradeStatus::DEPARTMENT_SUBMITTED],
+            GradeStatus::CORRECTION_REQUIRED,
+            $actor,
+            fn (Grade $r) => [
+                'correction_note' => $note,
+            ],
+            note: $note,
         );
     }
 

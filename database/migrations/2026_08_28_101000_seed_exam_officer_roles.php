@@ -11,31 +11,31 @@ return new class extends Migration
         $roles = [
             'exam-officer' => [
                 'name' => 'Exam Officer',
-                'description' => 'Campus-wide exam officer: enter, submit through College, Committee of Deans, Senate, and release results.',
+                'description' => 'Campus-wide exam officer: enter, submit through Department, College, Committee of Deans, Senate, and release results.',
                 'keys' => [
-                    'results.read', 'results.write', 'results.submit', 'results.faculty_approve',
+                    'results.read', 'results.write', 'results.department_submit', 'results.submit', 'results.faculty_approve',
                     'results.board', 'results.release', 'results.import', 'scales.manage',
                 ],
             ],
             'faculty-exam-officer' => [
                 'name' => 'College Exam Officer',
-                'description' => 'Uploads college-lane courses in their college and submits them to the Committee of Deans.',
+                'description' => 'Reviews department submissions in their college and submits them to the Committee of Deans.',
                 'keys' => [
-                    'results.read', 'results.write', 'results.submit', 'results.faculty_approve', 'results.import',
+                    'results.read', 'results.write', 'results.department_submit', 'results.submit', 'results.faculty_approve', 'results.import',
                 ],
             ],
             'department-exam-officer' => [
                 'name' => 'Department Exam Officer',
-                'description' => 'Uploads departmental courses in their academic department for college submission.',
+                'description' => 'Uploads departmental courses and submits them to College.',
                 'keys' => [
-                    'results.read', 'results.write', 'results.submit', 'results.import',
+                    'results.read', 'results.write', 'results.department_submit', 'results.import',
                 ],
             ],
             'gs-exam-officer' => [
                 'name' => 'GS Exam Officer',
                 'description' => 'Uploads general-studies courses only.',
                 'keys' => [
-                    'results.read', 'results.write', 'results.submit', 'results.import',
+                    'results.read', 'results.write', 'results.department_submit', 'results.submit', 'results.import',
                 ],
             ],
         ];
