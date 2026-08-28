@@ -364,6 +364,36 @@ class GradeWorkflowTest extends TestCase
             ->assertStatus(422);
     }
 
+    public function test_department_filter_includes_drafts_when_org_snapshot_is_missing(): void
+    {
+        Sanctum::actingAs($this->staffUser);
+        $departmentId = (int) $this->enrollment->offering->course->department_id;
+        $grade = Grade::query()->create([
+            'enrollment_id' => $this->enrollment->id,
+            'sitting' => 'main',
+            'score' => 66,
+            'letter' => 'B',
+            'points' => 4,
+            'status' => GradeStatus::DRAFT,
+            'department_id' => null,
+            'faculty_id' => null,
+        ]);
+        $this->assertNull($grade->fresh()->department_id);
+
+        $this->getJson('/api/academic/results/grades?status=draft&department_id='.$departmentId.'&per_page=5000')
+            ->assertOk()
+            ->assertJsonFragment(['id' => $grade->id]);
+
+        $this->getJson(
+            '/api/academic/results/reports/submission-list/department?academic_term_id='.$this->term->id
+            .'&department_id='.$departmentId
+            .'&status=draft'
+        )
+            ->assertOk()
+            ->assertJsonPath('layout', 'student_matrix')
+            ->assertJsonPath('students.0.matric', 'BU/2020/001');
+    }
+
     public function test_department_officer_cannot_write_outside_departmental_lane(): void
     {
         $officer = $this->makeScopedOfficer('department-exam-officer', (int) $this->enrollment->offering->course->department_id);

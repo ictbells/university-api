@@ -71,10 +71,10 @@ class ResultsController extends Controller
         ListSessionLevelFilter::applySessionToTermRelation($query, $request, 'offering.term');
         ListSessionLevelFilter::applyToStudentRelation($query, $request, 'student');
         if ($request->filled('faculty_id')) {
-            $query->where('faculty_id', (int) $request->input('faculty_id'));
+            $query->forFaculty((int) $request->input('faculty_id'));
         }
         if ($request->filled('department_id')) {
-            $query->where('department_id', (int) $request->input('department_id'));
+            $query->forDepartment((int) $request->input('department_id'));
         }
         if ($request->filled('sitting') && in_array($request->input('sitting'), GradeStatus::sittings(), true)) {
             $query->where('sitting', $request->input('sitting'));
@@ -495,14 +495,9 @@ class ResultsController extends Controller
             $query->where('sitting', $data['sitting']);
         }
         if ($department) {
-            $query->where('department_id', $department->id);
+            $query->forDepartment($department->id);
         } elseif ($faculty) {
-            $query->where(function ($q) use ($faculty, $reportScope) {
-                $q->where('faculty_id', $faculty->id);
-                if ($reportScope === 'board') {
-                    $q->orWhere('upload_lane', GradeStatus::LANE_GENERAL);
-                }
-            });
+            $query->forFaculty($faculty->id, $reportScope === 'board');
         }
 
         $report = SubmissionListReportBuilder::build(

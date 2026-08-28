@@ -234,12 +234,9 @@ class GradeWorkflowService
             ->forTerm($academicTermId);
 
         if ($departmentId) {
-            $query->where('department_id', $departmentId);
+            $query->forDepartment($departmentId);
         } elseif ($facultyId) {
-            $query->where(function ($q) use ($facultyId) {
-                $q->where('faculty_id', $facultyId)
-                    ->orWhere('upload_lane', GradeStatus::LANE_GENERAL);
-            });
+            $query->forFaculty($facultyId, true);
         }
 
         return $query->pluck('id')->map(fn ($id) => (int) $id)->all();

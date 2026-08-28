@@ -146,10 +146,10 @@ class Grade extends BaseModel
     {
         return $query->with([
             'student:id,first_name,last_name,matric_number,current_level',
-            'offering.course',
+            'offering.course.department',
             'offering.term.session',
             'enrollment.student:id,first_name,last_name,matric_number,current_level',
-            'enrollment.offering.course',
+            'enrollment.offering.course.department',
             'enrollment.offering.term.session',
         ]);
     }
@@ -167,6 +167,27 @@ class Grade extends BaseModel
         return $query->where(function (Builder $q) use ($termId) {
             $q->whereHas('offering', fn (Builder $o) => $o->where('academic_term_id', $termId))
                 ->orWhereHas('enrollment.offering', fn (Builder $o) => $o->where('academic_term_id', $termId));
+        });
+    }
+
+    public function scopeForDepartment(Builder $query, int $departmentId): Builder
+    {
+        return $query->where(function (Builder $q) use ($departmentId) {
+            $q->where('department_id', $departmentId)
+                ->orWhereHas('offering.course', fn (Builder $c) => $c->where('department_id', $departmentId))
+                ->orWhereHas('enrollment.offering.course', fn (Builder $c) => $c->where('department_id', $departmentId));
+        });
+    }
+
+    public function scopeForFaculty(Builder $query, int $facultyId, bool $includeGeneralLane = false): Builder
+    {
+        return $query->where(function (Builder $q) use ($facultyId, $includeGeneralLane) {
+            $q->where('faculty_id', $facultyId)
+                ->orWhereHas('offering.course.department', fn (Builder $d) => $d->where('faculty_id', $facultyId))
+                ->orWhereHas('enrollment.offering.course.department', fn (Builder $d) => $d->where('faculty_id', $facultyId));
+            if ($includeGeneralLane) {
+                $q->orWhere('upload_lane', GradeStatus::LANE_GENERAL);
+            }
         });
     }
 
