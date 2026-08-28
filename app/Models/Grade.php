@@ -209,14 +209,24 @@ class Grade extends BaseModel
 
     public function scopeForLevel(Builder $query, ?string $level): Builder
     {
-        $values = self::levelMatchValues($level);
-        if ($values === []) {
+        $raw = trim((string) $level);
+        if ($raw === '') {
             return $query;
         }
 
-        return $query->where(function (Builder $q) use ($values) {
-            $q->whereHas('student', fn (Builder $s) => $s->whereIn('current_level', $values))
-                ->orWhereHas('enrollment.student', fn (Builder $s) => $s->whereIn('current_level', $values));
+        $ids = AcademicLevel::idsMatching($raw);
+        if ($ids === []) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->where(function (Builder $q) use ($ids) {
+            $q->whereHas(
+                'offering.course.programs',
+                fn (Builder $p) => $p->whereIn('program_course.academic_level_id', $ids)
+            )->orWhereHas(
+                'enrollment.offering.course.programs',
+                fn (Builder $p) => $p->whereIn('program_course.academic_level_id', $ids)
+            );
         });
     }
 

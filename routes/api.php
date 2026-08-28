@@ -397,6 +397,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
 
     Route::middleware('academic.resource:results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale')->group(function () {
         Route::get('/academic/results/dashboard', [ResultsController::class, 'dashboard']);
+        Route::get('/academic/results/meta', [ResultsController::class, 'meta']);
         Route::get('/academic/results/grades', [ResultsController::class, 'index']);
         Route::post('/academic/results/grades', [ResultsController::class, 'store']);
         Route::patch('/academic/results/grades/{grade}', [ResultsController::class, 'update']);

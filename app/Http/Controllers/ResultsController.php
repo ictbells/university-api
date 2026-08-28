@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AcademicLevel;
 use App\Models\AcademicTerm;
 use App\Models\AuditLog;
 use App\Models\CourseOffering;
@@ -52,6 +53,26 @@ class ResultsController extends Controller
             ),
             'released' => (int) ($counts[GradeStatus::RELEASED] ?? 0),
             'draft' => (int) ($counts[GradeStatus::DRAFT] ?? 0),
+        ];
+    }
+
+    public function meta(Request $request)
+    {
+        abort_unless($request->user()->hasPermission('results.read'), 403);
+
+        return [
+            'terms' => AcademicTerm::query()
+                ->with('session:id,label')
+                ->orderByDesc('is_current')
+                ->orderByDesc('id')
+                ->get(['id', 'academic_session_id', 'name', 'session_label', 'is_current']),
+            'levels' => AcademicLevel::query()
+                ->where('is_active', true)
+                ->orderBy('sort_order')
+                ->orderBy('code')
+                ->get(['id', 'name', 'code']),
+            'faculties' => Faculty::query()->orderBy('name')->get(['id', 'name']),
+            'departments' => Department::query()->orderBy('name')->get(['id', 'name', 'faculty_id']),
         ];
     }
 

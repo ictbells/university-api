@@ -395,7 +395,55 @@ class GradeWorkflowTest extends TestCase
             ->assertJsonPath('students.0.matric', 'BU/2020/001');
     }
 
-    public function test_draft_queue_filters_use_offering_and_student_on_the_grade(): void
+    public function test_draft_queue_filters_use_offering_and_course_level(): void
+    {
+        Sanctum::actingAs($this->staffUser);
+        $level100 = AcademicLevel::query()->create([
+            'name' => '100 Level',
+            'code' => '100',
+            'study_level' => 'undergraduate',
+            'sort_order' => 1,
+            'is_active' => true,
+        ]);
+        AcademicLevel::query()->create([
+            'name' => '200 Level',
+            'code' => '200',
+            'study_level' => 'undergraduate',
+            'sort_order' => 2,
+            'is_active' => true,
+        ]);
+        $this->student->program->courses()->attach($this->enrollment->offering->course_id, [
+            'academic_level_id' => $level100->id,
+        ]);
+        $this->student->update(['current_level' => 200]);
+
+        $gradeId = $this->postJson('/api/academic/results/grades', [
+            'enrollment_id' => $this->enrollment->id,
+            'score' => 71,
+        ])->assertOk()->json('id');
+
+        $departmentId = (int) $this->enrollment->offering->course->department_id;
+        $facultyId = (int) $this->enrollment->offering->course->department->faculty_id;
+        $params = [
+            'status' => 'draft',
+            'academic_term_id' => $this->term->id,
+            'academic_session_id' => $this->term->academic_session_id,
+            'faculty_id' => $facultyId,
+            'department_id' => $departmentId,
+            'per_page' => 5000,
+        ];
+
+        $this->getJson('/api/academic/results/grades?'.http_build_query($params + ['level' => '100 Level']))
+            ->assertOk()
+            ->assertJsonFragment(['id' => $gradeId]);
+
+        $ids = collect($this->getJson('/api/academic/results/grades?'.http_build_query($params + ['level' => '200']))
+            ->assertOk()
+            ->json('data'))->pluck('id');
+        $this->assertFalse($ids->contains($gradeId));
+    }
+
+    public function test_exam_officer_can_load_results_filter_lookups(): void
     {
         Sanctum::actingAs($this->staffUser);
         AcademicLevel::query()->create([
@@ -405,25 +453,17 @@ class GradeWorkflowTest extends TestCase
             'sort_order' => 1,
             'is_active' => true,
         ]);
-        $gradeId = $this->postJson('/api/academic/results/grades', [
-            'enrollment_id' => $this->enrollment->id,
-            'score' => 71,
-        ])->assertOk()->json('id');
 
-        $departmentId = (int) $this->enrollment->offering->course->department_id;
-        $facultyId = (int) $this->enrollment->offering->course->department->faculty_id;
-
-        $this->getJson('/api/academic/results/grades?'.http_build_query([
-            'status' => 'draft',
-            'academic_term_id' => $this->term->id,
-            'academic_session_id' => $this->term->academic_session_id,
-            'level' => '100 Level',
-            'faculty_id' => $facultyId,
-            'department_id' => $departmentId,
-            'per_page' => 5000,
-        ]))
+        $this->getJson('/api/academic/results/meta')
             ->assertOk()
-            ->assertJsonFragment(['id' => $gradeId]);
+            ->assertJsonPath('terms.0.id', $this->term->id)
+            ->assertJsonPath('terms.0.session.label', '2024/2025')
+            ->assertJsonPath('levels.0.code', '100')
+            ->assertJsonPath('faculties.0.name', 'Science')
+            ->assertJsonPath('departments.0.name', 'CS');
+
+        $this->getJson('/api/academic/terms')->assertForbidden();
+        $this->getJson('/api/academic/levels')->assertForbidden();
     }
 
     public function test_department_officer_cannot_write_outside_departmental_lane(): void

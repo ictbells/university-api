@@ -61,11 +61,13 @@ class ListSessionLevelFilter
         if (! $level) {
             return;
         }
-        $levelId = AcademicLevel::query()->where('code', $level)->value('id');
-        if (! $levelId) {
+        $levelIds = AcademicLevel::idsMatching($level);
+        if ($levelIds === []) {
+            $query->whereRaw('1 = 0');
+
             return;
         }
         $relation = $courseRelation === '' ? 'programs' : $courseRelation.'.programs';
-        $query->whereHas($relation, fn ($programs) => $programs->where('program_course.academic_level_id', $levelId));
+        $query->whereHas($relation, fn ($programs) => $programs->whereIn('program_course.academic_level_id', $levelIds));
     }
 }
