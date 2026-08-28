@@ -241,7 +241,7 @@ return new class extends Migration
             $table->string('next_of_kin')->nullable();
             $table->string('next_of_kin_phone')->nullable();
             $table->string('study_level')->default('undergraduate');
-            $table->unsignedTinyInteger('current_level')->default(100);
+            $table->unsignedSmallInteger('current_level')->default(100);
             $table->string('status')->default('active');
             $table->boolean('nin_locked')->default(true);
             $table->timestamps();
