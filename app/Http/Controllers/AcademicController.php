@@ -416,7 +416,12 @@ class AcademicController extends Controller
             );
             $payload = $enrollment->toArray();
             $payload['grade'] = $released
-                ? $released->only(['letter', 'points', 'score', 'status'])
+                ? [
+                    'letter' => $released->resolvedLetter() ?: null,
+                    'points' => $released->resolvedGradePoints(),
+                    'score' => $released->score !== null && $released->score !== '' ? (float) $released->score : null,
+                    'status' => $released->status,
+                ]
                 : null;
             $payload['pending_grade'] = $pending && ! $released;
 

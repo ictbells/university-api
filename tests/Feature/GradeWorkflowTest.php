@@ -172,6 +172,8 @@ class GradeWorkflowTest extends TestCase
         $transcript->assertOk();
         $this->assertEquals(5.0, (float) $transcript->json('cgpa'));
         $this->assertNotEmpty($transcript->json('rows'));
+        $transcript->assertJsonPath('rows.0.letter', 'A');
+        $this->assertEquals(72, (float) $transcript->json('rows.0.score'));
         $transcript->assertJsonPath('official', false);
         $transcript->assertJsonPath('can_sign', false);
         $this->assertStringContainsString('not signed', (string) $transcript->json('notice'));
@@ -207,6 +209,33 @@ class GradeWorkflowTest extends TestCase
 
         $enrollments = $this->getJson('/api/academic/my-enrollments')->assertOk()->json();
         $this->assertTrue(collect($enrollments)->contains(fn ($row) => ($row['pending_grade'] ?? false) === true));
+    }
+
+    public function test_student_transcript_shows_letter_and_score_when_letter_was_not_stored(): void
+    {
+        Grade::query()->create([
+            'enrollment_id' => $this->enrollment->id,
+            'student_id' => $this->student->id,
+            'course_offering_id' => $this->enrollment->course_offering_id,
+            'sitting' => 'main',
+            'score' => 72,
+            'letter' => null,
+            'points' => 0,
+            'status' => GradeStatus::RELEASED,
+            'faculty_id' => $this->enrollment->offering->course->department->faculty_id,
+            'department_id' => $this->enrollment->offering->course->department_id,
+        ]);
+
+        Sanctum::actingAs($this->student->user);
+        $transcript = $this->getJson('/api/academic/transcript')->assertOk();
+        $this->assertEquals('A', $transcript->json('terms.0.rows.0.letter'));
+        $this->assertEquals(72, (float) $transcript->json('terms.0.rows.0.score'));
+        $this->assertEquals(5.0, (float) $transcript->json('cgpa'));
+
+        $enrollments = $this->getJson('/api/academic/my-enrollments')->assertOk()->json();
+        $row = collect($enrollments)->firstWhere('id', $this->enrollment->id);
+        $this->assertEquals('A', $row['grade']['letter'] ?? null);
+        $this->assertEquals(72, (float) ($row['grade']['score'] ?? 0));
     }
 
     public function test_printable_submission_list_returns_structure(): void
