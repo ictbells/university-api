@@ -158,6 +158,7 @@ class GradeWorkflowTest extends TestCase
 
         $this->postJson('/api/academic/results/board-scopes/clear', [
             'academic_term_id' => $this->term->id,
+            'ids' => [$gradeId],
         ])->assertOk()->assertJsonPath('updated', 1);
 
         $this->postJson('/api/academic/results/release', [

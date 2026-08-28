@@ -235,6 +235,8 @@ class ResultsController extends Controller
     {
         abort_unless($request->user()->hasPermission('results.board'), 403);
         $data = $request->validate([
+            'ids' => 'nullable|array',
+            'ids.*' => 'integer|exists:grades,id',
             'academic_term_id' => 'required|integer|exists:academic_terms,id',
             'faculty_id' => 'nullable|integer|exists:faculties,id',
             'department_id' => 'nullable|integer|exists:departments,id',
@@ -252,6 +254,7 @@ class ResultsController extends Controller
                 isset($data['department_id']) ? (int) $data['department_id'] : null,
                 $request->user(),
                 $data['note'] ?? null,
+                $data['ids'] ?? null,
             ),
             'results-board',
         );
@@ -261,6 +264,8 @@ class ResultsController extends Controller
     {
         abort_unless($request->user()->hasPermission('results.board'), 403);
         $data = $request->validate([
+            'ids' => 'nullable|array',
+            'ids.*' => 'integer|exists:grades,id',
             'academic_term_id' => 'required|integer|exists:academic_terms,id',
             'faculty_id' => 'nullable|integer|exists:faculties,id',
             'department_id' => 'nullable|integer|exists:departments,id',
@@ -273,6 +278,7 @@ class ResultsController extends Controller
             isset($data['department_id']) ? (int) $data['department_id'] : null,
             $request->user(),
             $data['note'] ?? null,
+            $data['ids'] ?? null,
         );
     }
 

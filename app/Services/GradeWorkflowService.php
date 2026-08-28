@@ -70,6 +70,7 @@ class GradeWorkflowService
     }
 
     /**
+     * @param  list<int>|null  $ids
      * @return array{updated: int, errors: list<string>}
      */
     public function boardClear(
@@ -78,8 +79,11 @@ class GradeWorkflowService
         ?int $departmentId,
         Authenticatable $actor,
         ?string $note = null,
+        ?array $ids = null,
     ): array {
-        $ids = $this->scopedIds($academicTermId, $facultyId, $departmentId, [GradeStatus::BOARD_READY]);
+        $ids = $ids !== null && $ids !== []
+            ? array_values(array_map('intval', $ids))
+            : $this->scopedIds($academicTermId, $facultyId, $departmentId, [GradeStatus::BOARD_READY]);
 
         $result = $this->transitionMany(
             $ids,
@@ -107,6 +111,7 @@ class GradeWorkflowService
     }
 
     /**
+     * @param  list<int>|null  $ids
      * @return array{updated: int, errors: list<string>}
      */
     public function boardRequestCorrections(
@@ -115,8 +120,11 @@ class GradeWorkflowService
         ?int $departmentId,
         Authenticatable $actor,
         ?string $note = null,
+        ?array $ids = null,
     ): array {
-        $ids = $this->scopedIds($academicTermId, $facultyId, $departmentId, [GradeStatus::BOARD_READY]);
+        $ids = $ids !== null && $ids !== []
+            ? array_values(array_map('intval', $ids))
+            : $this->scopedIds($academicTermId, $facultyId, $departmentId, [GradeStatus::BOARD_READY]);
 
         $result = $this->transitionMany(
             $ids,
