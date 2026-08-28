@@ -52,6 +52,9 @@
             <div class="value">{{ $report['total_credits'] ?? '—' }}</div>
         </div>
     </div>
+    @if (!empty($report['cgpa_note']))
+        <p style="font-size:11px;color:#555;margin:0 0 12px;">{{ $report['cgpa_note'] }}</p>
+    @endif
 
     @forelse($report['terms'] ?? [] as $term)
         <h2>{{ $term['session_label'] ?? '' }} · {{ $term['name'] ?? '' }} — GPA {{ $term['gpa'] ?? '—' }}</h2>

@@ -5,12 +5,14 @@ namespace App\Services;
 use App\Models\Application;
 use App\Models\Program;
 use App\Models\Student;
+use App\Models\StudentProgrammeChange;
 use App\Models\User;
 use App\Support\AdmissionEntryRules;
 use App\Support\ApplicationFormSteps;
 use App\Support\CandidateEligibility;
 use App\Support\PhoneNumber;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -78,7 +80,7 @@ class ApplicationStaffUpdateService
 
             if ($student && $nextProgramId && $originalProgramId && $nextProgramId !== $originalProgramId) {
                 $fromProgramId = (int) $student->program_id ?: $originalProgramId;
-                $levelNote = $this->applyProgrammeChange($student, $fromProgramId, $nextProgramId);
+                $levelNote = $this->applyProgrammeChange($student, $fromProgramId, $nextProgramId, $application->id);
             } elseif ($student && $nextProgramId && (int) $student->program_id !== $nextProgramId) {
                 $student->update(['program_id' => $nextProgramId]);
             }
@@ -245,7 +247,7 @@ class ApplicationStaffUpdateService
         }
     }
 
-    private function applyProgrammeChange(Student $student, int $fromProgramId, int $toProgramId): string
+    private function applyProgrammeChange(Student $student, int $fromProgramId, int $toProgramId, ?int $applicationId = null): string
     {
         $stored = (int) $student->current_level;
         $band = $stored >= 100 ? $stored : $stored * 100;
@@ -263,6 +265,17 @@ class ApplicationStaffUpdateService
         $student->update([
             'program_id' => $toProgramId,
             'current_level' => $nextLevel,
+        ]);
+
+        StudentProgrammeChange::query()->create([
+            'student_id' => $student->id,
+            'from_program_id' => $fromProgramId,
+            'to_program_id' => $toProgramId,
+            'from_level' => $stored,
+            'to_level' => $nextLevel,
+            'same_college' => $sameCollege,
+            'application_id' => $applicationId,
+            'created_by' => Auth::id(),
         ]);
 
         if ($sameCollege) {

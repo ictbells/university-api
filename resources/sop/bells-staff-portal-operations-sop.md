@@ -350,7 +350,7 @@ Transfer files include a **credit assessment** step after verification (`admissi
 
 Applicants who are **matriculated and have paid at least 25% of current-session tuition** leave Applications lists and appear under **Registrations**.
 
-Staff can open an application file to review biodata, form answers, documents, eligibility, and (where permitted) update fields. Identity fields stay locked when NIN was verified. NIN lookup fills **phone** and **address** on the user and the application form when Prembly returns them (fields stay editable if those values are missing). JAMB **programme** fields are chosen from the university programme catalogue, not typed freely. Each O’level sitting is limited to **nine** subjects. **Change of programme** is allowed for 100L–300L registered students. If the new programme is in the **same college**, the student stays at the current level and unpassed courses of the new programme (current level and below) remain available to register. If the new programme is in a **different college**, the student drops one level band (100L stays 100L).
+Staff can open an application file to review biodata, form answers, documents, eligibility, and (where permitted) update fields. Identity fields stay locked when NIN was verified. NIN lookup fills **phone** and **address** on the user and the application form when Prembly returns them (fields stay editable if those values are missing). JAMB **programme** fields are chosen from the university programme catalogue, not typed freely. Each O’level sitting is limited to **nine** subjects. **Change of programme** is allowed for 100L–300L registered students. If the new programme is in the **same college**, the student stays at the current level, unpassed courses of the new programme (current level and below) remain available to register, and CGPA stays fully cumulative. If the new programme is in a **different college**, the student drops one level band (100L stays 100L). The **transcript and CGPA** then include only old-programme courses **below the new level** (a 300L→200L move keeps old 100L only) plus every later result on the new programme. Old 200L/300L papers are omitted.
 
 From the application **Decision** panel, staff can **revert the last decision** (advance or rejection). That returns the file to the previous stage. Matriculated files and files whose acceptance fee has already been paid cannot be reverted. Office-head approval still applies where the office requires it.
 
@@ -516,7 +516,7 @@ Import students lives under **Admission Setup** (§8.4).
 
 Result entry follows a controlled workflow before students can see grades on the student portal. **E-exam sync is out of scope** for this portal.
 
-**Statuses:** `draft` → `submitted` (College) → `board_ready` (Committee of Deans) → `board_cleared` (Senate) → `released`. Returns use `correction_required`. Only `draft` and `correction_required` rows are editable. Students see only **released** grades; CGPA uses released rows only. Carry-over detection also ignores unreleased grades.
+**Statuses:** `draft` → `submitted` (College) → `board_ready` (Committee of Deans) → `board_cleared` (Senate) → `released`. Returns use `correction_required`. Only `draft` and `correction_required` rows are editable. Students see only **released** grades; CGPA uses released rows only. After a **cross-college change of programme**, the transcript and CGPA drop old-programme courses at the new level and above (300L→200L keeps old 100L only) and then include the new programme. Carry-over detection also ignores unreleased grades.
 
 **Exam-officer roles** (seeded; assign the matching Academic portal links):
 
@@ -784,6 +784,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.41 | Aug 2026 | Platform team | Results processing is College → Committee of Deans → Senate (then Release) |
 | 1.42 | Aug 2026 | Platform team | Same-college change of programme keeps the student level; outstanding new-programme courses stay available to register |
 | 1.43 | Aug 2026 | Platform team | Results CSV import is labelled Upload Score |
+| 1.44 | Aug 2026 | Platform team | Cross-college change of programme CGPA keeps only old-programme levels below the new level |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

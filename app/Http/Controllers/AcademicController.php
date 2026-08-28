@@ -456,6 +456,7 @@ class AcademicController extends Controller
                     'generated_at' => now()->format('d M Y H:i'),
                     'cgpa' => $payload['cgpa'] ?? $payload['gpa'] ?? null,
                     'total_credits' => $payload['total_credits'] ?? null,
+                    'cgpa_note' => $payload['cgpa_note'] ?? null,
                     'terms' => $payload['terms'] ?? [],
                     'student' => [
                         'name' => trim(($target->first_name ?? '').' '.($target->last_name ?? '')),

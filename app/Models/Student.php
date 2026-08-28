@@ -86,6 +86,11 @@ class Student extends BaseModel
         return $this->belongsTo(Application::class);
     }
 
+    public function programmeChanges(): HasMany
+    {
+        return $this->hasMany(StudentProgrammeChange::class)->orderBy('id');
+    }
+
     public function hostelAllocations(): HasMany
     {
         return $this->hasMany(HostelAllocation::class);

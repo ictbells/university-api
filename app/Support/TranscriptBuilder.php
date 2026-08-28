@@ -7,6 +7,7 @@ use App\Models\Grade;
 use App\Models\Program;
 use App\Models\Student;
 use App\Services\GradeWorkflowService;
+use App\Support\ProgrammeChangeGpaPolicy;
 
 final class TranscriptBuilder
 {
@@ -42,9 +43,12 @@ final class TranscriptBuilder
         $grades = $gradesQuery->get();
 
         $allEligible = GpaCalculator::eligibleRows($grades, $releasedOnly);
-        $cgpaSummary = GpaCalculator::summary($grades, $releasedOnly);
+        $visible = ProgrammeChangeGpaPolicy::forCgpa($allEligible, $student);
+        $cgpaSummary = GpaCalculator::summary($visible, false);
+        $hasCrossCollegeChange = ProgrammeChangeGpaPolicy::changesFor($student)
+            ->contains(fn ($change) => ! $change->same_college);
 
-        $byTerm = $allEligible->groupBy(fn (Grade $g) => (int) ($g->resolvedOffering()?->academic_term_id ?? 0));
+        $byTerm = $visible->groupBy(fn (Grade $g) => (int) ($g->resolvedOffering()?->academic_term_id ?? 0));
         $terms = [];
         foreach ($byTerm as $termId => $termGrades) {
             if (! $termId) {
@@ -58,7 +62,7 @@ final class TranscriptBuilder
                 'name' => $term?->name,
                 'session_label' => $term?->session?->label ?: $term?->session_label,
                 'gpa' => $summary['gpa'] ?? 0,
-                'rows' => $termGrades->map(fn (Grade $g) => self::serializeGrade($g))->values()->all(),
+                'rows' => $termGrades->map(fn (Grade $g) => self::serializeGrade($g, true))->values()->all(),
             ];
         }
 
@@ -66,12 +70,15 @@ final class TranscriptBuilder
 
         $pendingCount = 0;
         if ($includePendingHint) {
-            $pendingCount = $grades->filter(
+            $pendingCount = ProgrammeChangeGpaPolicy::forCgpa(
+                $grades->filter(fn (Grade $g) => ! $g->registration_held),
+                $student,
+            )->filter(
                 fn (Grade $g) => ! GradeStatus::isReleased((string) $g->status)
             )->count();
         }
 
-        $flatRows = $allEligible->map(fn (Grade $g) => self::serializeGrade($g))->values()->all();
+        $flatRows = $visible->map(fn (Grade $g) => self::serializeGrade($g, true))->values()->all();
 
         return [
             'student' => $student->only(['id', 'student_number', 'matric_number', 'first_name', 'last_name']),
@@ -79,6 +86,9 @@ final class TranscriptBuilder
             'gpa' => $cgpaSummary['gpa'] ?? 0,
             'cgpa' => $cgpaSummary['gpa'] ?? 0,
             'total_credits' => $cgpaSummary['total_credits'],
+            'cgpa_note' => $hasCrossCollegeChange
+                ? 'After a change of programme to a different college, the transcript and CGPA include old-programme courses below the new level only, plus results on the new programme.'
+                : null,
             'terms' => $terms,
             'rows' => $flatRows,
             'pending_grades' => $pendingCount,
@@ -88,7 +98,7 @@ final class TranscriptBuilder
     /**
      * @return array<string, mixed>
      */
-    public static function serializeGrade(Grade $grade): array
+    public static function serializeGrade(Grade $grade, bool $countsTowardCgpa = true): array
     {
         $offering = $grade->resolvedOffering();
         $course = $offering?->course;
@@ -106,6 +116,7 @@ final class TranscriptBuilder
             'status' => $grade->status,
             'registration_held' => (bool) $grade->registration_held,
             'released_at' => optional($grade->released_at)?->toIso8601String(),
+            'counts_toward_cgpa' => $countsTowardCgpa,
             'course' => $course ? $course->only(['id', 'code', 'title', 'units']) : null,
             'term' => $term ? [
                 'id' => $term->id,
@@ -151,14 +162,17 @@ final class TranscriptBuilder
         ?int $sessionId = null,
         ?int $termId = null,
     ): array {
-        $enrollments = $student->enrollments()
-            ->enrolled()
-            ->with([
-                'offering.course',
-                'offering.term.session',
-                'grades.offering.course',
-            ])
-            ->get();
+        $enrollments = ProgrammeChangeGpaPolicy::visibleEnrollments(
+            $student->enrollments()
+                ->enrolled()
+                ->with([
+                    'offering.course',
+                    'offering.term.session',
+                    'grades.offering.course',
+                ])
+                ->get(),
+            $student,
+        );
 
         $allTerms = [];
         $sessionsMap = [];

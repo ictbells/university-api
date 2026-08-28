@@ -682,6 +682,7 @@ class TranscriptRequestService
                 'generated_at' => now()->format('d M Y'),
                 'cgpa' => $payload['cgpa'] ?? $payload['gpa'] ?? null,
                 'total_credits' => $payload['total_credits'] ?? null,
+                'cgpa_note' => $payload['cgpa_note'] ?? null,
                 'terms' => $payload['terms'] ?? [],
                 'copies' => $request->copies,
                 'request_token' => $request->public_token,

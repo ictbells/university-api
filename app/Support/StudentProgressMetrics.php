@@ -44,6 +44,11 @@ final class StudentProgressMetrics
 
         $registrations = self::enrollmentsToDate($studentIds, $term);
         $semesterRegistrations = self::enrollmentsForTerm($studentIds, $academicTermId);
+        $studentsById = Student::query()
+            ->whereIn('id', $studentIds)
+            ->with('programmeChanges')
+            ->get()
+            ->keyBy('id');
 
         $out = [];
         foreach ($studentIds as $studentId) {
@@ -70,9 +75,14 @@ final class StudentProgressMetrics
             $eligibleAll = GradeWorkflowService::preferSupplementary(
                 $rows->filter(fn (Grade $g) => ! $g->registration_held)
             );
+            $student = $studentsById->get($studentId);
+            if ($student) {
+                $eligibleToDate = ProgrammeChangeGpaPolicy::forCgpa($eligibleToDate, $student);
+                $eligibleAll = ProgrammeChangeGpaPolicy::forCgpa($eligibleAll, $student);
+            }
 
             $semesterSummary = GpaCalculator::summary($semesterRows, false);
-            $toDateSummary = GpaCalculator::summary($rowsToDate, false);
+            $toDateSummary = GpaCalculator::summary($eligibleToDate, false);
 
             $tur = (int) (($semesterRegistrations[$studentId]['total_units'] ?? 0));
             if ($tur <= 0) {

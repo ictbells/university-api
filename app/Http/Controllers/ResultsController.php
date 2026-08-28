@@ -18,6 +18,7 @@ use App\Support\GpaCalculator;
 use App\Support\GradeAuditLogger;
 use App\Support\GradeStatus;
 use App\Support\ListSessionLevelFilter;
+use App\Support\ProgrammeChangeGpaPolicy;
 use App\Support\ResultOfficerScope;
 use App\Support\SubmissionListReportBuilder;
 use App\Support\TranscriptBuilder;
@@ -411,7 +412,10 @@ class ResultsController extends Controller
             'student' => $student->only(['id', 'first_name', 'last_name', 'matric_number', 'current_level']),
             'grades' => $grades,
             'gpa' => GpaCalculator::compute($termGrades, false),
-            'cgpa' => GpaCalculator::compute($grades, false),
+            'cgpa' => GpaCalculator::summary(
+                ProgrammeChangeGpaPolicy::forCgpa(GpaCalculator::eligibleRows($grades, false), $student),
+                false,
+            )['gpa'],
             'transcript' => TranscriptBuilder::forStudent($student, false),
             'audit' => $audit,
         ];

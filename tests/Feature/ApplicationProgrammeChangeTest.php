@@ -37,6 +37,14 @@ class ApplicationProgrammeChangeTest extends TestCase
         $this->assertSame(200, (int) $student->fresh()->current_level);
         $this->assertSame($to->id, (int) $student->fresh()->program_id);
         $this->assertSame($to->id, (int) $application->fresh()->program_id);
+        $this->assertDatabaseHas('student_programme_changes', [
+            'student_id' => $student->id,
+            'from_program_id' => $from->id,
+            'to_program_id' => $to->id,
+            'from_level' => 200,
+            'to_level' => 200,
+            'same_college' => 1,
+        ]);
     }
 
     public function test_different_college_programme_change_drops_one_level_band(): void
@@ -47,6 +55,13 @@ class ApplicationProgrammeChangeTest extends TestCase
 
         $this->assertSame(100, (int) $student->fresh()->current_level);
         $this->assertSame($otherCollege->id, (int) $student->fresh()->program_id);
+        $this->assertDatabaseHas('student_programme_changes', [
+            'student_id' => $student->id,
+            'to_program_id' => $otherCollege->id,
+            'from_level' => 200,
+            'to_level' => 100,
+            'same_college' => 0,
+        ]);
     }
 
     public function test_100l_programme_change_stays_100l_even_across_colleges(): void

@@ -37,7 +37,7 @@ class OpenApiGenerator
     private array $operationOverrides = [
         'patch_/api/applications/{application}' => [
             'summary' => 'Update application file (staff)',
-            'description' => 'Staff with `admissions.view` can edit submitted application fields except application number, NIN, and documents. Email and JAMB registration must stay unique. JAMB is checked against uploaded candidate data (`validated` if found, otherwise `pending`). Change of programme is allowed for 100L–300L. When the new programme is in the same college, the student keeps the current level and unpassed courses of the new programme at that level or below remain available to register. When the new programme is in a different college, the student level drops by one band except 100L, which stays 100L.',
+            'description' => 'Staff with `admissions.view` can edit submitted application fields except application number, NIN, and documents. Email and JAMB registration must stay unique. JAMB is checked against uploaded candidate data (`validated` if found, otherwise `pending`). Change of programme is allowed for 100L–300L. Same college: the student keeps the current level, outstanding new-programme courses remain available, and CGPA stays cumulative. Different college: the student drops one band except 100L; the transcript and CGPA keep only old-programme courses below the new level (300L→200L keeps old 100L only) plus results on the new programme.',
         ],
         'get_/api/applications' => [
             'summary' => 'List applications (staff pipeline)',
