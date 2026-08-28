@@ -464,6 +464,42 @@ class AcademicController extends Controller
         return $payload;
     }
 
+    public function unsignedTranscript(Request $request)
+    {
+        abort_if($request->user()->isStaffPortalUser(), 403, 'Transcripts are not available in the staff portal.');
+
+        $target = $request->user()->student;
+        abort_unless($target, 404);
+
+        $sessionId = $request->filled('academic_session_id') ? (int) $request->input('academic_session_id') : null;
+        $termId = $request->filled('academic_term_id') ? (int) $request->input('academic_term_id') : null;
+        $payload = \App\Support\TranscriptBuilder::unsignedForStudent($target, $sessionId, $termId);
+
+        if ($request->input('format') === 'html') {
+            $target->loadMissing('program');
+
+            return response()->view('reports.unsigned-transcript', [
+                'report' => [
+                    'university' => (string) \App\Models\Setting::getValue('university_name', 'Bells University of Technology'),
+                    'generated_at' => now()->format('d M Y H:i'),
+                    'scope_label' => $payload['scope_label'] ?? null,
+                    'gpa' => $payload['gpa'] ?? null,
+                    'total_credits' => $payload['total_credits'] ?? null,
+                    'units_registered' => $payload['units_registered'] ?? null,
+                    'terms' => $payload['terms'] ?? [],
+                    'notice' => $payload['notice'] ?? null,
+                    'student' => [
+                        'name' => trim(($target->first_name ?? '').' '.($target->last_name ?? '')),
+                        'matric_number' => $target->matric_number,
+                        'programme' => $target->program?->name,
+                    ],
+                ],
+            ]);
+        }
+
+        return $payload;
+    }
+
     public function workflowTemplates()
     {
         WorkflowCatalog::seed();

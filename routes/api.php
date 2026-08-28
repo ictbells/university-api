@@ -213,6 +213,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::post('/academic/my-registration/extension', [CourseRegistrationController::class, 'requestExtension']);
     Route::post('/academic/my-registration-extension', [CourseRegistrationController::class, 'requestExtension']);
     Route::get('/academic/transcript/{student?}', [AcademicController::class, 'transcript']);
+    Route::get('/academic/unsigned-transcript', [AcademicController::class, 'unsignedTranscript']);
     Route::get('/exam-clearance', [ExamClearanceController::class, 'mine']);
     Route::get('/exam-clearance/students', [ExamClearanceController::class, 'index']);
     Route::get('/exam-clearance/students/{student}', [ExamClearanceController::class, 'show']);

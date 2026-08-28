@@ -238,6 +238,142 @@ class GradeWorkflowTest extends TestCase
         $this->assertEquals(72, (float) ($row['grade']['score'] ?? 0));
     }
 
+    public function test_student_unsigned_transcript_lists_registered_courses_and_hides_unreleased_scores(): void
+    {
+        Grade::query()->create([
+            'enrollment_id' => $this->enrollment->id,
+            'student_id' => $this->student->id,
+            'course_offering_id' => $this->enrollment->course_offering_id,
+            'sitting' => 'main',
+            'score' => 55,
+            'letter' => 'C',
+            'points' => 3,
+            'status' => GradeStatus::DRAFT,
+            'faculty_id' => $this->enrollment->offering->course->department->faculty_id,
+            'department_id' => $this->enrollment->offering->course->department_id,
+        ]);
+
+        Sanctum::actingAs($this->student->user);
+        $payload = $this->getJson('/api/academic/unsigned-transcript')->assertOk();
+        $payload->assertJsonPath('unsigned', true);
+        $payload->assertJsonPath('official', false);
+        $payload->assertJsonPath('can_sign', false);
+        $payload->assertJsonPath('terms.0.rows.0.course.code', 'CSC101');
+        $payload->assertJsonPath('terms.0.rows.0.result_status', 'pending');
+        $payload->assertJsonPath('terms.0.rows.0.score', null);
+        $payload->assertJsonPath('terms.0.rows.0.letter', null);
+        $this->assertNull($payload->json('gpa'));
+
+        $html = $this->get('/api/academic/unsigned-transcript?format=html', ['Accept' => 'text/html']);
+        $html->assertOk();
+        $html->assertSee('UNSIGNED — FOR STUDENT VIEWING ONLY', false);
+        $html->assertSee('CSC101', false);
+        $html->assertSee('Pending', false);
+    }
+
+    public function test_student_unsigned_transcript_filters_by_session_and_semester(): void
+    {
+        $session = $this->term->session;
+        $secondTerm = AcademicTerm::query()->create([
+            'academic_session_id' => $session->id,
+            'name' => 'Second',
+            'session_label' => $session->label,
+            'is_current' => false,
+        ]);
+        $otherSession = AcademicSession::query()->create([
+            'label' => '2025/2026',
+            'starts_on' => '2025-10-01',
+            'ends_on' => '2026-09-30',
+        ]);
+        $otherTerm = AcademicTerm::query()->create([
+            'academic_session_id' => $otherSession->id,
+            'name' => 'First',
+            'session_label' => '2025/2026',
+            'is_current' => false,
+        ]);
+
+        $secondCourse = Course::query()->create([
+            'department_id' => $this->enrollment->offering->course->department_id,
+            'code' => 'CSC102',
+            'title' => 'Second semester',
+            'units' => 2,
+            'course_type' => 'departmental',
+            'status' => 'core',
+        ]);
+        $otherCourse = Course::query()->create([
+            'department_id' => $this->enrollment->offering->course->department_id,
+            'code' => 'CSC201',
+            'title' => 'Next session',
+            'units' => 3,
+            'course_type' => 'departmental',
+            'status' => 'core',
+        ]);
+        $secondOffering = CourseOffering::query()->create([
+            'course_id' => $secondCourse->id,
+            'academic_term_id' => $secondTerm->id,
+            'section' => 'A',
+            'capacity' => 50,
+        ]);
+        $otherOffering = CourseOffering::query()->create([
+            'course_id' => $otherCourse->id,
+            'academic_term_id' => $otherTerm->id,
+            'section' => 'A',
+            'capacity' => 50,
+        ]);
+        Enrollment::query()->create([
+            'student_id' => $this->student->id,
+            'course_offering_id' => $secondOffering->id,
+            'status' => 'enrolled',
+            'registered_at' => now(),
+        ]);
+        Enrollment::query()->create([
+            'student_id' => $this->student->id,
+            'course_offering_id' => $otherOffering->id,
+            'status' => 'enrolled',
+            'registered_at' => now(),
+        ]);
+
+        Grade::query()->create([
+            'enrollment_id' => $this->enrollment->id,
+            'student_id' => $this->student->id,
+            'course_offering_id' => $this->enrollment->course_offering_id,
+            'sitting' => 'main',
+            'score' => 72,
+            'letter' => 'A',
+            'points' => 5,
+            'status' => GradeStatus::RELEASED,
+            'faculty_id' => $this->enrollment->offering->course->department->faculty_id,
+            'department_id' => $this->enrollment->offering->course->department_id,
+        ]);
+
+        Sanctum::actingAs($this->student->user);
+
+        $semester = $this->getJson('/api/academic/unsigned-transcript?academic_term_id='.$this->term->id)->assertOk();
+        $this->assertCount(1, $semester->json('terms'));
+        $semester->assertJsonPath('terms.0.rows.0.course.code', 'CSC101');
+        $semester->assertJsonPath('terms.0.rows.0.result_status', 'released');
+        $semester->assertJsonPath('terms.0.rows.0.letter', 'A');
+        $this->assertEquals(72, (float) $semester->json('terms.0.rows.0.score'));
+        $this->assertEquals(5.0, (float) $semester->json('gpa'));
+        $this->assertStringContainsString('First', (string) $semester->json('scope_label'));
+
+        $sessionPayload = $this->getJson('/api/academic/unsigned-transcript?academic_session_id='.$session->id)->assertOk();
+        $codes = collect($sessionPayload->json('terms'))->flatMap(fn ($term) => collect($term['rows'])->pluck('course.code'))->all();
+        $this->assertEqualsCanonicalizing(['CSC101', 'CSC102'], $codes);
+        $this->assertStringContainsString('all semesters', (string) $sessionPayload->json('scope_label'));
+
+        $html = $this->get(
+            '/api/academic/unsigned-transcript?academic_term_id='.$this->term->id.'&format=html',
+            ['Accept' => 'text/html'],
+        );
+        $html->assertOk();
+        $html->assertSee('CSC101', false);
+        $html->assertDontSee('CSC102', false);
+        $html->assertDontSee('CSC201', false);
+        $html->assertSee('72', false);
+        $html->assertSee('A', false);
+    }
+
     public function test_printable_submission_list_returns_structure(): void
     {
         Sanctum::actingAs($this->staffUser);
