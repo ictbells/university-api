@@ -29,4 +29,12 @@ class CorsOriginsTest extends TestCase
             CorsOrigins::originsFor('http://192.168.1.20:5174'),
         );
     }
+
+    public function test_dev_origins_are_empty_in_production(): void
+    {
+        $this->assertSame([], CorsOrigins::devOrigins('production'));
+        $this->assertSame([], CorsOrigins::localPatterns('production'));
+        $this->assertNotEmpty(CorsOrigins::devOrigins('local'));
+        $this->assertNotEmpty(CorsOrigins::localPatterns('testing'));
+    }
 }

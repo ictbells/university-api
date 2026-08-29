@@ -54,11 +54,33 @@ class CorsOrigins
     }
 
     /**
+     * Local Vite / Apache origins. Empty outside local and testing so production
+     * cannot be called from a browser on localhost with staff cookies.
+     *
      * @return list<string>
      */
-    public static function localPatterns(): array
+    public static function devOrigins(?string $appEnv = null): array
     {
-        if (! in_array(env('APP_ENV'), ['local', 'testing'], true)) {
+        if (! self::isDevEnv($appEnv)) {
+            return [];
+        }
+
+        return [
+            'http://localhost:5173',
+            'http://127.0.0.1:5173',
+            'http://localhost:5174',
+            'http://127.0.0.1:5174',
+            'http://localhost',
+            'http://127.0.0.1',
+        ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function localPatterns(?string $appEnv = null): array
+    {
+        if (! self::isDevEnv($appEnv)) {
             return [];
         }
 
@@ -66,5 +88,12 @@ class CorsOrigins
             '#^https?://(localhost|127\.0\.0\.1)(:\d+)?$#',
             '#^https?://(10|192\.168|172\.(1[6-9]|2\d|3[0-1]))\.\d+\.\d+\.\d+(:\d+)?$#',
         ];
+    }
+
+    private static function isDevEnv(?string $appEnv): bool
+    {
+        $appEnv ??= (string) env('APP_ENV', 'production');
+
+        return in_array($appEnv, ['local', 'testing'], true);
     }
 }

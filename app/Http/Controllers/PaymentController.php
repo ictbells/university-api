@@ -6,6 +6,7 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Services\FeeArrearsService;
 use App\Services\PaystackService;
+use App\Support\SchoolFeeAccess;
 use Illuminate\Http\Request;
 
 class PaymentController extends Controller
@@ -56,6 +57,11 @@ class PaymentController extends Controller
             403,
             'Staff cannot pay invoices. Students pay from the student portal.'
         );
+        try {
+            SchoolFeeAccess::assertCanPayInvoice($request->user(), $invoice);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
         $student = $request->user()->student;
         if ($student) {
             $this->arrears->ensureForStudent($student);

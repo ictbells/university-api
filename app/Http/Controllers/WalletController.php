@@ -7,6 +7,7 @@ use App\Models\Student;
 use App\Services\FeeArrearsService;
 use App\Services\PaystackService;
 use App\Services\WalletService;
+use App\Support\SchoolFeeAccess;
 use Illuminate\Http\Request;
 
 class WalletController extends Controller
@@ -48,6 +49,12 @@ class WalletController extends Controller
             403,
             'Staff cannot pay invoices. Students pay from the student portal.'
         );
+
+        try {
+            SchoolFeeAccess::assertCanPayInvoice($request->user(), $invoice);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         $student = Student::query()
             ->with('wallet')

@@ -31,6 +31,7 @@ use App\Support\NairaWords;
 use App\Support\ProgrammeFeeResolver;
 use App\Support\ReceiptInstitution;
 use App\Support\ReceiptQr;
+use App\Support\SchoolFeeAccess;
 use App\Support\StudentFinanceStatus;
 use App\Support\TranscriptType;
 use App\Support\TuitionProgress;
@@ -1425,7 +1426,7 @@ class FinanceController extends Controller
     {
         $user = $request->user();
         $student = $user->student;
-        abort_unless($student, 422, 'Only matriculated students can generate tuition invoices.');
+        abort_unless($student, 422, SchoolFeeAccess::BLOCKED_MESSAGE);
         $this->arrears->ensureForStudent($student);
 
         $data = $request->validate([

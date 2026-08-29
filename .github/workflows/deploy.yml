@@ -34,8 +34,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          extensions: mbstring, xml, ctype, json, bcmath, fileinfo, pdo_mysql, pdo_sqlite, tokenizer, sqlite3
+      - run: composer validate --no-check-publish
+      - run: composer install --prefer-dist --no-interaction --no-progress
+      - run: php artisan test
+
   deploy:
     name: Deploy API
+    needs: test
     runs-on: ubuntu-latest
     environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || vars.DEPLOY_ENVIRONMENT || 'development' }}
     env:
@@ -154,7 +169,7 @@ jobs:
 
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: '8.4'
           coverage: none
           extensions: mbstring, xml, ctype, json, bcmath, fileinfo, pdo_mysql, tokenizer
 

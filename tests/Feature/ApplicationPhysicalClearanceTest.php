@@ -145,6 +145,53 @@ class ApplicationPhysicalClearanceTest extends TestCase
             ->assertJsonPath('message', 'This applicant has already been cleared.');
     }
 
+    public function test_uncleared_applicant_cannot_generate_or_pay_school_fees(): void
+    {
+        $application = $this->paidApplicant();
+        $user = $application->user;
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/invoices/tuition-installment', ['installment_percent' => 25])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Complete physical clearance on campus before paying school fees.');
+
+        $tuition = Invoice::query()->create([
+            'number' => 'TUI-UNC-'.$application->id,
+            'user_id' => $user->id,
+            'application_id' => $application->id,
+            'category' => 'tuition',
+            'amount' => 100000,
+            'balance' => 100000,
+            'status' => 'unpaid',
+        ]);
+
+        $this->postJson('/api/payments/paystack/initialize', [
+            'invoice_id' => $tuition->id,
+            'portal' => 'student',
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Complete physical clearance on campus before paying school fees.');
+
+        $this->postJson('/api/wallet/pay/'.$tuition->id)
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Complete physical clearance on campus before paying school fees.');
+    }
+
+    public function test_cleared_applicant_is_no_longer_blocked_from_school_fees(): void
+    {
+        $application = $this->paidApplicant();
+        Sanctum::actingAs($this->officer);
+        $this->postJson("/api/applications/{$application->id}/clear")->assertOk();
+
+        Sanctum::actingAs($application->user);
+        $response = $this->postJson('/api/invoices/tuition-installment', ['installment_percent' => 25]);
+        $response->assertStatus(422);
+        $this->assertStringNotContainsString(
+            'physical clearance',
+            (string) $response->json('message'),
+        );
+    }
+
     private function paidApplicant(string $number = 'APP/2026/C100', string $name = 'Ada Okoye'): Application
     {
         $application = $this->makeApplication($number, $name, 'awaiting_acceptance_fee');

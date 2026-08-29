@@ -85,6 +85,10 @@ if ! php artisan route:list --path=csrf-cookie --json | grep -q csrf-cookie; the
   php artisan route:list --path=sanctum || true
   exit 1
 fi
+APP_ENV_VAL="$(python3 "$ROOT/scripts/patch-dotenv.py" "$ROOT/.env" --get APP_ENV || true)"
+if [[ "${APP_ENV_VAL}" == "production" ]]; then
+  php artisan production:check
+fi
 php artisan queue:restart || true
 supervisorctl restart bells-sis-queue bells-sis-scheduler 2>/dev/null || true
 systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php-fpm 2>/dev/null || true

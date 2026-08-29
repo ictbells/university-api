@@ -1,0 +1,77 @@
+<?php
+
+namespace Tests\Feature;
+
+use Tests\TestCase;
+
+class ProductionCheckTest extends TestCase
+{
+    private function passingConfig(): array
+    {
+        return [
+            'app.debug' => false,
+            'app.key' => 'base64:'.base64_encode(str_repeat('a', 32)),
+            'app.url' => 'https://bells-api.example.com',
+            'app.frontend_url' => 'https://staff.example.com',
+            'app.student_url' => 'https://student.example.com',
+            'session.secure' => true,
+            'services.paystack.allow_demo_fulfill' => false,
+            'services.paystack.secret' => 'sk_live_example',
+            'services.paystack.public' => 'pk_live_example',
+            'services.paystack.webhook_secret' => 'whsec_example',
+            'services.prembly.allow_demo' => false,
+            'services.prembly.key' => 'live_sk_example',
+            'services.prembly.app_id' => 'live_pk_example',
+            'sanctum.stateful' => ['staff.example.com', 'www.staff.example.com', 'bells-api.example.com'],
+            'mail.default' => 'ses',
+            'filesystems.default' => 's3',
+            'logging.channels.single.level' => 'info',
+        ];
+    }
+
+    public function test_skips_when_not_production(): void
+    {
+        $this->artisan('production:check')
+            ->expectsOutputToContain('Skipping production checks')
+            ->assertSuccessful();
+    }
+
+    public function test_passes_with_safe_production_config(): void
+    {
+        config($this->passingConfig());
+
+        $this->artisan('production:check', ['--force' => true])
+            ->expectsOutputToContain('Production check passed.')
+            ->assertSuccessful();
+    }
+
+    public function test_fails_when_debug_is_on(): void
+    {
+        config($this->passingConfig());
+        config(['app.debug' => true]);
+
+        $this->artisan('production:check', ['--force' => true])
+            ->expectsOutputToContain('APP_DEBUG must be false.')
+            ->assertFailed();
+    }
+
+    public function test_fails_when_stateful_domains_include_localhost(): void
+    {
+        config($this->passingConfig());
+        config(['sanctum.stateful' => ['localhost:5173', 'staff.example.com']]);
+
+        $this->artisan('production:check', ['--force' => true])
+            ->expectsOutputToContain('SANCTUM_STATEFUL_DOMAINS must not include localhost')
+            ->assertFailed();
+    }
+
+    public function test_fails_when_demo_payments_are_enabled(): void
+    {
+        config($this->passingConfig());
+        config(['services.paystack.allow_demo_fulfill' => true]);
+
+        $this->artisan('production:check', ['--force' => true])
+            ->expectsOutputToContain('PAYSTACK_ALLOW_DEMO_FULFILL must be false.')
+            ->assertFailed();
+    }
+}

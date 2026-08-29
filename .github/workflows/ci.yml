@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+concurrency:
+  group: ci-api-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          extensions: mbstring, xml, ctype, json, bcmath, fileinfo, pdo_mysql, pdo_sqlite, tokenizer, sqlite3
+      - run: composer validate --no-check-publish
+      - run: composer install --prefer-dist --no-interaction --no-progress
+      - run: php artisan test

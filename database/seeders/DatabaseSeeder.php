@@ -12,6 +12,7 @@ use App\Support\AdmissionGuideContent;
 use App\Support\PermissionCatalog;
 use App\Support\WorkflowCatalog;
 use Illuminate\Database\Seeder;
+use RuntimeException;
 
 class DatabaseSeeder extends Seeder
 {
@@ -91,11 +92,30 @@ class DatabaseSeeder extends Seeder
             ]
         );
 
+        $this->seedSuperAdmin();
+    }
+
+    private function seedSuperAdmin(): void
+    {
+        $email = (string) env('ADMIN_EMAIL', 'superadmin@bellsuniversity.edu.ng');
+        $password = env('ADMIN_PASSWORD');
+
+        if (app()->environment('production')) {
+            if (! is_string($password) || $password === '') {
+                return;
+            }
+            if ($password === 'Password1!') {
+                throw new RuntimeException('Refusing to seed the well-known default password in production. Set ADMIN_PASSWORD to a unique value.');
+            }
+        } else {
+            $password = is_string($password) && $password !== '' ? $password : 'Password1!';
+        }
+
         $user = User::query()->firstOrCreate(
-            ['email' => 'support@cyctechservices.com'],
+            ['email' => $email],
             [
                 'name' => 'Super Admin',
-                'password' => 'Password1!',
+                'password' => $password,
                 'status' => 'active',
             ]
         );
