@@ -450,6 +450,8 @@ class ApplicationController extends Controller
                 'payload.alternate_phone' => ['required', 'string', 'max:30', new PhoneNumber],
                 'payload.address' => 'required|string|max:500',
                 'payload.declaration' => 'accepted',
+            ], [
+                'payload.alternate_phone.required' => 'Enter an alternate phone number. This is required even if your NIN already has a phone number.',
             ])['payload'] + $payload;
             $payload['phone'] = $ninPhone !== '' ? $ninPhone : null;
             $payload['alternate_phone'] = PhoneNumber::normalize($payload['alternate_phone'] ?? null);

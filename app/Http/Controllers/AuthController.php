@@ -127,7 +127,7 @@ class AuthController extends Controller
                 $user->roles()->sync([$applicantRole->id]);
                 $this->prembly->verify($user, null, $data['nin'], $mapped);
                 $application = $this->applicationStart->start($user, $intake, $data['jamb_registration'] ?? null);
-                $this->storeAlternatePhoneOnApplication($application, $alternatePhone);
+                $this->storeContactPhonesOnApplication($application, $ninPhone !== '' ? $ninPhone : null, $alternatePhone);
 
                 return $user;
             });
@@ -587,15 +587,20 @@ class AuthController extends Controller
         ];
     }
 
-    private function storeAlternatePhoneOnApplication(Application $application, ?string $alternatePhone): void
+    private function storeContactPhonesOnApplication(Application $application, ?string $ninPhone, ?string $alternatePhone): void
     {
-        if ($alternatePhone === null) {
+        if ($ninPhone === null && $alternatePhone === null) {
             return;
         }
 
         $step = $application->steps()->firstOrNew(['step_key' => 'application_form']);
         $payload = is_array($step->payload) ? $step->payload : [];
-        $payload['alternate_phone'] = $alternatePhone;
+        if ($ninPhone !== null && $ninPhone !== '' && blank($payload['phone'] ?? null)) {
+            $payload['phone'] = $ninPhone;
+        }
+        if ($alternatePhone !== null) {
+            $payload['alternate_phone'] = $alternatePhone;
+        }
         $step->payload = $payload;
         if (! $step->exists) {
             $step->status = $step->status ?: 'pending';

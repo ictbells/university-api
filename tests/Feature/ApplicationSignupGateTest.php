@@ -183,12 +183,19 @@ class ApplicationSignupGateTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_register_requires_alternate_phone(): void
+    public function test_register_requires_alternate_phone_even_when_nin_has_telephoneno(): void
     {
         $intake = $this->openApplicationSession();
         $this->ensureApplicantRole();
         $this->demoPrembly();
         Http::fake();
+
+        $this->postJson('/api/nin/preview', [
+            'nin' => '12345678901',
+            'intake_id' => $intake->id,
+        ])
+            ->assertOk()
+            ->assertJsonPath('phone', '08030000000');
 
         $this->postJson('/api/register', $this->registerPayload([
             'intake_id' => $intake->id,

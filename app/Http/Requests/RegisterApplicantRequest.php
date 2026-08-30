@@ -61,6 +61,7 @@ class RegisterApplicantRequest extends FormRequest
             'jamb_registration.unique' => 'This JAMB number is already linked to an account.',
             'intake_id.required' => 'Select an application session before creating an account.',
             'intake_id.exists' => 'Select an application session before creating an account.',
+            'alternate_phone.required' => 'Enter an alternate phone number. This is required even if your NIN already has a phone number.',
         ]);
     }
 

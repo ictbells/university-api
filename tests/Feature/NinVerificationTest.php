@@ -100,6 +100,8 @@ class NinVerificationTest extends TestCase
                     'surname' => 'Okafor',
                     'birthdate' => '12-01-2001',
                     'gender' => 'm',
+                    'telephoneno' => '08030000000',
+                    'residence_address' => '12 Test Street, Ota',
                 ],
             ], 200),
         ]);
@@ -112,6 +114,8 @@ class NinVerificationTest extends TestCase
             ->assertJsonPath('last_name', 'Okafor')
             ->assertJsonPath('date_of_birth', '2001-01-12')
             ->assertJsonPath('gender', 'Male')
+            ->assertJsonPath('phone', '08030000000')
+            ->assertJsonPath('address', '12 Test Street, Ota')
             ->assertJsonPath('live', true);
 
         Http::assertSent(function (Request $request) {
@@ -120,6 +124,67 @@ class NinVerificationTest extends TestCase
                 && $request->hasHeader('app-id', 'test-app')
                 && $request->data()['number_nin'] === '12345678901';
         });
+    }
+
+    public function test_preview_uses_data_telephoneno_when_nin_data_phone_is_empty(): void
+    {
+        config([
+            'services.prembly.key' => 'test-key',
+            'services.prembly.app_id' => 'test-app',
+            'services.prembly.base' => 'https://api.prembly.com',
+            'services.prembly.allow_demo' => false,
+        ]);
+        Http::fake([
+            'https://api.prembly.com/identitypass/verification/vnin' => Http::response([
+                'status' => true,
+                'verification' => ['reference' => 'ref-live-phone'],
+                'nin_data' => [
+                    'firstname' => 'Chinedu',
+                    'surname' => 'Okafor',
+                    'telephoneno' => '',
+                ],
+                'data' => [
+                    'firstname' => 'Chinedu',
+                    'surname' => 'Okafor',
+                    'telephoneno' => '08092097506',
+                ],
+            ], 200),
+        ]);
+        $intake = $this->openApplicationSession();
+
+        $this->postJson('/api/nin/preview', ['nin' => '12345678901', 'intake_id' => $intake->id])
+            ->assertOk()
+            ->assertJsonPath('first_name', 'Chinedu')
+            ->assertJsonPath('phone', '08092097506');
+    }
+
+    public function test_preview_maps_numeric_telephoneno(): void
+    {
+        config([
+            'services.prembly.key' => 'test-key',
+            'services.prembly.app_id' => 'test-app',
+            'services.prembly.base' => 'https://api.prembly.com',
+            'services.prembly.allow_demo' => false,
+        ]);
+        Http::fake([
+            'https://api.prembly.com/identitypass/verification/vnin' => Http::response([
+                'status' => true,
+                'verification' => ['reference' => 'ref-live-numeric-phone'],
+                'data' => [
+                    'nin_data' => [
+                        'firstname' => 'Chinedu',
+                        'surname' => 'Okafor',
+                        'telephoneno' => 8030000000,
+                    ],
+                ],
+            ], 200),
+        ]);
+        $intake = $this->openApplicationSession();
+
+        $this->postJson('/api/nin/preview', ['nin' => '12345678901', 'intake_id' => $intake->id])
+            ->assertOk()
+            ->assertJsonPath('first_name', 'Chinedu')
+            ->assertJsonPath('phone', '8030000000');
     }
 
     public function test_preview_treats_prembly_status_false_as_failure(): void

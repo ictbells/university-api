@@ -139,8 +139,8 @@ class PremblyService
             'last_name' => $mapped['last_name'] ?? '',
             'date_of_birth' => $mapped['date_of_birth'] ?? null,
             'gender' => $mapped['gender'] ?? null,
-            'phone' => $mapped['phone'] ?? '',
-            'address' => $mapped['address'] ?? '',
+            'phone' => $this->phoneFromMapped($mapped),
+            'address' => $this->addressFromMapped($mapped),
             'photo_path' => $photoPath,
             'photo_url' => $this->photoUrl($photoPath),
             'live' => $this->isLiveRecord($record),
@@ -351,8 +351,8 @@ class PremblyService
             $step->save();
         }
 
-        $phone = trim((string) ($mapped['phone'] ?? ''));
-        $address = trim((string) ($mapped['address'] ?? ''));
+        $phone = $this->phoneFromMapped($mapped);
+        $address = $this->addressFromMapped($mapped);
         if ($phone !== '' && blank($user->phone)) {
             $user->update(['phone' => $phone]);
         }
@@ -456,11 +456,8 @@ class PremblyService
             throw new RuntimeException(is_string($message) ? $message : 'Prembly NIN verification failed.');
         }
 
-        $data = $response->json('nin_data')
-            ?? $response->json('data.nin_data')
-            ?? $response->json('data')
-            ?? [];
-        if (! is_array($data) || $data === []) {
+        $data = $this->ninBiodataFromResponse($response);
+        if ($data === []) {
             throw new RuntimeException('Prembly returned no NIN biodata.');
         }
 
@@ -477,9 +474,51 @@ class PremblyService
             'gender' => $this->normalizeGender($data['gender'] ?? null),
             'phone' => $contact['phone'],
             'address' => $contact['address'],
-            'photo' => $data['photo'] ?? $data['picture'] ?? null,
+            'photo' => $data['photo'] ?? $data['picture'] ?? $data['base64Image'] ?? null,
             'raw' => $data,
         ];
+    }
+
+    /**
+     * Prembly returns biodata on `nin_data`, `data.nin_data`, and/or `data`.
+     * Merge them so an empty telephoneno on one copy does not hide a filled number on another.
+     *
+     * @return array<string, mixed>
+     */
+    private function ninBiodataFromResponse(\Illuminate\Http\Client\Response $response): array
+    {
+        $parts = [];
+        foreach (['nin_data', 'data.nin_data', 'data'] as $path) {
+            $chunk = $response->json($path);
+            if (! is_array($chunk) || $chunk === []) {
+                continue;
+            }
+            if ($path === 'data' && isset($chunk['nin_data']) && is_array($chunk['nin_data'])) {
+                unset($chunk['nin_data']);
+                if ($chunk === []) {
+                    continue;
+                }
+            }
+            $parts[] = $chunk;
+        }
+
+        $merged = [];
+        foreach ($parts as $part) {
+            foreach ($part as $key => $value) {
+                if ($this->isBlankNinValue($merged[$key] ?? null) && ! $this->isBlankNinValue($value)) {
+                    $merged[$key] = $value;
+                } elseif (! array_key_exists($key, $merged)) {
+                    $merged[$key] = $value;
+                }
+            }
+        }
+
+        return $merged;
+    }
+
+    private function isBlankNinValue(mixed $value): bool
+    {
+        return $value === null || $value === '' || $value === [];
     }
 
     private function credentialsConfigured(): bool
@@ -555,21 +594,51 @@ class PremblyService
     }
 
     /**
+     * @param  array<string, mixed>  $mapped
+     */
+    private function phoneFromMapped(array $mapped): string
+    {
+        $direct = trim((string) ($mapped['phone'] ?? ''));
+        if ($direct !== '') {
+            return $direct;
+        }
+        $raw = $mapped['raw'] ?? null;
+
+        return $this->contactFromNinData(is_array($raw) ? $raw : $mapped)['phone'];
+    }
+
+    /**
+     * @param  array<string, mixed>  $mapped
+     */
+    private function addressFromMapped(array $mapped): string
+    {
+        $direct = trim((string) ($mapped['address'] ?? ''));
+        if ($direct !== '') {
+            return $direct;
+        }
+        $raw = $mapped['raw'] ?? null;
+
+        return $this->contactFromNinData(is_array($raw) ? $raw : $mapped)['address'];
+    }
+
+    /**
      * @param  array<string, mixed>  $data
      * @return array{phone: string, address: string}
      */
     private function contactFromNinData(array $data): array
     {
         $phone = $this->firstFilled($data, [
-            'phone', 'telephoneno', 'telephone', 'mobile', 'phone_number', 'phoneNumber', 'tel',
+            'phone', 'telephoneno', 'telephone_no', 'telephone', 'telephoneNo',
+            'mobile', 'mobile_number', 'mobileNumber', 'phone_number', 'phoneNumber',
+            'tel', 'msisdn',
         ]);
         $address = $this->firstFilled($data, [
-            'residence_address', 'residential_address', 'address', 'residenceAddress',
-            'house_address', 'permanent_address', 'home_address',
+            'residence_address', 'residence_AdressLine1', 'residential_address', 'address',
+            'residenceAddress', 'house_address', 'permanent_address', 'home_address',
         ]);
         if ($address === '') {
             $address = trim(implode(', ', array_filter([
-                $this->firstFilled($data, ['residence_town', 'town', 'lga_of_residence']),
+                $this->firstFilled($data, ['residence_town', 'residence_Town', 'town', 'lga_of_residence']),
                 $this->firstFilled($data, ['residence_lga', 'lga']),
                 $this->firstFilled($data, ['residence_state', 'state', 'state_of_residence']),
             ], fn ($part) => $part !== '')));
@@ -584,8 +653,21 @@ class PremblyService
      */
     private function firstFilled(array $data, array $keys): string
     {
-        foreach ($keys as $key) {
-            $value = $data[$key] ?? null;
+        $wanted = array_map(fn (string $key) => strtolower($key), $keys);
+        foreach ($data as $key => $value) {
+            if (is_array($value) && $value !== [] && ! array_is_list($value)) {
+                $nested = $this->firstFilled($value, $keys);
+                if ($nested !== '') {
+                    return $nested;
+                }
+                continue;
+            }
+            if (! in_array(strtolower((string) $key), $wanted, true)) {
+                continue;
+            }
+            if (is_int($value) || is_float($value)) {
+                $value = (string) $value;
+            }
             if (is_string($value) && trim($value) !== '') {
                 return trim($value);
             }
