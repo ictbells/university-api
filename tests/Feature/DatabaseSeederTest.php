@@ -22,7 +22,7 @@ class DatabaseSeederTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Production seeding requires SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD');
 
-        $this->seed(DatabaseSeeder::class);
+        $this->runProductionSeeder();
     }
 
     public function test_production_seed_rejects_default_password(): void
@@ -36,6 +36,16 @@ class DatabaseSeederTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('SUPER_ADMIN_PASSWORD');
 
-        $this->seed(DatabaseSeeder::class);
+        $this->runProductionSeeder();
+    }
+
+    private function runProductionSeeder(): void
+    {
+        // db:seed confirms in production; --force skips that prompt so the seeder
+        // itself can reject missing/default super-admin credentials.
+        $this->artisan('db:seed', [
+            '--class' => DatabaseSeeder::class,
+            '--force' => true,
+        ]);
     }
 }
