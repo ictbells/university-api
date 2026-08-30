@@ -183,6 +183,22 @@ class ApplicationSignupGateTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_register_requires_alternate_phone(): void
+    {
+        $intake = $this->openApplicationSession();
+        $this->ensureApplicantRole();
+        $this->demoPrembly();
+        Http::fake();
+
+        $this->postJson('/api/register', $this->registerPayload([
+            'intake_id' => $intake->id,
+            'jamb_registration' => '20261234AB',
+            'alternate_phone' => null,
+        ]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['alternate_phone']);
+    }
+
     public function test_register_rejects_an_invalid_alternate_phone(): void
     {
         $intake = $this->openApplicationSession();

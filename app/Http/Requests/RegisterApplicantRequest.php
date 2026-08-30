@@ -29,6 +29,9 @@ class RegisterApplicantRequest extends FormRequest
             $jamb = strtoupper(str_replace(' ', '', (string) $this->input('jamb_registration')));
             $this->merge(['jamb_registration' => $jamb === '' ? null : $jamb]);
         }
+        if (! $this->filled('alternate_phone')) {
+            $this->merge(['alternate_phone' => null]);
+        }
     }
 
     public function rules(): array
