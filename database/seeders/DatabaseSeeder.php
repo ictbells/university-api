@@ -97,8 +97,8 @@ class DatabaseSeeder extends Seeder
 
     private function seedSuperAdmin(): void
     {
-        $email = (string) 'ajayibiodun@gmail.com';
-        $password = 'Sup_@2026-ad#';
+        $email = (string) env('SUPER_ADMIN_EMAIL');
+        $password = (string) env('SUPER_ADMIN_PASSWORD');
 
         if (app()->environment('production')) {
             if (! is_string($password) || $password === '') {
