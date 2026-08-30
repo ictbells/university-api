@@ -83,8 +83,8 @@ class AuthController extends Controller
             'last_name' => $mapped['last_name'],
             'date_of_birth' => $mapped['date_of_birth'],
             'gender' => $mapped['gender'],
-            'phone' => $mapped['phone'] ?? '',
-            'address' => $mapped['address'] ?? '',
+            'phone' => $this->prembly->mappedPhone($mapped),
+            'address' => $this->prembly->mappedAddress($mapped),
             'live' => $this->prembly->isLiveMapped($mapped),
         ]);
     }
@@ -112,7 +112,7 @@ class AuthController extends Controller
             }
             $this->prembly->assertNinAvailable($data['nin']);
 
-            $ninPhone = trim((string) ($mapped['phone'] ?? ''));
+            $ninPhone = $this->prembly->mappedPhone($mapped);
             $alternatePhone = PhoneNumber::normalize($data['alternate_phone'] ?? null);
 
             $user = DB::transaction(function () use ($data, $applicantRole, $mapped, $intake, $ninPhone, $alternatePhone) {

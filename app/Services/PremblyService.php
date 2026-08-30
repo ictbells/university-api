@@ -462,6 +462,13 @@ class PremblyService
         }
 
         $contact = $this->contactFromNinData($data);
+        $json = $response->json();
+        if ($contact['phone'] === '' && is_array($json)) {
+            $contact['phone'] = $this->contactFromNinData($json)['phone'];
+        }
+        if ($contact['address'] === '' && is_array($json)) {
+            $contact['address'] = $this->contactFromNinData($json)['address'];
+        }
 
         return [
             'reference' => $response->json('verification.reference')
@@ -475,7 +482,7 @@ class PremblyService
             'phone' => $contact['phone'],
             'address' => $contact['address'],
             'photo' => $data['photo'] ?? $data['picture'] ?? $data['base64Image'] ?? null,
-            'raw' => $data,
+            'raw' => is_array($json) ? $json : $data,
         ];
     }
 
@@ -596,6 +603,22 @@ class PremblyService
     /**
      * @param  array<string, mixed>  $mapped
      */
+    public function mappedPhone(array $mapped): string
+    {
+        return $this->phoneFromMapped($mapped);
+    }
+
+    /**
+     * @param  array<string, mixed>  $mapped
+     */
+    public function mappedAddress(array $mapped): string
+    {
+        return $this->addressFromMapped($mapped);
+    }
+
+    /**
+     * @param  array<string, mixed>  $mapped
+     */
     private function phoneFromMapped(array $mapped): string
     {
         $direct = trim((string) ($mapped['phone'] ?? ''));
@@ -628,9 +651,9 @@ class PremblyService
     private function contactFromNinData(array $data): array
     {
         $phone = $this->firstFilled($data, [
-            'phone', 'telephoneno', 'telephone_no', 'telephone', 'telephoneNo',
-            'mobile', 'mobile_number', 'mobileNumber', 'phone_number', 'phoneNumber',
-            'tel', 'msisdn',
+            'phone', 'telephoneno', 'telephone_no', 'telephone', 'telephoneNo', 'telephone_number',
+            'mobile', 'mobile_number', 'mobileNumber', 'mobileNo', 'phone_number', 'phoneNumber',
+            'phoneNo', 'gsm', 'tel', 'msisdn', 'nin_phone',
         ]);
         $address = $this->firstFilled($data, [
             'residence_address', 'residence_AdressLine1', 'residential_address', 'address',
@@ -655,7 +678,19 @@ class PremblyService
     {
         $wanted = array_map(fn (string $key) => strtolower($key), $keys);
         foreach ($data as $key => $value) {
-            if (is_array($value) && $value !== [] && ! array_is_list($value)) {
+            if (is_array($value) && $value !== []) {
+                if (array_is_list($value)) {
+                    foreach ($value as $item) {
+                        if (! is_array($item) || $item === []) {
+                            continue;
+                        }
+                        $nested = $this->firstFilled($item, $keys);
+                        if ($nested !== '') {
+                            return $nested;
+                        }
+                    }
+                    continue;
+                }
                 $nested = $this->firstFilled($value, $keys);
                 if ($nested !== '') {
                     return $nested;
