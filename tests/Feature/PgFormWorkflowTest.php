@@ -437,6 +437,38 @@ class PgFormWorkflowTest extends TestCase
             ->assertJsonPath('stage', 'submitted');
     }
 
+    public function test_referee_phone_must_be_valid_when_provided(): void
+    {
+        $application = $this->pgApplication($this->taught);
+        Sanctum::actingAs($application->user);
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'pg_referees',
+            'payload' => [
+                'referees' => [
+                    ['name' => 'Prof One', 'email' => 'one@example.com', 'institution' => 'UI', 'position' => 'Professor', 'phone' => '12345'],
+                    ['name' => 'Prof Two', 'email' => 'two@example.com', 'institution' => 'OAU', 'position' => 'Reader'],
+                ],
+            ],
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors(['payload.referees.0.phone']);
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'pg_referees',
+            'payload' => [
+                'referees' => [
+                    ['name' => 'Prof One', 'email' => 'one@example.com', 'institution' => 'UI', 'position' => 'Professor', 'phone' => '0803 111 2222'],
+                    ['name' => 'Prof Two', 'email' => 'two@example.com', 'institution' => 'OAU', 'position' => 'Reader'],
+                ],
+            ],
+        ])->assertOk();
+
+        $referees = $application->fresh()->steps()->where('step_key', 'pg_referees')->value('payload')['referees'] ?? [];
+        $this->assertSame('+2348031112222', $referees[0]['phone'] ?? null);
+        $this->assertArrayHasKey('phone', $referees[1]);
+        $this->assertNull($referees[1]['phone']);
+    }
+
     public function test_referee_invite_token_upload_and_expired_link(): void
     {
         Mail::fake();

@@ -194,7 +194,7 @@ class ApplicationController extends Controller
         $data = $request->validate([
             'email' => 'required|email|max:190',
             'phone' => 'nullable|string|max:30',
-            'alternate_phone' => ['nullable', 'string', 'max:30', new PhoneNumber],
+            'alternate_phone' => PhoneNumber::constraints(required: false),
             'jamb_registration' => 'nullable|string|max:20',
             'first_name' => 'required|string|max:80',
             'middle_name' => 'nullable|string|max:80',
@@ -215,12 +215,12 @@ class ApplicationController extends Controller
             'medical_condition_details' => 'nullable|string|max:2000',
             'next_of_kin' => 'nullable|string|max:120',
             'next_of_kin_relationship' => 'nullable|string|max:80',
-            'next_of_kin_phone' => 'nullable|string|max:30',
+            'next_of_kin_phone' => PhoneNumber::constraints(required: false),
             'next_of_kin_email' => 'nullable|email|max:120',
             'next_of_kin_address' => 'nullable|string|max:500',
             'sponsor_name' => 'nullable|string|max:120',
             'sponsor_relationship' => 'nullable|string|max:80',
-            'sponsor_phone' => 'nullable|string|max:30',
+            'sponsor_phone' => PhoneNumber::constraints(required: false),
             'sponsor_email' => 'nullable|email|max:120',
             'sponsor_address' => 'nullable|string|max:500',
             'other_qualifications' => 'nullable|string|max:2000',
@@ -239,6 +239,7 @@ class ApplicationController extends Controller
             'publications' => 'nullable|array',
             'supervisor_preferences' => 'nullable|array',
             'referees' => 'nullable|array',
+            'referees.*.phone' => PhoneNumber::constraints(required: false),
             'first_choice_college_id' => 'nullable|integer',
             'first_choice_department_id' => 'nullable|integer',
             'first_choice_program_id' => 'required|integer|exists:programs,id',
@@ -431,20 +432,22 @@ class ApplicationController extends Controller
             $payload = $request->validate([
                 'payload.next_of_kin' => 'required|string|max:120',
                 'payload.next_of_kin_relationship' => 'required|string|max:80',
-                'payload.next_of_kin_phone' => 'required|string|max:30',
+                'payload.next_of_kin_phone' => PhoneNumber::constraints(),
                 'payload.next_of_kin_email' => 'nullable|email|max:120',
                 'payload.next_of_kin_address' => 'required|string|max:500',
             ])['payload'] + $payload;
+            $payload['next_of_kin_phone'] = PhoneNumber::normalize($payload['next_of_kin_phone'] ?? null);
         }
         if ($data['step_key'] === 'sponsor') {
             $request->merge(['payload' => $payload]);
             $payload = $request->validate([
                 'payload.sponsor_name' => 'required|string|max:120',
                 'payload.sponsor_relationship' => 'required|string|max:80',
-                'payload.sponsor_phone' => 'required|string|max:30',
+                'payload.sponsor_phone' => PhoneNumber::constraints(),
                 'payload.sponsor_email' => 'nullable|email|max:120',
                 'payload.sponsor_address' => 'required|string|max:500',
             ])['payload'] + $payload;
+            $payload['sponsor_phone'] = PhoneNumber::normalize($payload['sponsor_phone'] ?? null);
         }
         if ($data['step_key'] === 'application_form') {
             $existing = is_array($step->payload) ? $step->payload : [];

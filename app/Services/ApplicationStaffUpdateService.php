@@ -325,7 +325,7 @@ class ApplicationStaffUpdateService
         $this->mergeStep($application, 'next_of_kin', [
             'next_of_kin' => $data['next_of_kin'] ?? null,
             'next_of_kin_relationship' => $data['next_of_kin_relationship'] ?? null,
-            'next_of_kin_phone' => $data['next_of_kin_phone'] ?? null,
+            'next_of_kin_phone' => $this->normalizedPhone($data, 'next_of_kin_phone'),
             'next_of_kin_email' => $data['next_of_kin_email'] ?? null,
             'next_of_kin_address' => $data['next_of_kin_address'] ?? null,
         ]);
@@ -333,7 +333,7 @@ class ApplicationStaffUpdateService
         $this->mergeStep($application, 'sponsor', [
             'sponsor_name' => $data['sponsor_name'] ?? null,
             'sponsor_relationship' => $data['sponsor_relationship'] ?? null,
-            'sponsor_phone' => $data['sponsor_phone'] ?? null,
+            'sponsor_phone' => $this->normalizedPhone($data, 'sponsor_phone'),
             'sponsor_email' => $data['sponsor_email'] ?? null,
             'sponsor_address' => $data['sponsor_address'] ?? null,
         ]);
@@ -390,7 +390,7 @@ class ApplicationStaffUpdateService
             ]);
             if (array_key_exists('referees', $data)) {
                 $this->mergeStep($application, 'pg_referees', [
-                    'referees' => $data['referees'],
+                    'referees' => $this->normalizedReferees($data['referees']),
                 ]);
             }
         }
@@ -461,12 +461,12 @@ class ApplicationStaffUpdateService
             'address' => $data['address'] ?? $student->address,
             'next_of_kin' => $data['next_of_kin'] ?? $student->next_of_kin,
             'next_of_kin_relationship' => $data['next_of_kin_relationship'] ?? $student->next_of_kin_relationship,
-            'next_of_kin_phone' => $data['next_of_kin_phone'] ?? $student->next_of_kin_phone,
+            'next_of_kin_phone' => $this->normalizedPhone($data, 'next_of_kin_phone') ?? $student->next_of_kin_phone,
             'next_of_kin_email' => $data['next_of_kin_email'] ?? $student->next_of_kin_email,
             'next_of_kin_address' => $data['next_of_kin_address'] ?? $student->next_of_kin_address,
             'sponsor_name' => $data['sponsor_name'] ?? $student->sponsor_name,
             'sponsor_relationship' => $data['sponsor_relationship'] ?? $student->sponsor_relationship,
-            'sponsor_phone' => $data['sponsor_phone'] ?? $student->sponsor_phone,
+            'sponsor_phone' => $this->normalizedPhone($data, 'sponsor_phone') ?? $student->sponsor_phone,
             'sponsor_email' => $data['sponsor_email'] ?? $student->sponsor_email,
             'sponsor_address' => $data['sponsor_address'] ?? $student->sponsor_address,
             'program_id' => $programId ?: $student->program_id,
@@ -509,6 +509,39 @@ class ApplicationStaffUpdateService
         }
 
         return PhoneNumber::normalize((string) $data['alternate_phone']);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function normalizedPhone(array $data, string $key): ?string
+    {
+        if (! array_key_exists($key, $data) || ! filled($data[$key])) {
+            return null;
+        }
+
+        return PhoneNumber::normalize((string) $data[$key]);
+    }
+
+    /**
+     * @param  mixed  $referees
+     * @return mixed
+     */
+    private function normalizedReferees(mixed $referees): mixed
+    {
+        if (! is_array($referees)) {
+            return $referees;
+        }
+
+        return array_map(function ($row) {
+            if (! is_array($row)) {
+                return $row;
+            }
+            $phone = trim((string) ($row['phone'] ?? ''));
+            $row['phone'] = $phone === '' ? null : PhoneNumber::normalize($phone);
+
+            return $row;
+        }, $referees);
     }
 
     private function existingStepValue(Application $application, string $stepKey, string $field): mixed

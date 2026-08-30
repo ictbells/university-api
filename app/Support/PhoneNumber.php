@@ -11,7 +11,15 @@ final class PhoneNumber implements ValidationRule
 
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
-        if (! is_string($value) || self::normalize($value) === null) {
+        if (! is_string($value)) {
+            $fail(self::MESSAGE);
+
+            return;
+        }
+        if (trim($value) === '') {
+            return;
+        }
+        if (self::normalize($value) === null) {
             $fail(self::MESSAGE);
         }
     }
@@ -60,5 +68,32 @@ final class PhoneNumber implements ValidationRule
     public static function isValid(?string $raw): bool
     {
         return self::normalize($raw) !== null;
+    }
+
+    /**
+     * @return list<string|self>
+     */
+    public static function constraints(bool $required = true): array
+    {
+        return [
+            $required ? 'required' : 'nullable',
+            'string',
+            'max:30',
+            new self,
+        ];
+    }
+
+    public static function importValue(?string $raw, string $label = 'phone number'): ?string
+    {
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return null;
+        }
+        $normalized = self::normalize($raw);
+        if ($normalized === null) {
+            throw new \RuntimeException('Enter a valid Nigerian or international '.$label.'.');
+        }
+
+        return $normalized;
     }
 }

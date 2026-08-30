@@ -416,14 +416,14 @@ class ApplicantImportService
         $this->saveStep($application, 'next_of_kin', [
             'next_of_kin' => $data['next_of_kin_name'] ?? '',
             'next_of_kin_relationship' => $data['next_of_kin_relationship'] ?? '',
-            'next_of_kin_phone' => $data['next_of_kin_phone'] ?? '',
+            'next_of_kin_phone' => PhoneNumber::importValue($data['next_of_kin_phone'] ?? null, 'next of kin phone') ?? '',
             'next_of_kin_email' => $data['next_of_kin_email'] ?? '',
             'next_of_kin_address' => $data['next_of_kin_address'] ?? '',
         ]);
         $this->saveStep($application, 'sponsor', [
             'sponsor_name' => $data['sponsor_name'] ?? '',
             'sponsor_relationship' => $data['sponsor_relationship'] ?? '',
-            'sponsor_phone' => $data['sponsor_phone'] ?? '',
+            'sponsor_phone' => PhoneNumber::importValue($data['sponsor_phone'] ?? null, 'sponsor phone') ?? '',
             'sponsor_email' => $data['sponsor_email'] ?? '',
             'sponsor_address' => $data['sponsor_address'] ?? '',
         ]);
@@ -502,7 +502,7 @@ class ApplicantImportService
                     'email' => $data["referee_{$i}_email"] ?? '',
                     'institution' => $data["referee_{$i}_institution"] ?? '',
                     'position' => $data["referee_{$i}_position"] ?? '',
-                    'phone' => $data["referee_{$i}_phone"] ?? '',
+                    'phone' => PhoneNumber::importValue($data["referee_{$i}_phone"] ?? null, 'referee phone'),
                 ];
             }
             $this->saveStep($application, 'pg_referees', ['referees' => $referees]);

@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\Program;
+use App\Support\PhoneNumber;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
@@ -325,8 +326,15 @@ class ApplicationFormSteps
             'payload.referees.*.email' => 'required|email|max:190',
             'payload.referees.*.institution' => 'required|string|max:190',
             'payload.referees.*.position' => 'required|string|max:120',
-            'payload.referees.*.phone' => 'nullable|string|max:30',
+            'payload.referees.*.phone' => PhoneNumber::constraints(required: false),
         ])['payload'] + $payload;
+
+        $payload['referees'] = array_map(function ($row) {
+            $phone = trim((string) ($row['phone'] ?? ''));
+            $row['phone'] = $phone === '' ? null : PhoneNumber::normalize($phone);
+
+            return $row;
+        }, $payload['referees'] ?? []);
 
         $emails = collect($payload['referees'] ?? [])
             ->map(fn ($row) => strtolower(trim((string) ($row['email'] ?? ''))))

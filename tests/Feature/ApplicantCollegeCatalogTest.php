@@ -258,6 +258,62 @@ class ApplicantCollegeCatalogTest extends TestCase
         $this->assertSame($department->id, $payload['first_choice_department_id']);
     }
 
+    public function test_next_of_kin_and_sponsor_phones_must_be_valid_and_are_normalized(): void
+    {
+        $application = $this->formInProgressApplication();
+        Sanctum::actingAs($application->user);
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'next_of_kin',
+            'payload' => [
+                'next_of_kin' => 'Chioma Okoye',
+                'next_of_kin_relationship' => 'Mother',
+                'next_of_kin_phone' => '12345',
+                'next_of_kin_address' => 'Ota',
+            ],
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors(['payload.next_of_kin_phone']);
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'next_of_kin',
+            'payload' => [
+                'next_of_kin' => 'Chioma Okoye',
+                'next_of_kin_relationship' => 'Mother',
+                'next_of_kin_phone' => '0803 111 2222',
+                'next_of_kin_address' => 'Ota',
+            ],
+        ])->assertOk();
+        $this->assertSame(
+            '+2348031112222',
+            $application->fresh()->steps()->where('step_key', 'next_of_kin')->value('payload')['next_of_kin_phone'] ?? null,
+        );
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'sponsor',
+            'payload' => [
+                'sponsor_name' => 'Ike Okoye',
+                'sponsor_relationship' => 'Father',
+                'sponsor_phone' => 'not-a-number',
+                'sponsor_address' => 'Ota',
+            ],
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors(['payload.sponsor_phone']);
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'sponsor',
+            'payload' => [
+                'sponsor_name' => 'Ike Okoye',
+                'sponsor_relationship' => 'Father',
+                'sponsor_phone' => '+1 202 555 0100',
+                'sponsor_address' => 'Ota',
+            ],
+        ])->assertOk();
+        $this->assertSame(
+            '+12025550100',
+            $application->fresh()->steps()->where('step_key', 'sponsor')->value('payload')['sponsor_phone'] ?? null,
+        );
+    }
+
     private function applicant(): User
     {
         $role = Role::query()->firstOrCreate(

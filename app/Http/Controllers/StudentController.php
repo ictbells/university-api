@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Student;
 use App\Services\AuditWriter;
 use App\Support\ListSessionLevelFilter;
+use App\Support\PhoneNumber;
 use Illuminate\Http\Request;
 
 class StudentController extends Controller
@@ -84,7 +85,7 @@ class StudentController extends Controller
             'phone' => 'nullable|string',
             'address' => 'nullable|string',
             'next_of_kin' => 'nullable|string',
-            'next_of_kin_phone' => 'nullable|string',
+            'next_of_kin_phone' => PhoneNumber::constraints(required: false),
             'first_name' => 'nullable|string',
             'last_name' => 'nullable|string',
             'middle_name' => 'nullable|string',
@@ -96,6 +97,9 @@ class StudentController extends Controller
             if (array_key_exists($field, $data) && $student->user_id === $user->id) {
                 unset($data[$field]);
             }
+        }
+        if (array_key_exists('next_of_kin_phone', $data) && filled($data['next_of_kin_phone'])) {
+            $data['next_of_kin_phone'] = PhoneNumber::normalize($data['next_of_kin_phone']);
         }
         $before = $student->only(array_keys($data));
 
