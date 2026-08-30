@@ -72,16 +72,10 @@ class ProductionCheck extends Command
         }
 
         $paystackSecret = (string) config('services.paystack.secret');
-        if (str_starts_with($paystackSecret, 'sk_test_')) {
-            $warnings[] = 'PAYSTACK_SECRET_KEY is a test key. Use live keys for the public university site.';
-        }
+        $usingPaystackTestKeys = str_starts_with($paystackSecret, 'sk_test_');
 
         if (! config('services.prembly.key') || ! config('services.prembly.app_id')) {
             $failures[] = 'PREMBLY_API_KEY and PREMBLY_APP_ID must be set.';
-        }
-
-        if (! config('services.paystack.webhook_secret')) {
-            $warnings[] = 'PAYSTACK_WEBHOOK_SECRET is empty — webhook authenticity cannot be verified.';
         }
 
         $stateful = collect(config('sanctum.stateful', []))
@@ -140,6 +134,9 @@ class ProductionCheck extends Command
         }
 
         $this->info('Production check passed.');
+        if ($usingPaystackTestKeys) {
+            $this->comment('Paystack test keys are allowed.');
+        }
 
         return self::SUCCESS;
     }

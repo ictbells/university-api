@@ -67,6 +67,22 @@ class ProductionCheckTest extends TestCase
             ->assertFailed();
     }
 
+    public function test_allows_paystack_test_keys_without_webhook_secret(): void
+    {
+        config($this->passingConfig());
+        config([
+            'services.paystack.secret' => 'sk_test_example',
+            'services.paystack.public' => 'pk_test_example',
+            'services.paystack.webhook_secret' => '',
+        ]);
+
+        $this->artisan('production:check', ['--force' => true])
+            ->expectsOutputToContain('Production check passed.')
+            ->doesntExpectOutputToContain('Use live keys')
+            ->doesntExpectOutputToContain('webhook authenticity')
+            ->assertSuccessful();
+    }
+
     public function test_fails_when_demo_payments_are_enabled(): void
     {
         config($this->passingConfig());
