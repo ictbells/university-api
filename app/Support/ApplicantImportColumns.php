@@ -250,7 +250,7 @@ class ApplicantImportColumns
             $row['prior_year_awarded'] = '2020';
             $row['prior_country'] = 'Nigeria';
             $row['nysc_status'] = 'completed';
-            $row['nysc_number'] = 'NYSC-2021-001';
+            $row['nysc_number'] = 'NYSC2021-001';
             $row['research_interest'] = 'Machine learning';
             $row['proposed_area'] = 'Applied AI';
             $row['statement_of_purpose'] = 'I want to advance computing research.';

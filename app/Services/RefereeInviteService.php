@@ -19,18 +19,34 @@ class RefereeInviteService
             if ($email === '') {
                 continue;
             }
+            $position = $index + 1;
             $invite = RefereeInvite::query()
                 ->where('application_id', $application->id)
                 ->where('email', $email)
-                ->first();
+                ->first()
+                ?: RefereeInvite::query()
+                    ->where('application_id', $application->id)
+                    ->where('position', $position)
+                    ->where('status', '!=', 'submitted')
+                    ->first()
+                ?: RefereeInvite::query()
+                    ->where('application_id', $application->id)
+                    ->where('position', $position)
+                    ->where('status', 'submitted')
+                    ->first();
             $payload = [
-                'position' => $index + 1,
+                'position' => $position,
                 'name' => (string) ($row['name'] ?? ''),
                 'email' => $email,
                 'institution' => $row['institution'] ?? null,
                 'position_title' => $row['position'] ?? $row['position_title'] ?? null,
                 'phone' => $row['phone'] ?? null,
             ];
+            if ($invite && $invite->status === 'submitted') {
+                $kept[] = $invite->id;
+
+                continue;
+            }
             if (! $invite) {
                 $token = $this->freshToken();
                 $invite = RefereeInvite::query()->create($payload + [
@@ -43,8 +59,9 @@ class RefereeInviteService
                     $this->send($application, $invite, $token);
                 }
             } else {
+                $emailChanged = strtolower((string) $invite->email) !== $email;
                 $invite->update($payload);
-                if ($invite->status !== 'submitted' && $sendMail && $invite->isExpired()) {
+                if ($sendMail && $invite->status !== 'submitted' && ($emailChanged || $invite->isExpired())) {
                     $this->resend($application, $invite);
                 }
             }
@@ -59,12 +76,14 @@ class RefereeInviteService
     }
 
     /**
-     * @param  array{email?: string, name?: string}  $attrs
+     * @param  array{email?: string, name?: string, institution?: string, position?: string}  $attrs
      */
     public function updateContact(Application $application, RefereeInvite $invite, array $attrs): RefereeInvite
     {
         $email = isset($attrs['email']) ? strtolower(trim((string) $attrs['email'])) : null;
         $name = isset($attrs['name']) ? trim((string) $attrs['name']) : null;
+        $institution = isset($attrs['institution']) ? trim((string) $attrs['institution']) : null;
+        $position = isset($attrs['position']) ? trim((string) $attrs['position']) : null;
         $oldEmail = (string) $invite->email;
         $payload = [];
 
@@ -83,6 +102,12 @@ class RefereeInviteService
         }
         if ($name !== null && $name !== '') {
             $payload['name'] = $name;
+        }
+        if ($institution !== null && $institution !== '') {
+            $payload['institution'] = $institution;
+        }
+        if ($position !== null && $position !== '') {
+            $payload['position_title'] = $position;
         }
         if ($payload === []) {
             return $invite;
@@ -160,6 +185,36 @@ class RefereeInviteService
             ->all();
     }
 
+    /**
+     * Keep submitted recommendation letters as they are when the applicant edits other referees.
+     *
+     * @param  list<array<string, mixed>>  $referees
+     * @return list<array<string, mixed>>
+     */
+    public function preserveSubmittedRows(Application $application, array $referees): array
+    {
+        $submitted = $application->refereeInvites()
+            ->where('status', 'submitted')
+            ->get()
+            ->keyBy(fn (RefereeInvite $invite) => (int) $invite->position);
+        $existing = $application->steps()->where('step_key', 'pg_referees')->first();
+        $oldRows = array_values($existing?->payload['referees'] ?? []);
+
+        foreach ($referees as $index => $row) {
+            $invite = $submitted->get($index + 1);
+            if (! $invite) {
+                continue;
+            }
+            $previous = $oldRows[$index] ?? [];
+            $referees[$index]['name'] = $invite->name ?: ($previous['name'] ?? $row['name'] ?? '');
+            $referees[$index]['email'] = $invite->email;
+            $referees[$index]['institution'] = $invite->institution ?: ($previous['institution'] ?? $row['institution'] ?? '');
+            $referees[$index]['position'] = $invite->position_title ?: ($previous['position'] ?? $row['position'] ?? '');
+        }
+
+        return $referees;
+    }
+
     private function syncStepPayload(Application $application, string $oldEmail, RefereeInvite $invite): void
     {
         $step = $application->steps()->where('step_key', 'pg_referees')->first();
@@ -184,6 +239,12 @@ class RefereeInviteService
             if ($invite->name) {
                 $referees[$index]['name'] = $invite->name;
             }
+            if ($invite->institution) {
+                $referees[$index]['institution'] = $invite->institution;
+            }
+            if ($invite->position_title) {
+                $referees[$index]['position'] = $invite->position_title;
+            }
             $updated = true;
             break;
         }
@@ -194,6 +255,12 @@ class RefereeInviteService
                 $referees[$index]['email'] = $invite->email;
                 if ($invite->name) {
                     $referees[$index]['name'] = $invite->name;
+                }
+                if ($invite->institution) {
+                    $referees[$index]['institution'] = $invite->institution;
+                }
+                if ($invite->position_title) {
+                    $referees[$index]['position'] = $invite->position_title;
                 }
                 $updated = true;
             }

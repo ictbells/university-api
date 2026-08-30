@@ -394,14 +394,22 @@ class ApplicationStaffUpdateService
             }
         }
 
+        $firstProgram = isset($data['first_choice_program_id'])
+            ? Program::query()->with('department')->find($data['first_choice_program_id'])
+            : null;
+        $secondProgram = AdmissionEntryRules::allowsSecondProgramme((string) $application->entry_mode)
+            && ! empty($data['second_choice_program_id'])
+            ? Program::query()->with('department')->find($data['second_choice_program_id'])
+            : null;
+
         $this->mergeStep($application, 'programme_selection', [
-            'first_choice_college_id' => $data['first_choice_college_id'] ?? null,
-            'first_choice_department_id' => $data['first_choice_department_id'] ?? null,
-            'first_choice_program_id' => $data['first_choice_program_id'] ?? null,
-            'second_choice_college_id' => $data['second_choice_college_id'] ?? null,
-            'second_choice_department_id' => $data['second_choice_department_id'] ?? null,
-            'second_choice_program_id' => $data['second_choice_program_id'] ?? null,
-            'program_id' => $data['first_choice_program_id'] ?? null,
+            'first_choice_college_id' => $firstProgram?->department?->faculty_id,
+            'first_choice_department_id' => $firstProgram?->department_id,
+            'first_choice_program_id' => $firstProgram?->id,
+            'second_choice_college_id' => $secondProgram?->department?->faculty_id,
+            'second_choice_department_id' => $secondProgram?->department_id,
+            'second_choice_program_id' => $secondProgram?->id,
+            'program_id' => $firstProgram?->id,
         ]);
     }
 

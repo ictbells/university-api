@@ -165,6 +165,28 @@ class PgFormWorkflowTest extends TestCase
         ])->assertOk();
     }
 
+    public function test_nysc_certificate_number_cannot_exceed_twelve_characters(): void
+    {
+        $application = $this->pgApplication();
+        Sanctum::actingAs($application->user);
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'pg_background',
+            'payload' => array_merge($this->backgroundPayload('second_lower'), [
+                'nysc_number' => '1234567890123',
+                'nysc_year' => '2021',
+            ]),
+        ])->assertStatus(422)->assertJsonValidationErrors('payload.nysc_number');
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'pg_background',
+            'payload' => array_merge($this->backgroundPayload('second_lower'), [
+                'nysc_number' => '123456789012',
+                'nysc_year' => '2021',
+            ]),
+        ])->assertOk();
+    }
+
     public function test_research_programme_requires_supervisor_taught_does_not(): void
     {
         $application = $this->pgApplication($this->taught);
@@ -496,7 +518,10 @@ class PgFormWorkflowTest extends TestCase
 
         $this->postJson("/api/applications/{$application->id}/referees/{$invite->id}/resend", [
             'email' => 'new.ref@example.com',
-        ])->assertForbidden();
+        ])->assertOk()
+            ->assertJsonPath('referees.0.email', 'new.ref@example.com');
+
+        $this->assertSame('new.ref@example.com', $invite->fresh()->email);
 
         $staff = $this->staffUser(['admissions.view'], ['home', 'admissions-postgraduate']);
         Sanctum::actingAs($staff);
@@ -507,22 +532,114 @@ class PgFormWorkflowTest extends TestCase
         ])->assertStatus(422);
 
         $this->postJson("/api/applications/{$application->id}/referees/{$invite->id}/resend", [
-            'email' => 'new.ref@example.com',
+            'email' => 'staff.ref@example.com',
         ])->assertOk()
-            ->assertJsonPath('referees.0.email', 'new.ref@example.com');
+            ->assertJsonPath('referees.0.email', 'staff.ref@example.com');
 
-        $this->assertSame('new.ref@example.com', $invite->fresh()->email);
+        $this->assertSame('staff.ref@example.com', $invite->fresh()->email);
         $step = $application->steps()->where('step_key', 'pg_referees')->first();
         $emails = collect($step?->payload['referees'] ?? [])->pluck('email')->map(fn ($email) => strtolower((string) $email));
-        $this->assertTrue($emails->contains('new.ref@example.com'));
+        $this->assertTrue($emails->contains('staff.ref@example.com'));
         $this->assertFalse($emails->contains('one@example.com'));
 
-        Mail::assertSent(RefereeInviteMail::class, fn (RefereeInviteMail $mail) => $mail->hasTo('new.ref@example.com'));
+        Mail::assertSent(RefereeInviteMail::class, fn (RefereeInviteMail $mail) => $mail->hasTo('staff.ref@example.com'));
         $this->getJson("/api/referee/{$oldToken}")->assertStatus(403);
 
         $this->postJson("/api/applications/{$application->id}/referees/{$invite->id}/resend")
             ->assertOk();
         Mail::assertSent(RefereeInviteMail::class, 2);
+    }
+
+    public function test_applicant_can_change_referee_details_after_submit_and_mail_goes_to_new_email(): void
+    {
+        Mail::fake();
+        $application = $this->pgApplication($this->taught);
+        Sanctum::actingAs($application->user);
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'pg_referees',
+            'payload' => [
+                'referees' => [
+                    ['name' => 'Prof One', 'email' => 'one@example.com', 'institution' => 'UI', 'position' => 'Professor'],
+                    ['name' => 'Prof Two', 'email' => 'two@example.com', 'institution' => 'OAU', 'position' => 'Reader'],
+                ],
+            ],
+        ])->assertOk();
+
+        $application->update(['stage' => 'submitted', 'submitted_at' => now()]);
+        Mail::fake();
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'academic_qualifications',
+            'payload' => ['first_sitting' => ['exam_type' => 'WAEC']],
+        ])->assertStatus(422);
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'pg_referees',
+            'payload' => [
+                'referees' => [
+                    ['name' => 'Prof Ada', 'email' => 'ada.ref@example.com', 'institution' => 'Unilag', 'position' => 'Dean'],
+                    ['name' => 'Prof Two', 'email' => 'two@example.com', 'institution' => 'OAU', 'position' => 'Reader'],
+                ],
+            ],
+        ])->assertOk();
+
+        $this->assertSame('submitted', $application->fresh()->stage);
+        $invite = $application->refereeInvites()->where('position', 1)->first();
+        $this->assertSame('ada.ref@example.com', $invite?->email);
+        $this->assertSame('Prof Ada', $invite?->name);
+        Mail::assertSent(RefereeInviteMail::class, fn (RefereeInviteMail $mail) => $mail->hasTo('ada.ref@example.com'));
+        Mail::assertNotSent(RefereeInviteMail::class, fn (RefereeInviteMail $mail) => $mail->hasTo('one@example.com'));
+    }
+
+    public function test_applicant_cannot_replace_a_submitted_referee_after_submit(): void
+    {
+        Mail::fake();
+        Storage::fake(config('filesystems.default', 'local'));
+        $application = $this->pgApplication($this->taught);
+        Sanctum::actingAs($application->user);
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'pg_referees',
+            'payload' => [
+                'referees' => [
+                    ['name' => 'Prof One', 'email' => 'one@example.com', 'institution' => 'UI', 'position' => 'Professor'],
+                    ['name' => 'Prof Two', 'email' => 'two@example.com', 'institution' => 'OAU', 'position' => 'Reader'],
+                ],
+            ],
+        ])->assertOk();
+
+        $invite = $application->refereeInvites()->where('email', 'one@example.com')->first();
+        $token = null;
+        Mail::assertSent(RefereeInviteMail::class, function (RefereeInviteMail $mail) use ($invite, &$token) {
+            if ($mail->invite->id !== $invite->id) {
+                return false;
+            }
+            $token = $mail->plainToken;
+
+            return true;
+        });
+        $this->post("/api/referee/{$token}", [
+            'file' => UploadedFile::fake()->create('letter.pdf', 80, 'application/pdf'),
+        ])->assertOk();
+
+        $application->update(['stage' => 'submitted', 'submitted_at' => now()]);
+        Mail::fake();
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'pg_referees',
+            'payload' => [
+                'referees' => [
+                    ['name' => 'Someone Else', 'email' => 'other.ref@example.com', 'institution' => 'Unilag', 'position' => 'Dean'],
+                    ['name' => 'Prof Two', 'email' => 'two.updated@example.com', 'institution' => 'OAU', 'position' => 'Reader'],
+                ],
+            ],
+        ])->assertOk();
+
+        $this->assertSame('one@example.com', $invite->fresh()->email);
+        $this->assertSame('submitted', $invite->fresh()->status);
+        $this->assertSame(1, $application->refereeInvites()->where('position', 1)->count());
+        $this->assertSame('two.updated@example.com', $application->refereeInvites()->where('position', 2)->value('email'));
+        Mail::assertSent(RefereeInviteMail::class, fn (RefereeInviteMail $mail) => $mail->hasTo('two.updated@example.com'));
+        Mail::assertNotSent(RefereeInviteMail::class, fn (RefereeInviteMail $mail) => $mail->hasTo('other.ref@example.com'));
     }
 
     public function test_staff_cannot_change_email_after_referee_submits(): void

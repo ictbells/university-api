@@ -229,7 +229,7 @@ class ApplicationController extends Controller
             ...$this->sittingValidationRules('second_sitting'),
             'prior_degrees' => 'nullable|array',
             'nysc_status' => 'nullable|string',
-            'nysc_number' => 'nullable|string|max:80',
+            'nysc_number' => 'nullable|string|max:12',
             'nysc_year' => 'nullable|string|max:10',
             'nysc_exemption_reason' => 'nullable|string|max:500',
             'professional_qualifications' => 'nullable|array',
@@ -360,15 +360,19 @@ class ApplicationController extends Controller
     public function saveStep(Request $request, Application $application)
     {
         $this->authorizeOwner($request, $application);
-        if (! in_array($application->stage, ['fee_paid', 'form_in_progress'], true)) {
-            return response()->json(['message' => 'This application is no longer editable.'], 422);
-        }
         $application->ensureFormSteps();
         $allowedSteps = Application::formSteps($application->entry_mode);
         $data = $request->validate([
             'step_key' => 'required|in:'.implode(',', $allowedSteps),
             'payload' => 'required|array',
         ]);
+        $formWindow = in_array($application->stage, ['fee_paid', 'form_in_progress'], true);
+        $closed = in_array($application->stage, ['rejected', 'withdrawn', 'matriculated'], true);
+        if (! $formWindow) {
+            if ($data['step_key'] !== 'pg_referees' || $closed) {
+                return response()->json(['message' => 'This application is no longer editable.'], 422);
+            }
+        }
         $step = $application->steps()->where('step_key', $data['step_key'])->firstOrFail();
         $payload = $data['payload'];
         if ($data['step_key'] !== 'biodata' && ! $application->ninVerified()) {
@@ -586,15 +590,18 @@ class ApplicationController extends Controller
             $payload = ApplicationFormSteps::validatePgResearch($request, $payload, $program);
         }
         if ($data['step_key'] === 'pg_referees') {
+            $payload['referees'] = $this->referees->preserveSubmittedRows($application, $payload['referees'] ?? []);
             $payload = ApplicationFormSteps::validatePgReferees($request, $payload);
         }
         $before = $step->payload;
         $step->update(['payload' => $payload, 'status' => 'saved']);
-        $application->update([
-            'stage' => 'form_in_progress',
-            'current_step' => $data['step_key'],
-            'program_id' => $payload['program_id'] ?? $application->program_id,
-        ]);
+        if ($formWindow) {
+            $application->update([
+                'stage' => 'form_in_progress',
+                'current_step' => $data['step_key'],
+                'program_id' => $payload['program_id'] ?? $application->program_id,
+            ]);
+        }
         $this->audit->record('application.step_saved', 'Saved '.$data['step_key'], 'admissions', 'application', $application->id, $before, $payload);
 
         if ($data['step_key'] === 'pg_referees') {
@@ -953,29 +960,32 @@ class ApplicationController extends Controller
     public function resendReferee(Request $request, Application $application, RefereeInvite $invite)
     {
         abort_unless((int) $invite->application_id === (int) $application->id, 404);
-
-        if ($request->filled('email') || $request->filled('name')) {
-            $this->authorizeStaffEdit($request, $application);
-        } else {
-            $this->authorizeOwner($request, $application);
-        }
+        $this->authorizeOwner($request, $application);
 
         abort_if($invite->status === 'submitted', 422, 'This referee has already submitted a letter.');
 
         $data = $request->validate([
             'email' => 'nullable|email|max:190',
             'name' => 'nullable|string|max:120',
+            'institution' => 'nullable|string|max:190',
+            'position' => 'nullable|string|max:120',
         ]);
         $email = isset($data['email']) ? strtolower(trim((string) $data['email'])) : null;
         $name = isset($data['name']) ? trim((string) $data['name']) : null;
+        $institution = isset($data['institution']) ? trim((string) $data['institution']) : null;
+        $position = isset($data['position']) ? trim((string) $data['position']) : null;
         $before = ['id' => $invite->id, 'email' => $invite->email, 'name' => $invite->name];
         $changed = ($email && $email !== strtolower((string) $invite->email))
-            || ($name !== null && $name !== '' && $name !== (string) $invite->name);
+            || ($name !== null && $name !== '' && $name !== (string) $invite->name)
+            || ($institution !== null && $institution !== '' && $institution !== (string) $invite->institution)
+            || ($position !== null && $position !== '' && $position !== (string) $invite->position_title);
 
         if ($changed) {
             $invite = $this->referees->updateContact($application, $invite, array_filter([
                 'email' => $email,
                 'name' => $name,
+                'institution' => $institution,
+                'position' => $position,
             ], fn ($value) => $value !== null && $value !== ''));
         }
 

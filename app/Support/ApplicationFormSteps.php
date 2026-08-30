@@ -256,7 +256,7 @@ class ApplicationFormSteps
             'payload.prior_degrees.*.year_awarded' => 'required|string|max:10',
             'payload.prior_degrees.*.country' => 'nullable|string|max:80',
             'payload.nysc_status' => 'required|string|in:'.implode(',', self::NYSC),
-            'payload.nysc_number' => 'nullable|string|max:80',
+            'payload.nysc_number' => 'nullable|string|max:12',
             'payload.nysc_year' => 'nullable|string|max:10',
             'payload.nysc_exemption_reason' => 'nullable|string|max:500',
             'payload.professional_qualifications' => 'nullable|array',
@@ -327,6 +327,15 @@ class ApplicationFormSteps
             'payload.referees.*.position' => 'required|string|max:120',
             'payload.referees.*.phone' => 'nullable|string|max:30',
         ])['payload'] + $payload;
+
+        $emails = collect($payload['referees'] ?? [])
+            ->map(fn ($row) => strtolower(trim((string) ($row['email'] ?? ''))))
+            ->filter();
+        if ($emails->count() !== $emails->unique()->count()) {
+            throw ValidationException::withMessages([
+                'payload.referees' => ['Each referee must have a different email address.'],
+            ]);
+        }
 
         return $payload;
     }

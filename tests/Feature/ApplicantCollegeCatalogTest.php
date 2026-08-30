@@ -12,6 +12,7 @@ use App\Models\Intake;
 use App\Models\Program;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\ApplicationStaffUpdateService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -179,6 +180,82 @@ class ApplicantCollegeCatalogTest extends TestCase
         $this->assertSame($second->id, $payload['second_choice_program_id']);
         $this->assertSame($secondFaculty->id, $payload['second_choice_college_id']);
         $this->assertSame($secondDepartment->id, $payload['second_choice_department_id']);
+    }
+
+    public function test_applicant_cannot_override_college_and_department_from_the_programme(): void
+    {
+        $application = $this->formInProgressApplication();
+        $campus = Campus::query()->create(['name' => 'Main', 'is_active' => true]);
+        $faculty = Faculty::query()->create(['campus_id' => $campus->id, 'name' => 'College of Engineering']);
+        $department = Department::query()->create(['faculty_id' => $faculty->id, 'name' => 'Computer Engineering']);
+        $program = Program::query()->create([
+            'department_id' => $department->id,
+            'name' => 'B.Eng Computer Engineering',
+            'award_type' => 'B.Eng',
+            'study_level' => 'undergraduate',
+            'entry_modes' => ['utme'],
+            'duration_years' => 5,
+            'is_active' => true,
+        ]);
+        $otherFaculty = Faculty::query()->create(['campus_id' => $campus->id, 'name' => 'College of Law']);
+        $otherDepartment = Department::query()->create(['faculty_id' => $otherFaculty->id, 'name' => 'Private Law']);
+
+        Sanctum::actingAs($application->user);
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'programme_selection',
+            'payload' => [
+                'first_choice_program_id' => $program->id,
+                'first_choice_college_id' => $otherFaculty->id,
+                'first_choice_department_id' => $otherDepartment->id,
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonPath('program_id', $program->id);
+
+        $payload = $application->fresh()->steps()->where('step_key', 'programme_selection')->value('payload');
+        $this->assertSame($program->id, $payload['first_choice_program_id']);
+        $this->assertSame($faculty->id, $payload['first_choice_college_id']);
+        $this->assertSame($department->id, $payload['first_choice_department_id']);
+        $this->assertNotSame($otherFaculty->id, $payload['first_choice_college_id']);
+        $this->assertNotSame($otherDepartment->id, $payload['first_choice_department_id']);
+    }
+
+    public function test_staff_update_fills_college_and_department_from_the_programme(): void
+    {
+        $application = $this->formInProgressApplication();
+        $application->update(['jamb_registration' => '12345678AB']);
+        $application->user->update(['jamb_registration' => '12345678AB']);
+
+        $campus = Campus::query()->create(['name' => 'Main', 'is_active' => true]);
+        $faculty = Faculty::query()->create(['campus_id' => $campus->id, 'name' => 'College of Engineering']);
+        $department = Department::query()->create(['faculty_id' => $faculty->id, 'name' => 'Computer Engineering']);
+        $program = Program::query()->create([
+            'department_id' => $department->id,
+            'name' => 'B.Eng Computer Engineering',
+            'award_type' => 'B.Eng',
+            'study_level' => 'undergraduate',
+            'entry_modes' => ['utme'],
+            'duration_years' => 5,
+            'is_active' => true,
+        ]);
+        $otherFaculty = Faculty::query()->create(['campus_id' => $campus->id, 'name' => 'College of Law']);
+        $otherDepartment = Department::query()->create(['faculty_id' => $otherFaculty->id, 'name' => 'Private Law']);
+
+        app(ApplicationStaffUpdateService::class)->update($application, [
+            'email' => $application->user->email,
+            'first_name' => 'Ada',
+            'last_name' => 'Okoye',
+            'jamb_registration' => '12345678AB',
+            'first_choice_program_id' => $program->id,
+            'first_choice_college_id' => $otherFaculty->id,
+            'first_choice_department_id' => $otherDepartment->id,
+        ]);
+
+        $payload = $application->fresh()->steps()->where('step_key', 'programme_selection')->value('payload');
+        $this->assertSame($program->id, $payload['first_choice_program_id']);
+        $this->assertSame($faculty->id, $payload['first_choice_college_id']);
+        $this->assertSame($department->id, $payload['first_choice_department_id']);
     }
 
     private function applicant(): User
