@@ -236,14 +236,14 @@ class ApplicationStaffUpdateService
                 continue;
             }
             $program = Program::query()->with('department.faculty')->find($id);
+            if ($application->entry_mode === 'jupeb' && $program?->isJupebTrack() && Program::jupebCentresAreConfigured() && ! $program->isOfferedAtJupebCentre()) {
+                abort(422, 'JUPEB applicants can only choose a programme offered at a JUPEB centre.');
+            }
             abort_unless(
-                $program && $program->isOffered() && $program->acceptsEntryMode($application->entry_mode),
+                $program && $program->isAvailableForEntryMode($application->entry_mode),
                 422,
                 'The selected programme is not available for this admission category.',
             );
-            if ($application->entry_mode === 'jupeb' && ! $program->isOfferedAtJupebCentre()) {
-                abort(422, 'JUPEB applicants can only choose a programme offered at a JUPEB centre.');
-            }
         }
     }
 

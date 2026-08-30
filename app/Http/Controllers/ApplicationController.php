@@ -272,7 +272,7 @@ class ApplicationController extends Controller
         }
         if (($application->entry_mode ?? '') === 'jupeb' && ! empty($data['first_choice_program_id'])) {
             $program = Program::query()->with('department.faculty')->find($data['first_choice_program_id']);
-            if ($program && ! $program->isOfferedAtJupebCentre()) {
+            if ($program && $program->isJupebTrack() && Program::jupebCentresAreConfigured() && ! $program->isOfferedAtJupebCentre()) {
                 return response()->json([
                     'message' => 'JUPEB applicants can only choose a programme offered at a JUPEB centre.',
                 ], 422);
@@ -553,14 +553,14 @@ class ApplicationController extends Controller
             }
             foreach ($choices as $key => $label) {
                 $program = Program::query()->with('department.faculty')->find($payload[$key]);
-                if (! $program || ! $program->isOffered() || ! $program->acceptsEntryMode($application->entry_mode)) {
-                    return response()->json([
-                        'message' => 'The selected '.$label.' programme is not available for your admission category.',
-                    ], 422);
-                }
-                if ($application->entry_mode === 'jupeb' && ! $program->isOfferedAtJupebCentre()) {
+                if ($application->entry_mode === 'jupeb' && $program?->isJupebTrack() && Program::jupebCentresAreConfigured() && ! $program->isOfferedAtJupebCentre()) {
                     return response()->json([
                         'message' => 'JUPEB applicants can only choose a programme offered at a JUPEB centre.',
+                    ], 422);
+                }
+                if (! $program || ! $program->isAvailableForEntryMode($application->entry_mode)) {
+                    return response()->json([
+                        'message' => 'The selected '.$label.' programme is not available for your admission category.',
                     ], 422);
                 }
                 $prefix = $key === 'first_choice_program_id' ? 'first_choice' : 'second_choice';
@@ -1042,18 +1042,17 @@ class ApplicationController extends Controller
     {
         $programId = ProgrammeEligibility::firstChoiceId($application);
         $program = $programId ? Program::query()->with('department.faculty')->find($programId) : null;
+        if ($application->entry_mode === 'jupeb' && $program?->isJupebTrack() && Program::jupebCentresAreConfigured() && ! $program->isOfferedAtJupebCentre()) {
+            return response()->json([
+                'message' => 'JUPEB applicants can only choose a programme offered at a JUPEB centre.',
+            ], 422);
+        }
         if (
             ! $program
-            || ! $program->isOffered()
-            || ! $program->acceptsEntryMode($application->entry_mode)
+            || ! $program->isAvailableForEntryMode($application->entry_mode)
         ) {
             return response()->json([
                 'message' => 'Select a programme before submitting your application.',
-            ], 422);
-        }
-        if ($application->entry_mode === 'jupeb' && ! $program->isOfferedAtJupebCentre()) {
-            return response()->json([
-                'message' => 'JUPEB applicants can only choose a programme offered at a JUPEB centre.',
             ], 422);
         }
 

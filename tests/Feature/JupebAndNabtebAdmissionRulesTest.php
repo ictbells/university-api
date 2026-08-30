@@ -192,6 +192,47 @@ class JupebAndNabtebAdmissionRulesTest extends TestCase
         $this->assertNotContains($this->utmeProgram->id, $ids);
     }
 
+    public function test_jupeb_applicant_sees_jupeb_programmes_when_no_college_is_a_centre(): void
+    {
+        Faculty::query()->update(['is_jupeb_centre' => false]);
+        Sanctum::actingAs($this->formInProgress('jupeb')->user);
+
+        $ids = collect($this->getJson('/api/programs?entry_mode=jupeb')->assertOk()->json())
+            ->pluck('id')
+            ->all();
+
+        $this->assertContains($this->jupebCentreProgram->id, $ids);
+        $this->assertContains($this->jupebOtherProgram->id, $ids);
+        $this->assertContains($this->secondJupebCentreProgram->id, $ids);
+        $this->assertNotContains($this->utmeProgram->id, $ids);
+    }
+
+    public function test_jupeb_applicant_sees_undergraduate_programmes_when_no_jupeb_track_exists(): void
+    {
+        Program::query()->whereIn('id', [
+            $this->jupebCentreProgram->id,
+            $this->secondJupebCentreProgram->id,
+            $this->jupebOtherProgram->id,
+        ])->update(['is_active' => false]);
+        Faculty::query()->update(['is_jupeb_centre' => false]);
+
+        $application = $this->formInProgress('jupeb');
+        Sanctum::actingAs($application->user);
+
+        $ids = collect($this->getJson('/api/programs?entry_mode=jupeb')->assertOk()->json())
+            ->pluck('id')
+            ->all();
+
+        $this->assertContains($this->utmeProgram->id, $ids);
+        $this->assertNotContains($this->jupebCentreProgram->id, $ids);
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'programme_selection',
+            'payload' => ['first_choice_program_id' => $this->utmeProgram->id],
+        ])->assertOk()
+            ->assertJsonPath('program_id', $this->utmeProgram->id);
+    }
+
     public function test_jupeb_can_submit_with_passport_and_olevel_only(): void
     {
         $application = $this->readyToSubmit('jupeb', $this->jupebCentreProgram);

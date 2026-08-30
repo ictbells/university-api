@@ -35,8 +35,6 @@ class AcademicController extends Controller
 
     public function programs(Request $request)
     {
-        $query = Program::query()->with(['department.faculty', 'workflowTemplate.stages'])->where('is_active', true);
-
         $modes = [];
         if ($request->filled('entry_modes')) {
             $modes = is_array($request->entry_modes)
@@ -46,21 +44,7 @@ class AcademicController extends Controller
             $modes = [(string) $request->entry_mode];
         }
 
-        if ($modes !== []) {
-            $query->where(function ($builder) use ($modes) {
-                foreach ($modes as $index => $mode) {
-                    $method = $index === 0 ? 'whereJsonContains' : 'orWhereJsonContains';
-                    $builder->{$method}('entry_modes', $mode);
-                }
-            });
-        }
-
-        $programs = $query->orderBy('name')->get();
-        if ($modes === ['jupeb']) {
-            $programs = $programs->filter(
-                fn (Program $program) => $program->isOfferedAtJupebCentre()
-            )->values();
-        }
+        $programs = Program::catalogForEntryMode($modes !== [] ? array_values($modes) : null);
         $application = $request->user()?->latestApplication;
         if ($application && $application->entry_mode === 'pg') {
             $application->loadMissing(['steps', 'documents', 'refereeInvites']);
