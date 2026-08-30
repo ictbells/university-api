@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Bells SIS Laravel scheduler every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=1s
+Persistent=true
+Unit=bells-sis-scheduler.service
+
+[Install]
+WantedBy=timers.target

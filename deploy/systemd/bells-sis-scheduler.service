@@ -1,0 +1,20 @@
+[Unit]
+Description=Bells SIS Laravel scheduler (schedule:run)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=@SCHEDULER_USER@
+Group=@SCHEDULER_GROUP@
+WorkingDirectory=@API_DIR@
+ExecStart=@PHP_BIN@ artisan schedule:run
+Nice=10
+
+# Laravel writes schedule output to storage/logs; keep journal entries brief.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bells-sis-scheduler
+
+[Install]
+WantedBy=multi-user.target

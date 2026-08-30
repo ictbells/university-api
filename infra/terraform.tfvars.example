@@ -3,8 +3,7 @@ aws_region  = "us-east-1"
 environment = "test"
 project_name = "bells-sis"
 
-hosted_zone_name = "cycbankease.com"
-# Must NOT be "api" — api.cycbankease.com already belongs to BankEase.
+hosted_zone_name = "yourdomain.com"
 api_subdomain     = "bells-api"
 staff_subdomain   = "staff"
 student_subdomain = "student"
@@ -20,7 +19,7 @@ db_username = "bells_sis_app"
 # Leave empty to auto-generate into Secrets Manager: test/bells-sis/rds/app
 # db_password = "change-me"
 
-# Required for Let's Encrypt on bells-api.cycbankease.com
+# Required for Let's Encrypt on bells-api.yourdomain.com
 letsencrypt_email = "you@example.com"
 
 # GitHub Actions SSM deploy (no SSH key). Set AWS_ROLE_ARN to output github_deploy_role_arn.
