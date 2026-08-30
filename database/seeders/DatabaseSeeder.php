@@ -97,18 +97,28 @@ class DatabaseSeeder extends Seeder
 
     private function seedSuperAdmin(): void
     {
-        $email = (string) env('SUPER_ADMIN_EMAIL');
-        $password = (string) env('SUPER_ADMIN_PASSWORD');
+        $email = trim((string) config('app.super_admin_email'));
+        $password = (string) config('app.super_admin_password');
 
         if (app()->environment('production')) {
-            if (! is_string($password) || $password === '') {
-                return;
+            $missing = [];
+            if ($email === '' || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $missing[] = 'SUPER_ADMIN_EMAIL';
+            }
+            if ($password === '') {
+                $missing[] = 'SUPER_ADMIN_PASSWORD';
+            }
+            if ($missing !== []) {
+                throw new RuntimeException(
+                    'Production seeding requires '.implode(' and ', $missing).' in the environment.'
+                );
             }
             if ($password === 'Password1!') {
-                throw new RuntimeException('Refusing to seed the well-known default password in production. Set ADMIN_PASSWORD to a unique value.');
+                throw new RuntimeException('Refusing to seed the well-known default password in production. Set SUPER_ADMIN_PASSWORD to a unique value.');
             }
         } else {
-            $password = is_string($password) && $password !== '' ? $password : 'Password1!';
+            $email = $email !== '' ? $email : 'superadmin@bellsuniversity.edu.ng';
+            $password = $password !== '' ? $password : 'Password1!';
         }
 
         $user = User::query()->firstOrCreate(

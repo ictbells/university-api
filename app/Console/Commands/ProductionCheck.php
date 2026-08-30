@@ -26,6 +26,17 @@ class ProductionCheck extends Command
             $failures[] = 'APP_DEBUG must be false.';
         }
 
+        $superEmail = trim((string) config('app.super_admin_email'));
+        $superPassword = (string) config('app.super_admin_password');
+        if ($superEmail === '' || ! filter_var($superEmail, FILTER_VALIDATE_EMAIL)) {
+            $failures[] = 'SUPER_ADMIN_EMAIL must be a valid email.';
+        }
+        if ($superPassword === '') {
+            $failures[] = 'SUPER_ADMIN_PASSWORD must be set.';
+        } elseif ($superPassword === 'Password1!') {
+            $failures[] = 'SUPER_ADMIN_PASSWORD must not be the well-known default Password1!.';
+        }
+
         if (! config('app.key')) {
             $failures[] = 'APP_KEY is missing.';
         }
