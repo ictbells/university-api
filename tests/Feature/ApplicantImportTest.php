@@ -400,6 +400,7 @@ class ApplicantImportTest extends TestCase
             'verify_nin' => '0',
             'send_credentials' => '0',
         ], ['Accept' => 'application/json'])->assertOk()
+            ->assertJsonPath('data.created', 1)
             ->assertJsonPath('data.emailed', 0);
 
         Mail::assertNothingSent();
