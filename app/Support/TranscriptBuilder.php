@@ -20,6 +20,10 @@ final class TranscriptBuilder
         bool $includePendingHint = false,
         ?int $programId = null,
     ): array {
+        if ($programId === null && ProgrammeChangeGpaPolicy::hasSubsequentAdmission($student) && $student->program_id) {
+            $programId = (int) $student->program_id;
+        }
+
         $gradesQuery = Grade::query()
             ->withResolved()
             ->forStudent($student->id);

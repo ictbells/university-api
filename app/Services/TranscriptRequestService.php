@@ -11,6 +11,7 @@ use App\Models\Program;
 use App\Models\Setting;
 use App\Models\Student;
 use App\Models\StudentLevelProgression;
+use App\Models\StudentProgrammeChange;
 use App\Models\TranscriptRequest;
 use App\Models\User;
 use App\Support\AppStorage;
@@ -511,6 +512,15 @@ class TranscriptRequestService
         $currentId = $student->program_id ? (int) $student->program_id : null;
         if ($currentId) {
             $ids[$currentId] = true;
+        }
+
+        foreach (
+            StudentProgrammeChange::query()
+                ->where('student_id', $student->id)
+                ->get(['from_program_id', 'to_program_id']) as $change
+        ) {
+            $ids[(int) $change->from_program_id] = true;
+            $ids[(int) $change->to_program_id] = true;
         }
 
         foreach (

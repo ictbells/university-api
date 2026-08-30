@@ -77,8 +77,8 @@ final class StudentProgressMetrics
             );
             $student = $studentsById->get($studentId);
             if ($student) {
-                $eligibleToDate = ProgrammeChangeGpaPolicy::forCgpa($eligibleToDate, $student);
-                $eligibleAll = ProgrammeChangeGpaPolicy::forCgpa($eligibleAll, $student);
+                $eligibleToDate = ProgrammeChangeGpaPolicy::forCurrentProgramme($eligibleToDate, $student);
+                $eligibleAll = ProgrammeChangeGpaPolicy::forCurrentProgramme($eligibleAll, $student);
             }
 
             $semesterSummary = GpaCalculator::summary($semesterRows, false);

@@ -136,7 +136,8 @@ class User extends Authenticatable
     public function isStudentPortalUser(): bool
     {
         if ($this->student) {
-            return \App\Support\Studentship::isCurrent($this->student);
+            return \App\Support\Studentship::isCurrent($this->student)
+                || \App\Support\Studentship::canApplyForAnotherProgramme($this->student);
         }
 
         return $this->roles()
@@ -185,6 +186,8 @@ class User extends Authenticatable
         return [
             'lifecycle_stage' => $stage,
             'is_student' => $this->isStudent(),
+            'student_status' => $student?->status,
+            'can_apply_again' => \App\Support\Studentship::canApplyForAnotherProgramme($student),
             'is_staff' => $this->isStaffPortalUser(),
             'portal_access' => $portal || $this->isStudent() || $this->staff()->exists() || $this->hasPermission('users.manage'),
             'unpaid_application_fee' => $unpaidAppFee,

@@ -42,6 +42,20 @@ class StudentshipTest extends TestCase
         $this->assertFalse(Studentship::isCurrent($expired));
     }
 
+    public function test_only_graduated_or_alumni_students_may_apply_for_another_programme(): void
+    {
+        $this->assertTrue(Studentship::canApplyForAnotherProgramme(null));
+        $this->assertFalse(Studentship::canApplyForAnotherProgramme($this->makeStudent(Studentship::STATUS_ACTIVE)));
+        $this->assertFalse(Studentship::canApplyForAnotherProgramme($this->makeStudent(Studentship::STATUS_SUSPENDED)));
+        $this->assertFalse(Studentship::canApplyForAnotherProgramme($this->makeStudent(Studentship::STATUS_WITHDRAWN)));
+        $this->assertTrue(Studentship::canApplyForAnotherProgramme(
+            $this->makeStudent(Studentship::STATUS_GRADUATED, now()->subYear()->toDateString(), now()->addYear()->toDateString()),
+        ));
+        $this->assertTrue(Studentship::canApplyForAnotherProgramme(
+            $this->makeStudent(Studentship::STATUS_ALUMNI, now()->subYears(3)->toDateString(), now()->subDay()->toDateString()),
+        ));
+    }
+
     public function test_expiry_date_uses_configured_years(): void
     {
         Setting::setValue(Studentship::YEARS_KEY, '3');

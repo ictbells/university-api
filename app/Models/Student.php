@@ -91,6 +91,13 @@ class Student extends BaseModel
         return $this->hasMany(StudentProgrammeChange::class)->orderBy('id');
     }
 
+    public function subsequentAdmissions(): HasMany
+    {
+        return $this->hasMany(StudentProgrammeChange::class)
+            ->where('kind', StudentProgrammeChange::KIND_SUBSEQUENT_ADMISSION)
+            ->orderBy('id');
+    }
+
     public function hostelAllocations(): HasMany
     {
         return $this->hasMany(HostelAllocation::class);

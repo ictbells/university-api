@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\AcademicLevel;
 use App\Models\Enrollment;
 use App\Models\Grade;
+use App\Models\Program;
 use App\Models\Student;
 use App\Models\StudentProgrammeChange;
 use Carbon\Carbon;
@@ -84,13 +85,77 @@ final class ProgrammeChangeGpaPolicy
     public static function changesFor(Student $student): Collection
     {
         if ($student->relationLoaded('programmeChanges')) {
-            return $student->programmeChanges->sortBy('id')->values();
+            return $student->programmeChanges
+                ->filter(fn (StudentProgrammeChange $change) => self::isChangeOfProgramme($change))
+                ->sortBy('id')
+                ->values();
         }
 
         return StudentProgrammeChange::query()
             ->where('student_id', $student->id)
+            ->where('kind', StudentProgrammeChange::KIND_CHANGE_OF_PROGRAMME)
             ->orderBy('id')
             ->get();
+    }
+
+    public static function hasSubsequentAdmission(Student $student): bool
+    {
+        if ($student->relationLoaded('programmeChanges')) {
+            return $student->programmeChanges->contains(
+                fn (StudentProgrammeChange $change) => $change->kind === StudentProgrammeChange::KIND_SUBSEQUENT_ADMISSION
+            );
+        }
+
+        return StudentProgrammeChange::query()
+            ->where('student_id', $student->id)
+            ->where('kind', StudentProgrammeChange::KIND_SUBSEQUENT_ADMISSION)
+            ->exists();
+    }
+
+    /**
+     * @param  Collection<int, Grade>  $grades
+     * @return Collection<int, Grade>
+     */
+    public static function forCurrentProgramme(Collection $grades, Student $student): Collection
+    {
+        $grades = self::forCgpa($grades, $student);
+        if (! self::hasSubsequentAdmission($student) || ! $student->program_id) {
+            return $grades;
+        }
+
+        return self::onProgram($grades, (int) $student->program_id);
+    }
+
+    /**
+     * @param  Collection<int, Grade>  $grades
+     * @return Collection<int, Grade>
+     */
+    public static function onProgram(Collection $grades, int $programId): Collection
+    {
+        $courseIds = Program::query()
+            ->whereKey($programId)
+            ->first()
+            ?->courses()
+            ->pluck('courses.id')
+            ->all() ?? [];
+        if ($courseIds === []) {
+            return $grades->values();
+        }
+
+        return $grades
+            ->filter(function (Grade $grade) use ($courseIds) {
+                $courseId = (int) ($grade->resolvedOffering()?->course_id ?? 0);
+
+                return $courseId > 0 && in_array($courseId, $courseIds, true);
+            })
+            ->values();
+    }
+
+    private static function isChangeOfProgramme(StudentProgrammeChange $change): bool
+    {
+        $kind = $change->kind ?: StudentProgrammeChange::KIND_CHANGE_OF_PROGRAMME;
+
+        return $kind === StudentProgrammeChange::KIND_CHANGE_OF_PROGRAMME;
     }
 
     public static function takenAt(Grade $grade): CarbonInterface

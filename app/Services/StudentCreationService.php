@@ -5,11 +5,14 @@ namespace App\Services;
 use App\Models\Application;
 use App\Models\MedicalProfile;
 use App\Models\PgRecord;
+use App\Models\Program;
 use App\Models\Role;
 use App\Models\Student;
+use App\Models\StudentProgrammeChange;
 use App\Models\Wallet;
 use App\Support\ProgrammeEligibility;
 use App\Support\StudyLevel;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class StudentCreationService
@@ -145,11 +148,15 @@ class StudentCreationService
             $application->load(['user', 'program', 'steps']);
             $biodata = $application->mergedProfilePayload();
             $contact = $application->steps()->where('step_key', 'application_form')->first()?->payload ?? [];
+            $fromProgramId = $student->program_id ? (int) $student->program_id : null;
+            $toProgramId = $application->program_id ? (int) $application->program_id : $fromProgramId;
+            $fromLevel = (int) $student->current_level;
+            $toLevel = $this->entryLevelFor($application);
 
             $student->update([
-                'program_id' => $application->program_id ?: $student->program_id,
+                'program_id' => $toProgramId ?: $student->program_id,
                 'study_level' => StudyLevel::fromEntryMode($application->entry_mode),
-                'current_level' => $this->entryLevelFor($application),
+                'current_level' => $toLevel,
                 'status' => 'active',
                 'marital_status' => $biodata['marital_status'] ?? $student->marital_status,
                 'religion' => $biodata['religion'] ?? $student->religion,
@@ -170,6 +177,17 @@ class StudentCreationService
                 'sponsor_email' => $biodata['sponsor_email'] ?? $student->sponsor_email,
                 'sponsor_address' => $biodata['sponsor_address'] ?? $student->sponsor_address,
             ]);
+
+            if ($fromProgramId && $toProgramId && $fromProgramId !== $toProgramId) {
+                $this->recordSubsequentAdmission(
+                    $student,
+                    $fromProgramId,
+                    $toProgramId,
+                    $fromLevel,
+                    $toLevel,
+                    $application->id,
+                );
+            }
 
             $student->loadMissing('pgRecord');
             if ($application->entry_mode === 'pg' && ! $student->pgRecord) {
@@ -358,6 +376,37 @@ class StudentCreationService
 
             return $student->fresh(['wallet', 'program', 'user']);
         });
+    }
+
+    private function recordSubsequentAdmission(
+        Student $student,
+        int $fromProgramId,
+        int $toProgramId,
+        int $fromLevel,
+        int $toLevel,
+        ?int $applicationId,
+    ): void {
+        StudentProgrammeChange::query()->create([
+            'student_id' => $student->id,
+            'from_program_id' => $fromProgramId,
+            'to_program_id' => $toProgramId,
+            'from_level' => $fromLevel,
+            'to_level' => $toLevel,
+            'same_college' => $this->programmesShareCollege($fromProgramId, $toProgramId),
+            'kind' => StudentProgrammeChange::KIND_SUBSEQUENT_ADMISSION,
+            'application_id' => $applicationId,
+            'created_by' => Auth::id(),
+        ]);
+    }
+
+    private function programmesShareCollege(int $fromProgramId, int $toProgramId): bool
+    {
+        $from = Program::query()->with('department')->find($fromProgramId);
+        $to = Program::query()->with('department')->find($toProgramId);
+        $fromFaculty = (int) ($from?->department?->faculty_id ?? 0);
+        $toFaculty = (int) ($to?->department?->faculty_id ?? 0);
+
+        return $fromFaculty > 0 && $fromFaculty === $toFaculty;
     }
 
     private function entryLevelFor(Application $application): int

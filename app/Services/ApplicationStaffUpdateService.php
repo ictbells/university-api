@@ -274,6 +274,7 @@ class ApplicationStaffUpdateService
             'from_level' => $stored,
             'to_level' => $nextLevel,
             'same_college' => $sameCollege,
+            'kind' => StudentProgrammeChange::KIND_CHANGE_OF_PROGRAMME,
             'application_id' => $applicationId,
             'created_by' => Auth::id(),
         ]);

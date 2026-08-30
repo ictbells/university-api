@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Mail\ReturningApplicationCredentialsMail;
 use App\Models\AcademicSession;
 use App\Models\AcademicTerm;
 use App\Models\Application;
@@ -20,9 +21,12 @@ use App\Models\Student;
 use App\Models\User;
 use App\Services\ApplicationAdmissionService;
 use App\Support\PermissionCatalog;
+use App\Support\Studentship;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -30,11 +34,29 @@ class ReturningStudentApplicationTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_active_student_cannot_start_another_application_until_graduated(): void
+    {
+        [$user, $prior, $pgIntake] = $this->matriculatedStudentWithOpenPgIntake();
+        $this->seedApplicantRole();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/applications', [
+            'entry_mode' => 'pg',
+            'intake_id' => $pgIntake->id,
+        ])->assertStatus(422)
+            ->assertJsonPath('message', Studentship::INCOMPLETE_PROGRAMME_MESSAGE);
+
+        $this->assertSame(1, Application::query()->count());
+        $this->assertSame($prior->id, Application::query()->value('id'));
+    }
+
     public function test_student_can_start_a_new_application_that_is_prefilled_and_nin_biodata_stays_locked(): void
     {
         [$user, $prior, $pgIntake] = $this->matriculatedStudentWithOpenPgIntake();
         $this->seedApplicantRole();
+        $this->graduate($user->student);
 
+        Mail::fake();
         Sanctum::actingAs($user);
 
         $response = $this->postJson('/api/applications', [
@@ -80,6 +102,55 @@ class ReturningStudentApplicationTest extends TestCase
         $this->assertSame('Adaeze', $locked['first_name'] ?? null);
         $this->assertSame('Okoye', $locked['last_name'] ?? null);
         $this->assertTrue($locked['nin_locked'] ?? false);
+    }
+
+    public function test_graduated_student_is_emailed_matric_and_a_new_password_to_continue(): void
+    {
+        [$user, $prior, $pgIntake] = $this->matriculatedStudentWithOpenPgIntake();
+        $this->seedApplicantRole();
+        $this->graduate($user->student);
+        $user->update(['password' => 'OldSecret1!']);
+        $matric = $user->student->matric_number;
+
+        Mail::fake();
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/applications', [
+            'entry_mode' => 'pg',
+            'intake_id' => $pgIntake->id,
+        ])->assertOk()
+            ->assertJsonPath('credentials_emailed', true);
+
+        $newNumber = $response->json('application_number');
+        $this->assertNotSame($prior->application_number, $newNumber);
+        $this->assertNotNull($response->json('credentials_emailed_at'));
+        $this->assertFalse(Hash::check('OldSecret1!', $user->fresh()->password));
+
+        $plain = null;
+        Mail::assertSent(ReturningApplicationCredentialsMail::class, function (ReturningApplicationCredentialsMail $mail) use ($user, $prior, $newNumber, $matric, &$plain) {
+            $plain = $mail->plainPassword;
+            $rendered = $mail->render();
+
+            return $mail->hasTo($user->email)
+                && $mail->envelope()->subject === 'Continue your Bells University application'
+                && $mail->previousApplicationNumber === $prior->application_number
+                && $mail->application->application_number === $newNumber
+                && is_string($plain)
+                && $plain !== ''
+                && str_contains($rendered, $matric)
+                && str_contains($rendered, $prior->application_number)
+                && str_contains($rendered, $newNumber)
+                && str_contains($rendered, $plain)
+                && str_contains($rendered, 'Sign in with your matric number');
+        });
+
+        $this->assertNotNull($plain);
+        $this->postJson('/api/login', [
+            'portal' => 'student',
+            'login' => $matric,
+            'password' => $plain,
+        ])->assertOk()
+            ->assertJsonPath('can_apply_again', true);
     }
 
     public function test_acceptance_fee_reuses_the_existing_student_and_matric(): void
@@ -132,6 +203,17 @@ class ReturningStudentApplicationTest extends TestCase
         $this->assertNotNull($new->fresh()->physically_cleared_at);
         $this->assertSame($prior->id, $student->fresh()->application_id);
         $this->assertSame($program->id, $student->fresh()->program_id);
+        $this->assertSame('postgraduate', $student->fresh()->study_level);
+        $this->assertDatabaseHas('student_programme_changes', [
+            'student_id' => $student->id,
+            'from_program_id' => $prior->program_id,
+            'to_program_id' => $program->id,
+            'from_level' => 100,
+            'to_level' => 1,
+            'kind' => 'subsequent_admission',
+            'application_id' => $new->id,
+        ]);
+        $this->assertSame($prior->program_id, $prior->fresh()->program_id);
     }
 
     public function test_staff_resync_from_nin_refreshes_locked_biodata(): void
@@ -381,6 +463,16 @@ class ReturningStudentApplicationTest extends TestCase
             ['slug' => 'applicant'],
             ['name' => 'Applicant', 'is_system' => true, 'is_active' => true],
         );
+    }
+
+    private function graduate(?Student $student): void
+    {
+        abort_unless($student, 500, 'Student record is required to graduate in this test.');
+        $student->update([
+            'status' => Studentship::STATUS_GRADUATED,
+            'graduated_at' => now()->toDateString(),
+            'studentship_expires_at' => now()->addYears(2)->toDateString(),
+        ]);
     }
 
     /**

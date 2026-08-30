@@ -34,6 +34,13 @@ class Studentship
 
     public const YEARS_KEY = 'studentship.years_after_graduation';
 
+    public const COMPLETED_STATUSES = [
+        self::STATUS_GRADUATED,
+        self::STATUS_ALUMNI,
+    ];
+
+    public const INCOMPLETE_PROGRAMME_MESSAGE = 'Complete your current programme before applying for another. Registry must confirm graduation first.';
+
     public static function yearsAfterGraduation(): int
     {
         return max(1, min(10, (int) Setting::getValue(self::YEARS_KEY, 2)));
@@ -67,5 +74,14 @@ class Studentship
     public static function canRegisterCourses(Student $student): bool
     {
         return $student->status === self::STATUS_ACTIVE && self::isCurrent($student);
+    }
+
+    public static function canApplyForAnotherProgramme(?Student $student): bool
+    {
+        if (! $student) {
+            return true;
+        }
+
+        return in_array($student->status, self::COMPLETED_STATUSES, true);
     }
 }

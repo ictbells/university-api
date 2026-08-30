@@ -116,6 +116,44 @@ class ProgrammeChangeCgpaTest extends TestCase
         $this->assertSame([], $transcript['terms']);
     }
 
+    public function test_subsequent_admission_preserves_undergraduate_transcript_and_scopes_the_current_programme(): void
+    {
+        [$student, $old, $new, $levels, $terms] = $this->studentOnOldProgramme(300);
+        $this->mapAndGrade($student, $old, $levels, $terms, [
+            100 => ['letter' => 'A', 'points' => 5, 'score' => 72],
+            200 => ['letter' => 'C', 'points' => 3, 'score' => 55],
+            300 => ['letter' => 'F', 'points' => 0, 'score' => 20],
+        ]);
+        $this->recordChange($student, $old, $new, 300, 1, sameCollege: false, kind: StudentProgrammeChange::KIND_SUBSEQUENT_ADMISSION);
+
+        $ug = TranscriptBuilder::forStudent($student->fresh(['programmeChanges']), true, false, $old->id);
+        $this->assertEqualsCanonicalizing(['OLD100', 'OLD200', 'OLD300'], collect($ug['rows'])->pluck('course.code')->all());
+        $this->assertEquals(2.67, round((float) $ug['cgpa'], 2));
+
+        $level200 = $levels[200];
+        $course = Course::query()->create([
+            'department_id' => $new->department_id,
+            'code' => 'NEW201',
+            'title' => 'New programme 200L',
+            'units' => 3,
+            'course_type' => 'departmental',
+            'status' => 'core',
+        ]);
+        $new->courses()->attach($course->id, ['academic_level_id' => $level200->id, 'bucket' => 'departmental']);
+        $current = AcademicTerm::query()->where('is_current', true)->firstOrFail();
+        $offering = CourseOffering::query()->create([
+            'course_id' => $course->id,
+            'academic_term_id' => $current->id,
+            'section' => 'A',
+        ]);
+        $this->gradeOffering($student, $offering, 'B', 4, 62, now());
+
+        $currentTranscript = TranscriptBuilder::forStudent($student->fresh(['programmeChanges']), true);
+        $this->assertSame($new->id, (int) $currentTranscript['program_id']);
+        $this->assertSame(['NEW201'], collect($currentTranscript['rows'])->pluck('course.code')->all());
+        $this->assertEquals(4.0, (float) $currentTranscript['cgpa']);
+    }
+
     /**
      * @return array{0: Student, 1: Program, 2: Program, 3: array<int, AcademicLevel>, 4: array<int, AcademicTerm>}
      */
@@ -258,6 +296,7 @@ class ProgrammeChangeCgpaTest extends TestCase
         int $fromLevel,
         int $toLevel,
         bool $sameCollege,
+        string $kind = StudentProgrammeChange::KIND_CHANGE_OF_PROGRAMME,
     ): void {
         StudentProgrammeChange::query()->create([
             'student_id' => $student->id,
@@ -266,6 +305,7 @@ class ProgrammeChangeCgpaTest extends TestCase
             'from_level' => $fromLevel,
             'to_level' => $toLevel,
             'same_college' => $sameCollege,
+            'kind' => $kind,
         ]);
         $student->update([
             'program_id' => $to->id,

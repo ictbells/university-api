@@ -436,7 +436,8 @@ class AuthController extends Controller
         $user->load([
             'roles.permissions',
             'student.program.department.faculty.campus',
-            'student.application:id,entry_mode',
+            'student.application:id,entry_mode,program_id',
+            'student.programmeChanges.fromProgram:id,name,code,study_level',
             'staff',
             'latestApplication.applicationFeeInvoice',
             'latestApplication.acceptanceFeeInvoice',

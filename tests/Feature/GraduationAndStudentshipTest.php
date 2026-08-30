@@ -102,7 +102,7 @@ class GraduationAndStudentshipTest extends TestCase
         $this->assertSame(Studentship::STATUS_ALUMNI, $student->fresh()->status);
     }
 
-    public function test_student_login_allowed_while_graduated_and_blocked_after_expiry(): void
+    public function test_student_login_allowed_while_graduated_and_after_expiry_to_apply_again(): void
     {
         $user = User::factory()->create(['status' => 'active', 'password' => 'password']);
         $student = $this->makeStudent(400, 'BUT/2024/0003', Studentship::STATUS_GRADUATED, '2025-08-24', now()->addYear()->toDateString(), $user);
@@ -111,7 +111,9 @@ class GraduationAndStudentshipTest extends TestCase
             'portal' => 'student',
             'login' => 'BUT/2024/0003',
             'password' => 'password',
-        ])->assertOk();
+        ])->assertOk()
+            ->assertJsonPath('can_apply_again', true)
+            ->assertJsonPath('student_status', Studentship::STATUS_GRADUATED);
 
         $student->update([
             'status' => Studentship::STATUS_ALUMNI,
@@ -122,11 +124,9 @@ class GraduationAndStudentshipTest extends TestCase
             'portal' => 'student',
             'login' => 'BUT/2024/0003',
             'password' => 'password',
-        ])->assertUnprocessable()
-            ->assertJsonPath(
-                'errors.login.0',
-                'Your studentship ended on '.$student->fresh()->studentship_expires_at?->toDateString().'. Sign in is no longer available on the student portal.'
-            );
+        ])->assertOk()
+            ->assertJsonPath('can_apply_again', true)
+            ->assertJsonPath('student_status', Studentship::STATUS_ALUMNI);
     }
 
     public function test_alumni_with_staff_record_can_still_use_staff_portal(): void
@@ -144,7 +144,8 @@ class GraduationAndStudentshipTest extends TestCase
             'portal' => 'student',
             'login' => 'BUT/2020/0004',
             'password' => 'password',
-        ])->assertStatus(422);
+        ])->assertOk()
+            ->assertJsonPath('can_apply_again', true);
 
         $this->postJson('/api/login', [
             'email' => 'dual@example.com',

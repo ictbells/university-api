@@ -7,6 +7,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class StudentProgrammeChange extends Model
 {
+    public const KIND_CHANGE_OF_PROGRAMME = 'change_of_programme';
+
+    public const KIND_SUBSEQUENT_ADMISSION = 'subsequent_admission';
+
     protected $fillable = [
         'student_id',
         'from_program_id',
@@ -14,6 +18,7 @@ class StudentProgrammeChange extends Model
         'from_level',
         'to_level',
         'same_college',
+        'kind',
         'application_id',
         'created_by',
     ];
