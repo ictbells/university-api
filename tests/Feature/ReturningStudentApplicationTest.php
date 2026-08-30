@@ -129,19 +129,18 @@ class ReturningStudentApplicationTest extends TestCase
         $plain = null;
         Mail::assertSent(ReturningApplicationCredentialsMail::class, function (ReturningApplicationCredentialsMail $mail) use ($user, $prior, $newNumber, $matric, &$plain) {
             $plain = $mail->plainPassword;
-            $rendered = $mail->render();
+            $mail->assertTo($user->email);
+            $mail->assertHasSubject('Continue your Bells University application');
+            $mail->assertSeeInHtml((string) $matric);
+            $mail->assertSeeInHtml($prior->application_number);
+            $mail->assertSeeInHtml($newNumber);
+            $mail->assertSeeInHtml((string) $plain);
+            $mail->assertSeeInHtml('Sign in with your matric number', false);
 
-            return $mail->hasTo($user->email)
-                && $mail->envelope()->subject === 'Continue your Bells University application'
-                && $mail->previousApplicationNumber === $prior->application_number
+            return $mail->previousApplicationNumber === $prior->application_number
                 && $mail->application->application_number === $newNumber
                 && is_string($plain)
-                && $plain !== ''
-                && str_contains($rendered, $matric)
-                && str_contains($rendered, $prior->application_number)
-                && str_contains($rendered, $newNumber)
-                && str_contains($rendered, $plain)
-                && str_contains($rendered, 'Sign in with your matric number');
+                && $plain !== '';
         });
 
         $this->assertNotNull($plain);

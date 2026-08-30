@@ -57,6 +57,9 @@ class ApplicationStartService
             422,
             Studentship::INCOMPLETE_PROGRAMME_MESSAGE,
         );
+        $previousApplicationNumber = $student?->application_id
+            ? Application::query()->whereKey($student->application_id)->value('application_number')
+            : null;
 
         $this->invoices->resolveApplicationFeeAmount($intake);
 
@@ -87,7 +90,7 @@ class ApplicationStartService
         $this->ensureApplicantRole($user);
         $this->prembly->syncUserVerificationToApplication($user, $application);
         $this->prefill->apply($user, $application);
-        $credentialsEmailed = $this->emailReturningCredentials($user, $student, $application);
+        $credentialsEmailed = $this->emailReturningCredentials($user, $student, $application, $previousApplicationNumber);
         $this->audit->record('application.started', 'Application started ('.$intake->entry_mode.')', 'admissions', 'application', $application->id, null, $application);
 
         $fresh = $application->fresh(['applicationFeeInvoice', 'steps', 'documents', 'intake.term']);
@@ -104,27 +107,25 @@ class ApplicationStartService
         }
     }
 
-    private function emailReturningCredentials(User $user, ?Student $student, Application $application): bool
+    private function emailReturningCredentials(User $user, ?Student $student, Application $application, ?string $previousApplicationNumber): bool
     {
         if (! $student || ! Studentship::canApplyForAnotherProgramme($student) || ! $user->email) {
             return false;
         }
 
-        $plainPassword = 'Aa1!'.Str::password(10, symbols: true);
+        $plainPassword = 'Aa1!'.Str::password(10, letters: true, numbers: true, symbols: false);
         $user->forceFill([
             'password' => $plainPassword,
             'portal_credential_cipher' => null,
             'password_changed_at' => now(),
         ])->save();
 
-        $student->loadMissing('application:id,application_number');
-
         try {
             Mail::to($user->email)->send(new ReturningApplicationCredentialsMail(
                 $application->fresh(['user']),
                 $student,
                 $plainPassword,
-                $student->application?->application_number,
+                $previousApplicationNumber,
             ));
             $application->update(['credentials_emailed_at' => now()]);
 
