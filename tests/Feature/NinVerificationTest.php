@@ -186,6 +186,75 @@ class NinVerificationTest extends TestCase
             ->assertJsonPath('phone', '08031234567');
     }
 
+    public function test_preview_ignores_placeholder_phone_and_uses_telephoneno(): void
+    {
+        config([
+            'services.prembly.key' => 'test-key',
+            'services.prembly.app_id' => 'test-app',
+            'services.prembly.base' => 'https://api.prembly.com',
+            'services.prembly.allow_demo' => false,
+        ]);
+        Http::fake([
+            'https://api.prembly.com/identitypass/verification/vnin' => Http::response([
+                'status' => true,
+                'verification' => ['reference' => 'ref-placeholder-phone'],
+                'nin_data' => [
+                    'firstname' => 'Oluropo',
+                    'surname' => 'Adewale',
+                    'phone' => '0',
+                    'telephoneno' => '08035551234',
+                ],
+            ], 200),
+        ]);
+        $intake = $this->openApplicationSession();
+
+        $this->postJson('/api/nin/preview', ['nin' => '12345678901', 'intake_id' => $intake->id])
+            ->assertOk()
+            ->assertJsonPath('phone', '08035551234');
+    }
+
+    public function test_preview_falls_back_to_nin_endpoint_when_vnin_omits_phone(): void
+    {
+        config([
+            'services.prembly.key' => 'test-key',
+            'services.prembly.app_id' => 'test-app',
+            'services.prembly.base' => 'https://api.prembly.com',
+            'services.prembly.allow_demo' => false,
+        ]);
+        Http::fake(function (Request $request) {
+            if (str_contains($request->url(), '/verification/vnin')) {
+                return Http::response([
+                    'status' => true,
+                    'verification' => ['reference' => 'ref-vnin-no-phone'],
+                    'nin_data' => [
+                        'firstname' => 'Oluropo',
+                        'surname' => 'Adewale',
+                        'gender' => 'm',
+                    ],
+                ], 200);
+            }
+            if (str_contains($request->url(), '/verification/nin')) {
+                return Http::response([
+                    'status' => true,
+                    'verification' => ['reference' => 'ref-nin-phone'],
+                    'nin_data' => [
+                        'firstname' => 'Oluropo',
+                        'surname' => 'Adewale',
+                        'telephoneno' => '08034445555',
+                    ],
+                ], 200);
+            }
+
+            return Http::response(['status' => false], 404);
+        });
+        $intake = $this->openApplicationSession();
+
+        $this->postJson('/api/nin/preview', ['nin' => '12345678901', 'intake_id' => $intake->id])
+            ->assertOk()
+            ->assertJsonPath('first_name', 'Oluropo')
+            ->assertJsonPath('phone', '08034445555');
+    }
+
     public function test_preview_maps_numeric_telephoneno(): void
     {
         config([
@@ -338,6 +407,7 @@ class NinVerificationTest extends TestCase
                         'surname' => 'Okafor',
                         'birthdate' => '2001-01-12',
                         'gender' => 'Male',
+                        'telephoneno' => '08030000000',
                     ],
                 ],
             ], 200),

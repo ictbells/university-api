@@ -446,6 +446,19 @@ class PremblyService
             'number' => $nin,
         ]);
 
+        $mapped = $this->mapPremblyResponse($response);
+        if (trim((string) ($mapped['phone'] ?? '')) === '') {
+            $mapped = $this->enrichPhoneFromNinEndpoint($nin, $mapped);
+        }
+
+        return $mapped;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function mapPremblyResponse(\Illuminate\Http\Client\Response $response): array
+    {
         $status = $response->json('status');
         $ok = $response->successful() && $status !== false && $status !== 'false' && $status !== 0;
         if (! $ok) {
@@ -461,13 +474,15 @@ class PremblyService
             throw new RuntimeException('Prembly returned no NIN biodata.');
         }
 
-        $contact = $this->contactFromNinData($data);
         $json = $response->json();
-        if ($contact['phone'] === '' && is_array($json)) {
-            $contact['phone'] = $this->contactFromNinData($json)['phone'];
-        }
-        if ($contact['address'] === '' && is_array($json)) {
-            $contact['address'] = $this->contactFromNinData($json)['address'];
+        $contact = $this->contactFromNinData($data);
+        if (is_array($json)) {
+            if ($contact['phone'] === '') {
+                $contact['phone'] = $this->contactFromNinData($json)['phone'];
+            }
+            if ($contact['address'] === '') {
+                $contact['address'] = $this->contactFromNinData($json)['address'];
+            }
         }
 
         return [
@@ -487,6 +502,38 @@ class PremblyService
     }
 
     /**
+     * vNIN often omits telephoneno. NIN Advance still returns it.
+     *
+     * @param  array<string, mixed>  $mapped
+     * @return array<string, mixed>
+     */
+    private function enrichPhoneFromNinEndpoint(string $nin, array $mapped): array
+    {
+        $base = rtrim((string) config('services.prembly.base', 'https://api.prembly.com'), '/');
+        try {
+            $response = Http::withHeaders([
+                'x-api-key' => (string) config('services.prembly.key'),
+                'app-id' => (string) config('services.prembly.app_id'),
+            ])->acceptJson()->asJson()->timeout(45)->post($base.'/identitypass/verification/nin', [
+                'number_nin' => $nin,
+                'number' => $nin,
+            ]);
+            $fromNin = $this->mapPremblyResponse($response);
+        } catch (RuntimeException) {
+            return $mapped;
+        }
+
+        if (trim((string) ($fromNin['phone'] ?? '')) !== '') {
+            $mapped['phone'] = $fromNin['phone'];
+        }
+        if (trim((string) ($mapped['address'] ?? '')) === '' && trim((string) ($fromNin['address'] ?? '')) !== '') {
+            $mapped['address'] = $fromNin['address'];
+        }
+
+        return $mapped;
+    }
+
+    /**
      * Prembly returns biodata on `nin_data`, `data.nin_data`, and/or `data`.
      * Merge them so an empty telephoneno on one copy does not hide a filled number on another.
      *
@@ -496,7 +543,7 @@ class PremblyService
     {
         $parts = [];
         foreach (['nin_data', 'data.nin_data', 'data'] as $path) {
-            $chunk = $response->json($path);
+            $chunk = $this->arrayFromJsonValue($response->json($path));
             if (! is_array($chunk) || $chunk === []) {
                 continue;
             }
@@ -521,6 +568,22 @@ class PremblyService
         }
 
         return $merged;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function arrayFromJsonValue(mixed $chunk): ?array
+    {
+        if (is_string($chunk) && trim($chunk) !== '') {
+            $decoded = json_decode($chunk, true);
+            $chunk = is_array($decoded) ? $decoded : null;
+        }
+        if (! is_array($chunk) || $chunk === []) {
+            return null;
+        }
+
+        return $chunk;
     }
 
     private function isBlankNinValue(mixed $value): bool
@@ -651,10 +714,10 @@ class PremblyService
     private function contactFromNinData(array $data): array
     {
         $phone = $this->firstFilled($data, [
-            'phone', 'telephoneno', 'telephone_no', 'telephone', 'telephoneNo', 'telephone_number',
+            'telephoneno', 'telephone_no', 'telephoneNo', 'telephone_number', 'telephone',
             'mobile', 'mobile_number', 'mobileNumber', 'mobileNo', 'phone_number', 'phoneNumber',
-            'phoneNo', 'gsm', 'tel', 'msisdn', 'nin_phone',
-        ]);
+            'phoneNo', 'gsm', 'msisdn', 'nin_phone', 'phone', 'tel',
+        ], true);
         $address = $this->firstFilled($data, [
             'residence_address', 'residence_AdressLine1', 'residential_address', 'address',
             'residenceAddress', 'house_address', 'permanent_address', 'home_address',
@@ -674,7 +737,7 @@ class PremblyService
      * @param  array<string, mixed>  $data
      * @param  list<string>  $keys
      */
-    private function firstFilled(array $data, array $keys): string
+    private function firstFilled(array $data, array $keys, bool $requirePlausiblePhone = false): string
     {
         $wanted = array_map(fn (string $key) => strtolower($key), $keys);
         foreach ($data as $key => $value) {
@@ -684,14 +747,14 @@ class PremblyService
                         if (! is_array($item) || $item === []) {
                             continue;
                         }
-                        $nested = $this->firstFilled($item, $keys);
+                        $nested = $this->firstFilled($item, $keys, $requirePlausiblePhone);
                         if ($nested !== '') {
                             return $nested;
                         }
                     }
                     continue;
                 }
-                $nested = $this->firstFilled($value, $keys);
+                $nested = $this->firstFilled($value, $keys, $requirePlausiblePhone);
                 if ($nested !== '') {
                     return $nested;
                 }
@@ -703,11 +766,24 @@ class PremblyService
             if (is_int($value) || is_float($value)) {
                 $value = (string) $value;
             }
-            if (is_string($value) && trim($value) !== '') {
-                return trim($value);
+            if (! is_string($value) || trim($value) === '') {
+                continue;
             }
+            $value = trim($value);
+            if ($requirePlausiblePhone && ! $this->isPlausiblePhone($value)) {
+                continue;
+            }
+
+            return $value;
         }
 
         return '';
+    }
+
+    private function isPlausiblePhone(string $value): bool
+    {
+        $digits = preg_replace('/\D/', '', $value) ?? '';
+
+        return strlen($digits) >= 7;
     }
 }
