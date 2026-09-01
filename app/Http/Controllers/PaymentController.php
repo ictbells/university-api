@@ -5,14 +5,14 @@ namespace App\Http\Controllers;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Services\FeeArrearsService;
-use App\Services\PaystackService;
+use App\Services\PaymentGatewayManager;
 use App\Support\SchoolFeeAccess;
 use Illuminate\Http\Request;
 
 class PaymentController extends Controller
 {
     public function __construct(
-        private PaystackService $paystack,
+        private PaymentGatewayManager $gateways,
         private FeeArrearsService $arrears,
     ) {}
 
@@ -45,7 +45,7 @@ class PaymentController extends Controller
             'portal' => 'nullable|in:student,staff',
         ]);
         if (($data['type'] ?? 'invoice') === 'wallet_topup') {
-            return $this->paystack->initializeWalletTopup(
+            return $this->gateways->initializeWalletTopup(
                 $request->user(),
                 (float) $data['amount'],
                 $data['portal'] ?? 'student',
@@ -76,20 +76,36 @@ class PaymentController extends Controller
             : null;
 
         try {
-            return $this->paystack->initializeInvoice($request->user(), $invoice, $callbackUrl);
+            return $this->gateways->initializeInvoice($request->user(), $invoice, $callbackUrl);
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
     }
 
-    public function verify(string $reference)
+    public function verify(Request $request, string $reference)
     {
-        return $this->paystack->verify($reference)->load('invoice');
+        $transactionId = $request->query('transactionId') ?: $request->query('transaction_id');
+
+        try {
+            return $this->gateways->verify($reference, $transactionId ? (string) $transactionId : null)->load('invoice');
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
     }
 
     public function webhook(Request $request)
     {
-        $this->paystack->handleWebhook($request->all(), $request->header('x-paystack-signature'));
+        $this->gateways->driver('paystack')->handleWebhook($request->all(), $request->header('x-paystack-signature'));
+
+        return response()->json(['status' => 'ok']);
+    }
+
+    public function wemaWebhook(Request $request)
+    {
+        $signature = $request->header('x-alatpay-signature')
+            ?: $request->header('x-wema-signature')
+            ?: $request->header('x-webhook-signature');
+        $this->gateways->driver('wema')->handleWebhook($request->all(), $signature);
 
         return response()->json(['status' => 'ok']);
     }

@@ -57,6 +57,7 @@ final class GpaCalculator
             : $grades;
 
         $rows = $rows->filter(fn (Grade $g) => ! $g->registration_held);
+        $rows = $rows->filter(fn (Grade $g) => ! $g->hasExamRemark());
 
         return GradeWorkflowService::preferSupplementary($rows);
     }

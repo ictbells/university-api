@@ -40,6 +40,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'api/reset-password',
             'api/two-factor/*',
             'api/payments/paystack/webhook',
+            'api/payments/wema/webhook',
         ]);
         $middleware->append(AssignRequestId::class);
         $middleware->append(SecurityHeaders::class);

@@ -54,7 +54,7 @@
                 <table>
                     <tr><td>Fee collections</td><td class="num">{{ $naira($totals['collected']) }}</td></tr>
                     <tr><td>Wallet top-ups</td><td class="num">{{ $naira($totals['wallet_inflows']) }}</td></tr>
-                    <tr><td>Cash received (Paystack / import / bank)</td><td class="num">{{ $naira($totals['cash_received']) }}</td></tr>
+                    <tr><td>Cash received (Paystack / Wema / import / bank)</td><td class="num">{{ $naira($totals['cash_received']) }}</td></tr>
                     <tr><td>Wallet applied to invoices</td><td class="num">{{ $naira($totals['wallet_applied']) }}</td></tr>
                     <tr class="total"><td>Total receipts</td><td class="num">{{ $naira($totals['receipts']) }}</td></tr>
                 </table>

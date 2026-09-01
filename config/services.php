@@ -42,6 +42,14 @@ return [
         'allow_demo_fulfill' => env('PAYSTACK_ALLOW_DEMO_FULFILL', false),
     ],
 
+    'wema' => [
+        'public' => env('WEMA_ALATPAY_PUBLIC_KEY'),
+        'secret' => env('WEMA_ALATPAY_SECRET_KEY'),
+        'business_id' => env('WEMA_ALATPAY_BUSINESS_ID'),
+        'webhook_secret' => env('WEMA_ALATPAY_WEBHOOK_SECRET'),
+        'base' => env('WEMA_ALATPAY_BASE_URL', 'https://api.alatpay.ng'),
+    ],
+
     'prembly' => [
         'key' => env('PREMBLY_API_KEY'),
         'app_id' => env('PREMBLY_APP_ID'),

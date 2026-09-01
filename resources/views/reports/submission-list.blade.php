@@ -2,186 +2,152 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Results list</title>
+    <title>{{ $report['title'] ?? 'Undergraduate Semester Result' }}</title>
     <style>
-        @page { margin: 14px 16px; }
+        @page { size: A4 landscape; margin: 10mm 8mm; }
         body {
             font-family: DejaVu Sans, Arial, Helvetica, sans-serif;
-            font-size: 12px;
+            font-size: 9px;
             color: #111;
-            line-height: 1.3;
+            line-height: 1.25;
             margin: 0;
             padding: 0;
         }
         .center { text-align: center; }
         .university {
-            font-size: 14px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.02em;
-            margin: 0 0 2px;
-        }
-        .org-line {
-            font-size: 13px;
-            font-weight: 700;
-            margin: 1px 0;
-        }
-        .meta {
-            margin: 6px 0 10px;
-            font-size: 13px;
-        }
-        .meta strong { font-weight: 700; }
-        .dept-block {
-            margin-top: 10px;
-            page-break-inside: auto;
-            break-inside: auto;
-        }
-        .dept-title {
-            font-size: 14px;
-            font-weight: 700;
-            margin: 0 0 6px;
-            border-bottom: 1px solid #333;
-            padding-bottom: 2px;
-            page-break-after: avoid;
-        }
-        .course-block {
-            margin: 8px 0 12px;
-            page-break-inside: auto;
-            break-inside: auto;
-        }
-        .course-title {
-            font-size: 13px;
-            font-weight: 700;
-            margin: 0 0 4px;
-            page-break-after: avoid;
-        }
-        .list-title {
-            font-size: 13px;
-            font-weight: 700;
-            margin: 0 0 6px;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 6px;
-            page-break-inside: auto;
-        }
-        thead { display: table-header-group; }
-        tr { page-break-inside: avoid; }
-        th, td {
-            border: 1px solid #444;
-            padding: 3px 4px;
-            vertical-align: middle;
-        }
-        th {
-            background: #f0f0f0;
-            font-weight: 700;
-            text-align: center;
-        }
-        .sn { width: 26px; text-align: center; }
-        .matric { width: 96px; text-align: left; }
-        .score, .grade, .units, .failed, .gpa, .course-score { text-align: center; }
-        .course-score { min-width: 40px; font-size: 9px; }
-        .course-meta { font-size: 8px; font-weight: 700; text-align: center; }
-        .dept-matrix th, .dept-matrix td { font-size: 9px; padding: 2px 3px; vertical-align: middle; }
-        .dept-matrix thead tr.header-row-2 th {
-            background: #f7f7f7;
-            font-weight: 700;
-            height: 18px;
-        }
-        .dept-matrix thead tr.header-row-2 th.course-meta {
-            font-size: 8px;
-            white-space: nowrap;
-        }
-        .dept-matrix .matric { width: 86px; font-size: 9px; }
-        .empty { font-style: italic; color: #555; }
-        .sheet-mark {
-            font-size: 12px;
-            font-weight: 700;
-            text-align: left;
-            margin: 0 0 4px;
-        }
-        .supplementary-banner {
             font-size: 13px;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.04em;
-            margin: 4px 0 6px;
-            text-align: center;
-            border: 1px solid #111;
-            padding: 3px 8px;
+            margin: 0 0 2px;
         }
-        .faculty-sheet {
-            page-break-inside: auto;
+        .address {
+            font-size: 9px;
+            text-transform: uppercase;
+            margin: 0 0 4px;
         }
-        .faculty-sheet + .faculty-sheet {
-            page-break-before: always;
-        }
-        .faculty-info {
-            margin: 10px 0 8px;
-            font-size: 12px;
-            text-align: left;
-        }
-        .faculty-info div { margin: 2px 0; }
-        .faculty-info .label {
-            font-weight: 700;
-            display: inline-block;
-            min-width: 110px;
-        }
-        .summary-title {
+        .sheet-title {
             font-size: 12px;
             font-weight: 700;
-            text-align: center;
-            margin: 8px 0 4px;
+            text-transform: uppercase;
+            margin: 4px 0 2px;
+            letter-spacing: 0.06em;
+        }
+        .meta-line {
+            font-size: 9px;
+            margin: 2px 0;
+        }
+        .meta-line strong { font-weight: 700; }
+        .level-line {
+            font-size: 10px;
+            font-weight: 700;
+            margin: 2px 0 6px;
             text-transform: uppercase;
         }
-        .faculty-summary th, .faculty-summary td {
-            font-size: 8px;
-            padding: 2px 3px;
-            text-align: center;
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 8px;
         }
-        .faculty-summary .matric { text-align: left; font-size: 8px; }
-        .faculty-summary .col-num {
-            background: #e8e8e8;
+        thead { display: table-header-group; }
+        tr { page-break-inside: avoid; }
+        th, td {
+            border: 1px solid #333;
+            padding: 2px 3px;
+            vertical-align: middle;
+        }
+        th {
+            background: #f3f3f3;
+            font-weight: 700;
+            text-align: center;
+            font-size: 7px;
+            text-transform: uppercase;
+        }
+        .broadsheet th, .broadsheet td { font-size: 7px; }
+        .broadsheet .sn { width: 22px; text-align: center; }
+        .broadsheet .matric { width: 78px; text-align: left; }
+        .broadsheet .name { text-align: left; min-width: 90px; }
+        .broadsheet .course { min-width: 42px; text-align: center; }
+        .broadsheet .other { text-align: left; font-size: 6.5px; min-width: 90px; }
+        .broadsheet .num { text-align: center; width: 32px; }
+        .broadsheet .status { text-align: center; width: 36px; }
+        .broadsheet .outstanding { text-align: left; font-size: 6.5px; min-width: 80px; }
+        .header-meta { font-size: 6.5px; font-weight: 700; }
+        .empty { font-style: italic; color: #555; text-align: center; }
+        .sheet {
+            page-break-inside: auto;
+        }
+        .sheet + .sheet {
+            page-break-before: always;
+        }
+        .sheet-end {
+            page-break-inside: avoid;
+            margin-top: 16px;
+        }
+        .signatures {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 18px 0 14px;
+        }
+        .signatures td {
+            border: none;
+            vertical-align: bottom;
+            text-align: center;
+            padding: 0 10px;
+        }
+        .sig-line {
+            border-bottom: 1px solid #111;
+            height: 28px;
+            margin: 0 auto 4px;
+            width: 88%;
+        }
+        .sig-label {
             font-size: 8px;
             font-weight: 700;
+            margin: 0;
         }
-        .signature-page {
-            page-break-before: always;
-            padding-top: 280px;
-        }
-        .signature-row {
+        .end-tables {
             width: 100%;
             border-collapse: collapse;
         }
-        .signature-row td {
+        .end-tables > tbody > tr > td {
             border: none;
-            width: 50%;
             vertical-align: top;
-            padding: 0 24px;
-            text-align: center;
+            padding: 0;
         }
-        .signature-line {
-            border-bottom: 1px solid #111;
-            height: 28px;
-            margin: 0 auto 6px;
-            width: 78%;
-        }
-        .signature-name {
-            font-size: 12px;
+        .summary-wrap { width: 48%; padding-right: 10px; }
+        .legend-wrap { width: 52%; padding-left: 10px; }
+        .block-title {
+            font-size: 9px;
             font-weight: 700;
-            margin: 0 0 2px;
+            text-transform: uppercase;
+            margin: 0 0 4px;
         }
-        .signature-title {
+        .summary-table, .legend-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .summary-table th, .summary-table td,
+        .legend-table th, .legend-table td {
+            border: 1px solid #333;
+            font-size: 7px;
+            padding: 2px 4px;
+        }
+        .summary-table td.label { text-align: left; }
+        .summary-table td.count { text-align: center; font-weight: 700; width: 36px; }
+        .legend-table td { text-align: left; }
+        .legend-note {
+            font-size: 7px;
+            margin: 4px 0 0;
+        }
+        .supplementary-banner {
             font-size: 11px;
             font-weight: 700;
-            margin: 0;
             text-transform: uppercase;
-        }
-        .footer-note {
-            margin-top: 16px;
-            font-size: 9px;
-            color: #555;
+            margin: 4px 0;
+            border: 1px solid #111;
+            padding: 2px 8px;
+            display: inline-block;
         }
         .no-print { margin-bottom: 8px; text-align: right; }
         @media print { .no-print { display: none; } }
@@ -189,333 +155,195 @@
 </head>
 <body>
     <p class="no-print"><button type="button" onclick="window.print()">Print</button></p>
-    @php $layout = $report['layout'] ?? 'course_grouped'; @endphp
+    @php $sheets = $report['sheets'] ?? $report['departments'] ?? []; @endphp
 
-    @if (in_array($layout, ['faculty_summary', 'board_summary'], true))
-        @php
-            $showStudentName = !empty($report['show_student_name']) || $layout === 'board_summary';
-            $showWgpToDate = array_key_exists('show_wgp_to_date', $report)
-                ? !empty($report['show_wgp_to_date'])
-                : $layout === 'faculty_summary';
-            $summaryCols = 14;
-        @endphp
-        @forelse (($report['departments'] ?? []) as $department)
-            <div class="faculty-sheet">
-                <div class="sheet-mark">{{ $department['sheet_mark'] ?? ($layout === 'board_summary' ? '003' : '002') }}</div>
-                <div class="center">
-                    <p class="university">{{ $report['university'] }}</p>
-                    @if (!empty($report['is_supplementary']))
-                        <p class="supplementary-banner">SUPPLEMENTARY</p>
-                    @endif
-                    <p class="org-line" style="text-transform:uppercase;margin-top:6px;">
-                        {{ $report['sheet_banner'] ?? 'NON-FINAL YEAR STUDENTS' }}
-                    </p>
-                    @if (!empty($report['sheet_exam_line']))
-                        <p class="org-line" style="text-transform:uppercase;">{{ $report['sheet_exam_line'] }}</p>
-                    @endif
-                </div>
-
-                <div class="faculty-info">
-                    <div><span class="label">FACULTY:</span> {{ $report['faculty_name'] }}</div>
-                    <div><span class="label">DEPARTMENT:</span> {{ $department['name'] }}</div>
-                    <div><span class="label">LEVEL:</span> {{ $report['sheet_level'] !== '' ? $report['sheet_level'] : '—' }}</div>
-                    <div><span class="label">PROGRAM:</span> {{ $department['programme'] ?? '—' }}</div>
-                </div>
-
-                <p class="summary-title">SUMMARY OF RESULTS TABLE</p>
-                <table class="faculty-summary">
-                    <thead>
-                        <tr>
-                            @for ($i = 1; $i <= $summaryCols; $i++)
-                                <th class="col-num">{{ $i }}</th>
-                            @endfor
-                        </tr>
-                        <tr>
-                            <th class="sn">S/N</th>
-                            <th class="matric">Matric NO.</th>
-                            @if ($showStudentName)
-                                <th>Student's Name in Alphabetical Order with Surname First</th>
-                            @endif
-                            <th>Session of Entry</th>
-                            <th>Mode of Entry</th>
-                            <th>TUR Current Semester</th>
-                            <th>TUP Current Semester</th>
-                            <th>WGP Current Semester</th>
-                            <th>GPA</th>
-                            <th>Cum. Units Regd. to Date</th>
-                            <th>Cum. Unit Passed to Date</th>
-                            <th>{{ $showStudentName ? 'Units Not in to Date (List courses)' : 'Units Not in to Date' }}</th>
-                            @if ($showWgpToDate)
-                                <th>Cumulative WGP to Date</th>
-                            @endif
-                            <th>CGPA</th>
-                            <th>Remark</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @forelse (($department['students'] ?? []) as $student)
-                            <tr>
-                                <td class="sn">{{ $student['sn'] }}</td>
-                                <td class="matric">{{ $student['matric'] }}</td>
-                                @if ($showStudentName)
-                                    <td style="text-align:left;font-size:7px;">{{ $student['name'] ?? '—' }}</td>
-                                @endif
-                                <td>{{ $student['year_of_entry'] ?? '—' }}</td>
-                                <td>{{ $student['mode_of_entry'] ?? '—' }}</td>
-                                <td>{{ $student['tur'] ?? '—' }}</td>
-                                <td>{{ $student['tup'] ?? '—' }}</td>
-                                <td>{{ $student['wgp'] ?? '—' }}</td>
-                                <td>{{ $student['gpa'] ?? '—' }}</td>
-                                <td>{{ $student['tur_to_date'] ?? '—' }}</td>
-                                <td>{{ $student['tup_to_date'] ?? '—' }}</td>
-                                <td style="text-align:left;font-size:7px;">{{ $student['units_not_in_to_date'] ?? '' }}</td>
-                                @if ($showWgpToDate)
-                                    <td>{{ $student['wgp_to_date'] ?? '—' }}</td>
-                                @endif
-                                <td>{{ $student['cgpa'] ?? '—' }}</td>
-                                <td>{{ $student['remark'] ?? '—' }}</td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="{{ $summaryCols }}" class="empty">No students listed.</td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
-        @empty
-            <div class="sheet-mark">{{ $layout === 'board_summary' ? '003' : '002' }}</div>
+    @forelse ($sheets as $sheet)
+        <div class="sheet">
             <div class="center">
                 <p class="university">{{ $report['university'] }}</p>
-                <p class="empty" style="margin-top:20px;">No results found for the selected filters.</p>
+                <p class="address">{{ $report['campus_address'] ?? 'KM 8, Idi-Iroko Road, Ota, Ogun State' }}</p>
+                @if (!empty($report['is_supplementary']))
+                    <p class="supplementary-banner">SUPPLEMENTARY</p>
+                @endif
+                <p class="sheet-title">{{ $report['title'] ?? 'UNDERGRADUATE SEMESTER RESULT' }}</p>
+                <p class="meta-line">
+                    <strong>College:</strong> {{ $sheet['college_name'] ?? $report['college_name'] ?? '—' }}
+                    &nbsp;|&nbsp; <strong>Department:</strong> {{ $sheet['department_name'] ?? '—' }}
+                    &nbsp;|&nbsp; <strong>Programme:</strong> {{ $sheet['programme'] ?? '—' }}
+                    &nbsp;|&nbsp; <strong>Session:</strong> {{ $report['session_label'] ?? $report['academic_year'] ?? '—' }}
+                    &nbsp;|&nbsp; <strong>Semester:</strong> {{ $report['semester_label'] ?? '—' }}
+                </p>
+                @if (!empty($sheet['level_label']))
+                    <p class="level-line">{{ $sheet['level_label'] }}</p>
+                @endif
             </div>
-        @endforelse
 
-        @if (!empty($report['departments']))
-            <div class="signature-page">
-                <table class="signature-row">
+            @php
+                $columns = $sheet['course_columns'] ?? [];
+                $colspan = 3 + count($columns) + 9;
+            @endphp
+            <table class="broadsheet">
+                <thead>
                     <tr>
-                        <td>
-                            <div class="signature-line"></div>
-                            <p class="signature-name">&nbsp;</p>
-                            <p class="signature-title">{{ $report['signature_hod_title'] ?? 'Head Of Department' }}</p>
+                        <th class="sn">S/N</th>
+                        <th class="matric">Matric No.</th>
+                        <th class="name">Name</th>
+                        @foreach ($columns as $col)
+                            <th class="course">{{ $col['code'] }}</th>
+                        @endforeach
+                        <th class="other">Other Courses Taken</th>
+                        <th class="num">TUT</th>
+                        <th class="num">TUP</th>
+                        <th class="num">TUF</th>
+                        <th class="num">PGPA</th>
+                        <th class="num">SGPA</th>
+                        <th class="num">CGPA</th>
+                        <th class="status">Status</th>
+                        <th class="outstanding">Outstanding</th>
+                    </tr>
+                    <tr>
+                        <th></th>
+                        <th></th>
+                        <th></th>
+                        @foreach ($columns as $col)
+                            <th class="header-meta">{{ $col['header_meta'] ?? '' }}</th>
+                        @endforeach
+                        <th></th>
+                        <th></th>
+                        <th></th>
+                        <th></th>
+                        <th></th>
+                        <th></th>
+                        <th></th>
+                        <th></th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse (($sheet['students'] ?? []) as $student)
+                        <tr>
+                            <td class="sn">{{ $student['sn'] }}</td>
+                            <td class="matric">{{ $student['matric'] }}</td>
+                            <td class="name">{{ $student['name'] ?? '—' }}</td>
+                            @foreach ($columns as $col)
+                                <td class="course">{{ $student['scores'][$col['code']] ?? '—' }}</td>
+                            @endforeach
+                            <td class="other">{{ $student['other_courses'] ?? '—' }}</td>
+                            <td class="num">{{ $student['tut'] ?? $student['tur'] ?? '—' }}</td>
+                            <td class="num">{{ $student['tup'] ?? '—' }}</td>
+                            <td class="num">{{ $student['tuf'] ?? '—' }}</td>
+                            <td class="num">{{ $student['pgpa'] ?? '—' }}</td>
+                            <td class="num">{{ $student['sgpa'] ?? $student['gpa'] ?? '—' }}</td>
+                            <td class="num">{{ $student['cgpa'] ?? '—' }}</td>
+                            <td class="status">{{ $student['status'] ?? '—' }}</td>
+                            <td class="outstanding">{{ $student['outstanding'] ?? '—' }}</td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="{{ max($colspan, 6) }}" class="empty">No students listed.</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+
+            <div class="sheet-end">
+                @if (!empty($report['signatures']))
+                    <table class="signatures">
+                        <tr>
+                            @foreach ($report['signatures'] as $signature)
+                                <td>
+                                    <div class="sig-line"></div>
+                                    <p class="sig-label">{{ $signature['label'] }}</p>
+                                </td>
+                            @endforeach
+                        </tr>
+                    </table>
+                @endif
+
+                @php $summary = $sheet['summary'] ?? []; @endphp
+                <table class="end-tables">
+                    <tr>
+                        <td class="summary-wrap">
+                            <p class="block-title">Summary</p>
+                            <table class="summary-table">
+                                <tr>
+                                    <td class="label">Number of Candidates in Good Standing</td>
+                                    <td class="count">{{ $summary['good_standing'] ?? 0 }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="label">Number of Candidates not in Good Standing</td>
+                                    <td class="count">{{ $summary['not_good_standing'] ?? 0 }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="label">Number Absent with Permission</td>
+                                    <td class="count">{{ $summary['absent_with_permission'] ?? 0 }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="label">Number of Candidates with incomplete result</td>
+                                    <td class="count">{{ $summary['incomplete'] ?? 0 }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="label">Number Absent without Permission</td>
+                                    <td class="count">{{ $summary['absent_without_permission'] ?? 0 }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="label">Number Rusticated/Suspended/Expelled</td>
+                                    <td class="count">{{ $summary['rusticated'] ?? 0 }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="label">Number Sick</td>
+                                    <td class="count">{{ $summary['sick'] ?? 0 }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="label">Total Number of Candidates</td>
+                                    <td class="count">{{ $summary['total'] ?? 0 }}</td>
+                                </tr>
+                            </table>
                         </td>
-                        <td>
-                            <div class="signature-line"></div>
-                            <p class="signature-name">&nbsp;</p>
-                            <p class="signature-title">{{ $report['signature_dean_title'] ?? 'Dean' }}</p>
+                        <td class="legend-wrap">
+                            <p class="block-title">Legend</p>
+                            <table class="legend-table">
+                                <tr>
+                                    <td>SGPA: Semester Grade Point Average</td>
+                                    <td>TUF: Total Units Failed</td>
+                                </tr>
+                                <tr>
+                                    <td>CGPA: Cumulative Grade Point Average</td>
+                                    <td>ABS_P: Absent with Permission</td>
+                                </tr>
+                                <tr>
+                                    <td>TUT: Total Units Taken</td>
+                                    <td>ABS_NP: Absent without Permission</td>
+                                </tr>
+                                <tr>
+                                    <td>PGPA: Previous Grade Point Average</td>
+                                    <td>TUP: Total Units Passed</td>
+                                </tr>
+                                <tr>
+                                    <td>RUS: Rustication &nbsp; SUS: Suspension</td>
+                                    <td>PB: Probation &nbsp; WR: Warning</td>
+                                </tr>
+                                <tr>
+                                    <td>WD: Withdrawal &nbsp; AR: Awaiting Result</td>
+                                    <td>EXP: Expelled</td>
+                                </tr>
+                            </table>
+                            <p class="legend-note">
+                                GS (2013 &amp; above): CGPA ≥ 1.5 AND Outstanding &lt; 12 Units<br>
+                                GS (2012 &amp; before): CGPA ≥ 1.0 AND Outstanding &lt; 12 Units<br>
+                                NGS (2013 &amp; above): CGPA &lt; 1.5 OR Outstanding ≥ 12 Units<br>
+                                NGS (2012 &amp; before): CGPA &lt; 1.0 OR Outstanding ≥ 12 Units
+                            </p>
                         </td>
                     </tr>
                 </table>
             </div>
-        @endif
-
-    @elseif ($layout === 'student_matrix')
-        <div class="sheet-mark">002</div>
+        </div>
+    @empty
         <div class="center">
             <p class="university">{{ $report['university'] }}</p>
-            @if (!empty($report['is_supplementary']))
-                <p class="supplementary-banner">SUPPLEMENTARY</p>
-            @endif
-            <p class="org-line" style="text-transform:uppercase;">{{ $report['sheet_title'] ?? 'DEPARTMENTAL RESULTS' }}</p>
-            @if (!empty($report['sheet_subtitle']))
-                <p class="org-line">{{ $report['sheet_subtitle'] }}</p>
-            @endif
-            @if (!empty($report['sheet_exam_line']))
-                <p class="meta" style="margin:4px 0;"><strong>{{ $report['sheet_exam_line'] }}</strong></p>
-            @endif
-            @if (!empty($report['sheet_level']))
-                <p class="meta" style="margin:0;"><strong>{{ $report['sheet_level'] }}</strong></p>
-            @endif
+            <p class="empty" style="margin-top:20px;">No results found for the selected filters.</p>
         </div>
-
-        @php
-            $columns = $report['course_columns'] ?? [];
-            if ($columns === [] && !empty($report['course_codes'])) {
-                $columns = array_map(fn ($c) => ['code' => $c, 'header_meta' => ''], $report['course_codes']);
-            }
-            $matrixColspan = 4 + count($columns) + 10;
-        @endphp
-        <table class="dept-matrix">
-            <thead>
-                <tr class="header-row-1">
-                    <th class="sn">S/N</th>
-                    <th class="matric">Matric Number</th>
-                    <th>Year of Entry</th>
-                    <th>Mode of Entry</th>
-                    @foreach ($columns as $col)
-                        <th class="course-score">{{ $col['code'] }}</th>
-                    @endforeach
-                    <th>TUR Current Semester</th>
-                    <th>TUP Current Semester</th>
-                    <th>WGP Current Semester</th>
-                    <th>GPA</th>
-                    <th>TUR to Date</th>
-                    <th>TUP to Date</th>
-                    <th>WGP to Date</th>
-                    <th>Courses Not in to Date</th>
-                    <th>CGPA</th>
-                    <th>Courses Failed</th>
-                    <th>Remark</th>
-                </tr>
-                <tr class="header-row-2">
-                    <th class="sn">&nbsp;</th>
-                    <th class="matric">&nbsp;</th>
-                    <th>&nbsp;</th>
-                    <th>&nbsp;</th>
-                    @foreach ($columns as $col)
-                        <th class="course-meta">@if (($col['header_meta'] ?? '') !== ''){{ $col['header_meta'] }}@else&nbsp;@endif</th>
-                    @endforeach
-                    <th>&nbsp;</th>
-                    <th>&nbsp;</th>
-                    <th>&nbsp;</th>
-                    <th>&nbsp;</th>
-                    <th>&nbsp;</th>
-                    <th>&nbsp;</th>
-                    <th>&nbsp;</th>
-                    <th colspan="4">&nbsp;</th>
-                </tr>
-            </thead>
-            <tbody>
-                @forelse (($report['students'] ?? []) as $student)
-                    <tr>
-                        <td class="sn">{{ $student['sn'] }}</td>
-                        <td class="matric">{{ $student['matric'] }}</td>
-                        <td class="score">{{ $student['year_of_entry'] ?? '—' }}</td>
-                        <td class="score">{{ $student['mode_of_entry'] ?? '—' }}</td>
-                        @foreach ($columns as $col)
-                            <td class="course-score">{{ $student['scores'][$col['code']] ?? '—' }}</td>
-                        @endforeach
-                        <td class="units">{{ $student['tur'] ?? $student['units_registered'] ?? '—' }}</td>
-                        <td class="units">{{ $student['tup'] ?? $student['units_passed'] ?? '—' }}</td>
-                        <td class="units">{{ $student['wgp'] ?? '—' }}</td>
-                        <td class="gpa">{{ $student['gpa'] ?? '—' }}</td>
-                        <td class="units">{{ $student['tur_to_date'] ?? '—' }}</td>
-                        <td class="units">{{ $student['tup_to_date'] ?? '—' }}</td>
-                        <td class="units">{{ $student['wgp_to_date'] ?? '—' }}</td>
-                        <td style="text-align:left;font-size:8px;">{{ $student['courses_not_in_to_date'] ?? '—' }}</td>
-                        <td class="gpa">{{ $student['cgpa'] ?? '—' }}</td>
-                        <td style="text-align:left;font-size:8px;">{{ $student['courses_failed'] ?? '—' }}</td>
-                        <td class="score">{{ $student['remark'] ?? '—' }}</td>
-                    </tr>
-                @empty
-                    <tr>
-                        <td colspan="{{ max($matrixColspan, 6) }}" class="empty">No students listed.</td>
-                    </tr>
-                @endforelse
-            </tbody>
-        </table>
-        <p class="footer-note">Generated {{ now()->format('d M Y H:i') }} · {{ $report['university'] ?? '' }}</p>
-
-    @else
-        <div class="sheet-mark">002</div>
-        <div class="center">
-            <p class="university">{{ $report['university'] }}</p>
-            @if (!empty($report['is_supplementary']))
-                <p class="supplementary-banner">SUPPLEMENTARY</p>
-            @endif
-            <p class="org-line">{{ $report['faculty_name'] }}</p>
-            @if (!empty($report['department_name']))
-                <p class="org-line">{{ $report['department_name'] }}</p>
-            @endif
-        </div>
-        <div class="meta center">
-            <div><strong>Session:</strong> {{ $report['academic_year'] }} &nbsp;|&nbsp; <strong>Semester:</strong> {{ $report['semester_label'] }}</div>
-            <div><strong>Status:</strong> {{ $report['status_label'] }}</div>
-        </div>
-
-        @php
-            $colspan = 6;
-            if (!empty($report['show_name'])) $colspan++;
-            if (!empty($report['show_unit_totals'])) $colspan += 2;
-            if (!empty($report['show_gpa'])) $colspan += 2;
-            if (!empty($report['show_units'])) $colspan++;
-            if (!empty($report['show_failed'])) $colspan++;
-        @endphp
-
-        @forelse ($report['departments'] as $department)
-            <div class="dept-block">
-                @if ($report['scope'] === 'faculty' || ($report['scope'] === 'board' && count($report['departments']) > 1))
-                    <p class="dept-title">{{ $department['name'] }}</p>
-                @endif
-
-                @forelse ($department['courses'] as $course)
-                    <div class="course-block">
-                        <p class="course-title">
-                            Course Code/Title: {{ $course['code'] }} — {{ $course['title'] }}
-                        </p>
-                        <p class="course-title" style="font-weight:600;">List of the students</p>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th class="sn">S/N</th>
-                                    <th class="matric">Matric No.</th>
-                                    @if (!empty($report['show_name']))
-                                        <th>Student Name</th>
-                                    @endif
-                                    <th class="score">CA</th>
-                                    <th class="score">Exam</th>
-                                    <th class="score">Total</th>
-                                    <th class="grade">Grade</th>
-                                    @if (!empty($report['show_units']))
-                                        <th class="units">Unit</th>
-                                    @endif
-                                    @if (!empty($report['show_failed']))
-                                        <th class="failed">Failed</th>
-                                    @endif
-                                    @if (!empty($report['show_unit_totals']))
-                                        <th class="units">Unit Reg.</th>
-                                        <th class="units">Unit Pass</th>
-                                    @endif
-                                    @if (!empty($report['show_gpa']))
-                                        <th class="gpa">GPA</th>
-                                        <th class="gpa">CGPA</th>
-                                    @endif
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse ($course['students'] as $student)
-                                    <tr>
-                                        <td class="sn">{{ $student['sn'] }}</td>
-                                        <td class="matric">{{ $student['matric'] }}</td>
-                                        @if (!empty($report['show_name']))
-                                            <td>{{ $student['name'] ?? '—' }}</td>
-                                        @endif
-                                        <td class="score">{{ $student['ca'] ?? '—' }}</td>
-                                        <td class="score">{{ $student['exam'] ?? '—' }}</td>
-                                        <td class="score">{{ $student['score'] }}</td>
-                                        <td class="grade">{{ $student['grade'] }}</td>
-                                        @if (!empty($report['show_units']))
-                                            <td class="units">{{ $student['units'] ?? '—' }}</td>
-                                        @endif
-                                        @if (!empty($report['show_failed']))
-                                            <td class="failed">{{ $student['courses_failed'] ?? '—' }}</td>
-                                        @endif
-                                        @if (!empty($report['show_unit_totals']))
-                                            <td class="units">{{ $student['units_registered'] ?? '—' }}</td>
-                                            <td class="units">{{ $student['units_passed'] ?? '—' }}</td>
-                                        @endif
-                                        @if (!empty($report['show_gpa']))
-                                            <td class="gpa">{{ $student['gpa'] ?? '—' }}</td>
-                                            <td class="gpa">{{ $student['cgpa'] ?? '—' }}</td>
-                                        @endif
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="{{ $colspan }}" class="empty">No students listed for this course.</td>
-                                    </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
-                    </div>
-                @empty
-                    <p class="empty">No courses in this department.</p>
-                @endforelse
-            </div>
-        @empty
-            <p class="empty center">No results found for the selected filters.</p>
-        @endforelse
-        <p class="footer-note">Generated {{ now()->format('d M Y H:i') }} · {{ $report['university'] ?? '' }}</p>
-    @endif
+    @endforelse
 </body>
 </html>

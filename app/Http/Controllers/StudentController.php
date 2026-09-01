@@ -2,16 +2,24 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AcademicTerm;
 use App\Models\Student;
+use App\Models\StudentTermSanction;
 use App\Services\AuditWriter;
+use App\Services\StudentTermSanctionService;
 use App\Support\ListSessionLevelFilter;
 use App\Support\PhoneNumber;
+use App\Support\StudentTermSanctionType;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class StudentController extends Controller
 {
     use Concerns\AuthorizesOfficeApprovals;
-    public function __construct(private AuditWriter $audit) {}
+    public function __construct(
+        private AuditWriter $audit,
+        private StudentTermSanctionService $sanctions,
+    ) {}
 
     public function index(Request $request)
     {
@@ -115,5 +123,81 @@ class StudentController extends Controller
         }
 
         return $execute();
+    }
+
+    public function termMeta(Request $request)
+    {
+        abort_unless(
+            $request->user()->hasPermission('students.view_any')
+                || $request->user()->hasPermission('students.manage')
+                || $request->user()->hasPermission('academic.graduate'),
+            403,
+        );
+
+        return [
+            'terms' => AcademicTerm::query()
+                ->with('session:id,label')
+                ->orderByDesc('is_current')
+                ->orderByDesc('id')
+                ->get(['id', 'academic_session_id', 'name', 'session_label', 'is_current']),
+            'types' => collect(StudentTermSanctionType::all())->map(fn (string $type) => [
+                'value' => $type,
+                'label' => ucfirst($type),
+            ])->all(),
+        ];
+    }
+
+    public function storeTermSanction(Request $request, Student $student)
+    {
+        $this->assertCanSanction($request->user());
+        $data = $request->validate([
+            'academic_term_id' => 'required|integer|exists:academic_terms,id',
+            'type' => ['required', Rule::in(StudentTermSanctionType::all())],
+            'note' => 'nullable|string|max:500',
+        ]);
+
+        return $this->officeGate(
+            'students.term_sanction',
+            $student,
+            ['student_id' => $student->id, ...$data],
+            'Record term sanction',
+            fn () => $this->sanctions->apply(
+                $student,
+                (int) $data['academic_term_id'],
+                $data['type'],
+                $data['note'] ?? null,
+                $request->user(),
+            ),
+        );
+    }
+
+    public function destroyTermSanction(Request $request, Student $student, StudentTermSanction $sanction)
+    {
+        $this->assertCanSanction($request->user());
+        abort_unless((int) $sanction->student_id === (int) $student->id, 404);
+
+        return $this->officeGate(
+            'students.lift_term_sanction',
+            $student,
+            [
+                'student_id' => $student->id,
+                'student_term_sanction_id' => $sanction->id,
+                'sanction_id' => $sanction->id,
+            ],
+            'Lift term sanction',
+            function () use ($sanction) {
+                $this->sanctions->lift($sanction);
+
+                return ['message' => 'Sanction lifted.'];
+            },
+        );
+    }
+
+    private function assertCanSanction($user): void
+    {
+        abort_unless(
+            $user->hasPermission('students.manage') || $user->hasPermission('academic.graduate'),
+            403,
+        );
     }
 }

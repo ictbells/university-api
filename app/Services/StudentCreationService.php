@@ -21,22 +21,24 @@ class StudentCreationService
         private AuditWriter $audit,
         private Notifier $notifier,
         private WorkflowEngine $workflows,
+        private MatricSequence $matrics,
     ) {}
 
     public function createFromApplication(Application $application): Student
     {
         return DB::transaction(function () use ($application) {
-            $application->load(['user', 'program', 'steps']);
+            $application->load(['user', 'program', 'steps', 'academicSession', 'intake.term.session']);
             $biodata = $application->mergedProfilePayload();
             $contact = $application->steps()->where('step_key', 'application_form')->first()?->payload ?? [];
-            $count = Student::query()->count() + 1;
-            $year = now()->format('Y');
+            $isJupeb = $application->entry_mode === 'jupeb';
+            $matric = $isJupeb ? null : $this->matrics->allocate($application);
 
             $student = Student::query()->create([
                 'user_id' => $application->user_id,
                 'application_id' => $application->id,
                 'program_id' => $application->program_id,
-                'student_number' => 'BUT/'.$year.'/'.str_pad((string) $count, 4, '0', STR_PAD_LEFT),
+                'student_number' => $matric,
+                'matric_number' => $matric,
                 'first_name' => $biodata['first_name'] ?? $application->user->name,
                 'middle_name' => $biodata['middle_name'] ?? null,
                 'last_name' => $biodata['last_name'] ?? '',
@@ -103,11 +105,11 @@ class StudentCreationService
                 $application->user->roles()->syncWithoutDetaching([$studentRole->id]);
             }
 
-            $isJupeb = $application->entry_mode === 'jupeb';
-            $matric = null;
-            if (! $isJupeb) {
-                $matric = 'BUT/'.$year.'/M/'.str_pad((string) $count, 4, '0', STR_PAD_LEFT);
-                $student->update(['matric_number' => $matric]);
+            if ($isJupeb) {
+                $year = $this->matrics->year($application);
+                $student->update([
+                    'student_number' => 'J/'.$year.'/'.str_pad((string) $student->id, 6, '0', STR_PAD_LEFT),
+                ]);
             }
 
             $application->update([
@@ -258,12 +260,14 @@ class StudentCreationService
         ?string $studentNumber = null,
     ): Student {
         return DB::transaction(function () use ($application, $matricNumber, $currentLevel, $studentNumber) {
-            $application->load(['user', 'program', 'steps']);
+            $application->load(['user', 'program', 'steps', 'academicSession', 'intake.term.session']);
             $biodata = $application->mergedProfilePayload();
             $contact = $application->steps()->where('step_key', 'application_form')->first()?->payload ?? [];
-            $count = Student::query()->count() + 1;
-            $year = now()->format('Y');
-            $number = $studentNumber ?: ('BUT/'.$year.'/'.str_pad((string) $count, 4, '0', STR_PAD_LEFT));
+            $number = $studentNumber ?: $matricNumber;
+            $this->matrics->noteIssued($matricNumber);
+            if ($number !== $matricNumber) {
+                $this->matrics->noteIssued($number);
+            }
 
             $student = Student::query()->create([
                 'user_id' => $application->user_id,

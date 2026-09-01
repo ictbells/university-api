@@ -64,6 +64,7 @@ Route::post('/two-factor/setup', [TwoFactorController::class, 'setup']);
 Route::post('/two-factor/confirm', [TwoFactorController::class, 'confirm']);
 Route::post('/two-factor/verify', [TwoFactorController::class, 'verify']);
 Route::post('/payments/paystack/webhook', [PaymentController::class, 'webhook']);
+Route::post('/payments/wema/webhook', [PaymentController::class, 'wemaWebhook']);
 
 Route::get('/transcript-requests/meta', [TranscriptRequestController::class, 'meta']);
 Route::post('/transcript-requests/lookup', [TranscriptRequestController::class, 'lookup'])
@@ -188,8 +189,11 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         ->middleware('permission:registrations.view');
 
     Route::get('/students', [StudentController::class, 'index']);
+    Route::get('/students/term-meta', [StudentController::class, 'termMeta']);
     Route::get('/students/{student}', [StudentController::class, 'show']);
     Route::patch('/students/{student}', [StudentController::class, 'update']);
+    Route::post('/students/{student}/term-sanctions', [StudentController::class, 'storeTermSanction']);
+    Route::delete('/students/{student}/term-sanctions/{sanction}', [StudentController::class, 'destroyTermSanction']);
     Route::post('/students/{student}/confer', [GraduationController::class, 'conferOne']);
 
     Route::get('/wallet', [WalletController::class, 'show']);
@@ -215,6 +219,8 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/my-programme-fees', [FinanceController::class, 'myProgrammeFeeSchedule']);
     Route::get('/fees', [FinanceController::class, 'fees']);
     Route::get('/payments', [PaymentController::class, 'index']);
+    Route::post('/payments/initialize', [PaymentController::class, 'initialize']);
+    Route::get('/payments/verify/{reference}', [PaymentController::class, 'verify']);
     Route::post('/payments/paystack/initialize', [PaymentController::class, 'initialize']);
     Route::get('/payments/paystack/verify/{reference}', [PaymentController::class, 'verify']);
     Route::get('/payments/{payment}/receipt', [FinanceController::class, 'paymentReceipt']);

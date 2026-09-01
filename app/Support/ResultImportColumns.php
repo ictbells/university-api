@@ -18,6 +18,7 @@ class ResultImportColumns
             'ca',
             'exam',
             'score',
+            'remark',
         ];
     }
 
@@ -40,12 +41,21 @@ class ResultImportColumns
                 'ca' => '28',
                 'exam' => '44',
                 'score' => '',
+                'remark' => '',
             ],
             [
                 'matric' => 'BUT/2024/002',
                 'ca' => '',
                 'exam' => '',
                 'score' => '72',
+                'remark' => '',
+            ],
+            [
+                'matric' => 'BUT/2024/003',
+                'ca' => '',
+                'exam' => '',
+                'score' => '',
+                'remark' => 'ABS_P',
             ],
         ];
     }
@@ -65,7 +75,8 @@ class ResultImportColumns
             '5. When only score/total is provided, the page setting “Score column maps to” sends it to Total, CA, or Exam.',
             '6. Choose sitting (main or supplementary) on the Upload Score page. It applies to every row in the file.',
             '7. Letter grades are assigned from the grading scale. Do not put them in the file.',
-            '8. Do not rename the header row. Extra columns are ignored.',
+            '8. Optional remark column: ABS_P, ABS_NP, SICK, or AR. A remark replaces scores for that row.',
+            '9. Do not rename the header row. Extra columns are ignored.',
             '',
             'Required columns: '.implode(', ', self::required()).'.',
         ];

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\GradeExamRemark;
 use App\Support\GradeLetterResolver;
 use App\Support\GradeStatus;
 use Illuminate\Database\Eloquent\Builder;
@@ -16,6 +17,7 @@ class Grade extends BaseModel
         'course_offering_id',
         'sitting',
         'letter',
+        'exam_remark',
         'points',
         'score',
         'ca_score',
@@ -130,8 +132,21 @@ class Grade extends BaseModel
         return (int) ($this->resolvedOffering()?->course?->units ?? 0);
     }
 
+    public function hasExamRemark(): bool
+    {
+        return GradeExamRemark::normalize($this->exam_remark) !== null;
+    }
+
+    public function examRemarkCode(): ?string
+    {
+        return GradeExamRemark::normalize($this->exam_remark);
+    }
+
     public function resolvedLetter(): string
     {
+        if ($this->hasExamRemark()) {
+            return '';
+        }
         $letter = strtoupper(trim((string) ($this->letter ?? '')));
         if ($letter !== '') {
             return $letter;

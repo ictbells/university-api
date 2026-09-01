@@ -248,6 +248,8 @@ class OfficeApprovalExecutor
             'academic.update_olevel' => [\App\Http\Controllers\AcademicSetupController::class, 'updateOlevelSubject', ['key' => 'olevel_subject_id', 'class' => OlevelSubject::class]],
             'academic.destroy_olevel' => [\App\Http\Controllers\AcademicSetupController::class, 'destroyOlevelSubject', ['key' => 'olevel_subject_id', 'class' => OlevelSubject::class]],
             'students.update' => [\App\Http\Controllers\StudentController::class, 'update', ['key' => 'student_id', 'class' => Student::class]],
+            'students.term_sanction' => [\App\Http\Controllers\StudentController::class, 'storeTermSanction', ['key' => 'student_id', 'class' => Student::class]],
+            'students.lift_term_sanction' => [\App\Http\Controllers\StudentController::class, 'destroyTermSanction', ['key' => 'student_id', 'class' => Student::class]],
             'announcements.store' => [\App\Http\Controllers\AnnouncementController::class, 'store', null],
             'announcements.update' => [\App\Http\Controllers\AnnouncementController::class, 'update', ['key' => 'announcement_id', 'class' => Announcement::class]],
             'announcements.publish' => [\App\Http\Controllers\AnnouncementController::class, 'publish', ['key' => 'announcement_id', 'class' => Announcement::class]],

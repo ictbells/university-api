@@ -427,18 +427,53 @@ class GradeWorkflowTest extends TestCase
 
         $this->getJson('/api/academic/results/reports/submission-list/department?academic_term_id='.$this->term->id.'&status=submitted')
             ->assertOk()
-            ->assertJsonPath('layout', 'student_matrix')
+            ->assertJsonPath('layout', 'broadsheet')
             ->assertJsonPath('students.0.matric', 'BU/2020/001')
+            ->assertJsonPath('students.0.name', 'LOVELACE Ada')
+            ->assertJsonPath('students.0.status', 'GS')
             ->assertJsonPath('course_columns.0.code', 'CSC101')
-            ->assertJsonPath('course_columns.0.header_meta', '3:C');
+            ->assertJsonPath('course_columns.0.header_meta', '(3) (C)');
 
-        $html = $this->get('/api/academic/results/reports/submission-list/department?academic_term_id='.$this->term->id.'&status=submitted&format=html')
-            ->assertOk()
-            ->assertHeader('content-type', 'text/html; charset=UTF-8')
-            ->getContent();
+        $html = html_entity_decode(
+            $this->get('/api/academic/results/reports/submission-list/department?academic_term_id='.$this->term->id.'&status=submitted&format=html')
+                ->assertOk()
+                ->assertHeader('content-type', 'text/html; charset=UTF-8')
+                ->getContent(),
+            ENT_QUOTES | ENT_HTML5,
+            'UTF-8',
+        );
         $this->assertStringContainsString('BU/2020/001', $html);
-        $this->assertStringContainsString('TUR Current Semester', $html);
+        $this->assertStringContainsString('UNDERGRADUATE SEMESTER RESULT', $html);
+        $this->assertStringContainsString('LOVELACE Ada', $html);
+        $this->assertStringContainsString('TUT', $html);
+        $this->assertStringContainsString('SGPA', $html);
+        $this->assertStringContainsString('>GS<', $html);
+        $this->assertStringContainsString("HOD's Signature and Date", $html);
+        $this->assertStringNotContainsString("Dean's Signature and Date", $html);
         $this->assertStringContainsString('CSC101', $html);
+        $this->assertStringContainsString('70 (A)', $html);
+
+        $facultyId = (int) $this->enrollment->offering->course->department->faculty_id;
+        $collegeHtml = html_entity_decode($this->get(
+            '/api/academic/results/reports/submission-list/faculty?academic_term_id='.$this->term->id
+            .'&faculty_id='.$facultyId.'&status=submitted&format=html&step=college'
+        )->assertOk()->getContent(), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $this->assertStringContainsString("Dean's Signature and Date", $collegeHtml);
+        $this->assertStringNotContainsString('Chairman CODD', $collegeHtml);
+        $this->assertStringNotContainsString("Senate's Approval", $collegeHtml);
+
+        $deansHtml = html_entity_decode($this->get(
+            '/api/academic/results/reports/submission-list/faculty?academic_term_id='.$this->term->id
+            .'&faculty_id='.$facultyId.'&status=submitted&format=html&step=deans'
+        )->assertOk()->getContent(), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $this->assertStringContainsString('Chairman CODD Signature and Date', $deansHtml);
+        $this->assertStringNotContainsString("Senate's Approval", $deansHtml);
+
+        $senateHtml = html_entity_decode($this->get(
+            '/api/academic/results/board-lists/faculty?academic_term_id='.$this->term->id
+            .'&faculty_id='.$facultyId.'&status=submitted&format=html'
+        )->assertOk()->getContent(), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $this->assertStringContainsString("Senate's Approval and Date", $senateHtml);
 
         $this->getJson('/api/academic/results/reports/submission-list/department?format=html')
             ->assertStatus(422)
@@ -450,6 +485,7 @@ class GradeWorkflowTest extends TestCase
         $pdf = $this->get('/api/academic/results/reports/submission-list/department?academic_term_id='.$this->term->id.'&department_id='.$this->enrollment->offering->course->department_id.'&level=100&status=submitted&format=pdf');
         $pdf->assertOk();
         $pdf->assertHeader('content-type', 'application/pdf');
+        $pdf->assertHeader('content-disposition', 'attachment; filename="department-results-2024-2025-first.pdf"');
 
         $this->assertNotNull($grade->id);
     }
@@ -476,7 +512,10 @@ class GradeWorkflowTest extends TestCase
             ->assertJsonPath('students.0.tup', '3')
             ->assertJsonPath('students.0.wgp', '15')
             ->assertJsonPath('students.0.gpa', '5.00')
-            ->assertJsonPath('students.0.cgpa', '5.00');
+            ->assertJsonPath('students.0.sgpa', '5.00')
+            ->assertJsonPath('students.0.cgpa', '5.00')
+            ->assertJsonPath('students.0.tuf', '0')
+            ->assertJsonPath('students.0.status', 'GS');
     }
 
     public function test_board_list_includes_general_lane_rows_for_faculty_scope(): void
@@ -540,11 +579,12 @@ class GradeWorkflowTest extends TestCase
             .'&level=100'
         )->assertOk();
 
-        $this->assertSame('board_summary', $report->json('layout'));
-        $deptNames = collect($report->json('departments'))->pluck('name')->implode(' ');
+        $this->assertSame('broadsheet', $report->json('layout'));
+        $this->assertSame('senate', $report->json('step'));
+        $deptNames = collect($report->json('sheets'))->pluck('name')->implode(' ');
         $this->assertStringContainsString('Department of CS', $deptNames);
-        $this->assertStringContainsString('Department of GST', $deptNames);
-        $this->assertNotEmpty($report->json('departments.0.students.0.name'));
+        $this->assertStringContainsString('GST101', (string) $report->json('sheets.0.students.0.other_courses'));
+        $this->assertNotEmpty($report->json('sheets.0.students.0.name'));
     }
 
     public function test_staff_can_download_results_import_template(): void
@@ -555,7 +595,63 @@ class GradeWorkflowTest extends TestCase
             ->assertOk()
             ->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 
-        $this->assertSame(['matric', 'ca', 'exam', 'score'], ResultImportColumns::all());
+        $this->assertSame(['matric', 'ca', 'exam', 'score', 'remark'], ResultImportColumns::all());
+    }
+
+    public function test_exam_remark_skips_gpa_and_counts_absent_on_the_broadsheet(): void
+    {
+        Sanctum::actingAs($this->staffUser);
+        $this->postJson('/api/academic/results/grades', [
+            'enrollment_id' => $this->enrollment->id,
+            'exam_remark' => 'abs_p',
+        ])->assertOk()
+            ->assertJsonPath('exam_remark', 'abs_p')
+            ->assertJsonPath('score', null);
+
+        $this->getJson(
+            '/api/academic/results/reports/submission-list/department?academic_term_id='.$this->term->id.'&status=draft'
+        )
+            ->assertOk()
+            ->assertJsonPath('students.0.status', 'ABS_P')
+            ->assertJsonPath('students.0.scores.CSC101', 'ABS_P')
+            ->assertJsonPath('sheets.0.summary.absent_with_permission', 1)
+            ->assertJsonPath('sheets.0.summary.good_standing', 0)
+            ->assertJsonPath('students.0.sgpa', '—');
+    }
+
+    public function test_term_sanction_overrides_standing_on_the_broadsheet(): void
+    {
+        Sanctum::actingAs($this->staffUser);
+        Grade::query()->create([
+            'enrollment_id' => $this->enrollment->id,
+            'sitting' => 'main',
+            'score' => 70,
+            'letter' => 'A',
+            'points' => 5,
+            'status' => GradeStatus::SUBMITTED,
+            'faculty_id' => $this->enrollment->offering->course->department->faculty_id,
+            'department_id' => $this->enrollment->offering->course->department_id,
+        ]);
+
+        $this->staffUser->roles()->first()?->permissions()->syncWithoutDetaching(
+            \App\Models\Permission::query()->where('key', 'students.manage')->pluck('id'),
+        );
+        $this->staffUser->unsetRelation('roles');
+
+        $this->postJson('/api/students/'.$this->student->id.'/term-sanctions', [
+            'academic_term_id' => $this->term->id,
+            'type' => 'rusticated',
+        ])->assertOk()->assertJsonPath('type', 'rusticated');
+
+        $this->assertSame('rusticated', $this->student->fresh()->status);
+
+        $this->getJson(
+            '/api/academic/results/reports/submission-list/department?academic_term_id='.$this->term->id.'&status=submitted'
+        )
+            ->assertOk()
+            ->assertJsonPath('students.0.status', 'RUS')
+            ->assertJsonPath('sheets.0.summary.rusticated', 1)
+            ->assertJsonPath('sheets.0.summary.good_standing', 0);
     }
 
     public function test_import_applies_sitting_from_the_request(): void
@@ -619,7 +715,7 @@ class GradeWorkflowTest extends TestCase
             .'&status=draft'
         )
             ->assertOk()
-            ->assertJsonPath('layout', 'student_matrix')
+            ->assertJsonPath('layout', 'broadsheet')
             ->assertJsonPath('students.0.matric', 'BU/2020/001');
     }
 

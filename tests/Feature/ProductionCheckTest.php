@@ -2,10 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Support\PaymentGatewaySettings;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class ProductionCheckTest extends TestCase
 {
+    use RefreshDatabase;
     private function passingConfig(): array
     {
         return [
@@ -21,6 +24,9 @@ class ProductionCheckTest extends TestCase
             'services.paystack.secret' => 'sk_live_example',
             'services.paystack.public' => 'pk_live_example',
             'services.paystack.webhook_secret' => 'whsec_example',
+            'services.wema.public' => 'pk_wema_live',
+            'services.wema.secret' => 'sk_wema_live',
+            'services.wema.business_id' => 'biz-wema-live',
             'services.prembly.allow_demo' => false,
             'services.prembly.key' => 'live_sk_example',
             'services.prembly.app_id' => 'live_pk_example',
@@ -91,6 +97,37 @@ class ProductionCheckTest extends TestCase
         $this->artisan('production:check', ['--force' => true])
             ->expectsOutputToContain('PAYSTACK_ALLOW_DEMO_FULFILL must be false.')
             ->assertFailed();
+    }
+
+    public function test_requires_wema_keys_when_wema_is_the_active_gateway(): void
+    {
+        config($this->passingConfig());
+        PaymentGatewaySettings::update(['payment_gateway' => 'wema']);
+        config([
+            'services.paystack.secret' => null,
+            'services.paystack.public' => null,
+            'services.wema.public' => '',
+            'services.wema.secret' => '',
+            'services.wema.business_id' => '',
+        ]);
+
+        $this->artisan('production:check', ['--force' => true])
+            ->expectsOutputToContain('WEMA_ALATPAY_PUBLIC_KEY, WEMA_ALATPAY_SECRET_KEY, and WEMA_ALATPAY_BUSINESS_ID must be set.')
+            ->assertFailed();
+    }
+
+    public function test_passes_with_wema_keys_when_wema_is_active(): void
+    {
+        config($this->passingConfig());
+        config([
+            'services.paystack.secret' => null,
+            'services.paystack.public' => null,
+        ]);
+        PaymentGatewaySettings::update(['payment_gateway' => 'wema']);
+
+        $this->artisan('production:check', ['--force' => true])
+            ->expectsOutputToContain('Production check passed.')
+            ->assertSuccessful();
     }
 
     public function test_fails_when_super_admin_env_is_missing(): void

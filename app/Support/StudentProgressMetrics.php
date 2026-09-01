@@ -81,6 +81,21 @@ final class StudentProgressMetrics
                 $eligibleAll = ProgrammeChangeGpaPolicy::forCurrentProgramme($eligibleAll, $student);
             }
 
+            $rowsBefore = $rows->filter(function (Grade $g) use ($term) {
+                $rowTerm = $g->resolvedOffering()?->term;
+                if (! $rowTerm) {
+                    return false;
+                }
+
+                return self::isBeforeTerm($rowTerm, $term);
+            });
+            $eligibleBefore = GradeWorkflowService::preferSupplementary(
+                $rowsBefore->filter(fn (Grade $g) => ! $g->registration_held)
+            );
+            if ($student) {
+                $eligibleBefore = ProgrammeChangeGpaPolicy::forCurrentProgramme($eligibleBefore, $student);
+            }
+
             $semesterSummary = GpaCalculator::summary($semesterRows, false);
             $toDateSummary = GpaCalculator::summary($eligibleToDate, false);
 
@@ -90,6 +105,7 @@ final class StudentProgressMetrics
             }
             $wgp = (float) $semesterSummary['total_quality_points'];
             $tup = 0;
+            $tuf = 0;
             $failedCodes = [];
             foreach ($eligibleSemester as $row) {
                 $units = self::units($row);
@@ -99,6 +115,9 @@ final class StudentProgressMetrics
                     if ($letter === 'F' && $code !== '') {
                         $failedCodes[] = $code;
                     }
+                    if ($letter === 'F' && $units > 0) {
+                        $tuf += $units;
+                    }
 
                     continue;
                 }
@@ -107,6 +126,39 @@ final class StudentProgressMetrics
                 }
             }
             $failedCodes = array_values(array_unique($failedCodes));
+
+            $semesterRemarks = [];
+            $hasScoredSemester = false;
+            $hasAwaitingRemark = false;
+            $outcomeCourseIds = [];
+            foreach ($eligibleSemester as $row) {
+                $courseId = (int) ($row->resolvedOffering()?->course_id ?? 0);
+                $remark = $row->examRemarkCode();
+                if ($remark !== null) {
+                    $semesterRemarks[] = $remark;
+                    if (GradeExamRemark::isAwaiting($remark)) {
+                        $hasAwaitingRemark = true;
+                    } elseif ($courseId > 0) {
+                        $outcomeCourseIds[] = $courseId;
+                    }
+
+                    continue;
+                }
+                if ($row->resolvedLetter() !== '' || ($row->score !== null && $row->score !== '')) {
+                    $hasScoredSemester = true;
+                    if ($courseId > 0) {
+                        $outcomeCourseIds[] = $courseId;
+                    }
+                }
+            }
+            $registeredThisTerm = $semesterRegistrations[$studentId]['courses'] ?? [];
+            $missingThisTerm = false;
+            foreach ($registeredThisTerm as $courseId => $_info) {
+                if (! in_array((int) $courseId, $outcomeCourseIds, true)) {
+                    $missingThisTerm = true;
+                    break;
+                }
+            }
 
             $tupToDate = 0;
             foreach ($eligibleToDate as $row) {
@@ -140,11 +192,15 @@ final class StudentProgressMetrics
             }
 
             $cgpa = GpaCalculator::compute($eligibleAll, false);
+            $pgpa = GpaCalculator::compute($eligibleBefore, false);
 
             $out[$studentId] = [
                 'gpa' => $semesterSummary['gpa'],
+                'sgpa' => $semesterSummary['gpa'],
+                'pgpa' => $pgpa,
                 'cgpa' => $cgpa,
                 'tur' => $tur,
+                'tuf' => $tuf,
                 'tup' => $tup,
                 'wgp' => $wgp,
                 'tur_to_date' => $turToDate,
@@ -157,6 +213,9 @@ final class StudentProgressMetrics
                 'units_registered' => $tur,
                 'units_passed' => $tup,
                 'remark' => self::remark($cgpa),
+                'semester_remarks' => $semesterRemarks,
+                'has_scored_semester' => $hasScoredSemester,
+                'semester_incomplete' => $hasAwaitingRemark || $missingThisTerm,
             ];
         }
 
@@ -165,7 +224,7 @@ final class StudentProgressMetrics
 
     /**
      * @param  list<int>  $studentIds
-     * @return array<int, array{matric_number: ?string, name: string, level: ?string, programme: ?string, year_of_entry: ?string, mode_of_entry: ?string}>
+     * @return array<int, array{matric_number: ?string, name: string, level: ?string, programme: ?string, year_of_entry: ?string, mode_of_entry: ?string, department_id: ?int, studentship_status: ?string}>
      */
     public static function sheetProfiles(array $studentIds): array
     {
@@ -176,6 +235,8 @@ final class StudentProgressMetrics
             'programme' => '—',
             'year_of_entry' => '—',
             'mode_of_entry' => '—',
+            'department_id' => null,
+            'studentship_status' => null,
         ];
         $studentIds = array_values(array_unique(array_filter($studentIds)));
         if ($studentIds === []) {
@@ -183,7 +244,7 @@ final class StudentProgressMetrics
         }
 
         $students = Student::query()
-            ->with(['program:id,name,code,award_type', 'application.intake.term'])
+            ->with(['program:id,name,code,award_type,department_id', 'application.intake.term'])
             ->whereIn('id', $studentIds)
             ->get()
             ->keyBy('id');
@@ -203,13 +264,17 @@ final class StudentProgressMetrics
             }
 
             $mode = (string) ($s?->application?->entry_mode ?: '');
+            $surname = strtoupper(trim((string) ($s?->last_name ?? '')));
+            $given = trim(trim((string) ($s?->first_name ?? '')).' '.trim((string) ($s?->middle_name ?? '')));
             $out[$id] = [
                 'matric_number' => $s?->matric_number,
-                'name' => trim(($s?->last_name ?? '').' '.($s?->first_name ?? '').' '.($s?->middle_name ?? '')),
+                'name' => trim($surname.' '.$given),
                 'level' => $s?->current_level !== null && $s?->current_level !== '' ? (string) $s->current_level : '—',
                 'programme' => $programme !== '' ? $programme : '—',
                 'year_of_entry' => $year !== '' ? $year : '—',
                 'mode_of_entry' => $mode !== '' ? strtoupper($mode) : '—',
+                'department_id' => $s?->program?->department_id ? (int) $s->program->department_id : null,
+                'studentship_status' => $s?->status,
             ];
         }
 
@@ -247,6 +312,50 @@ final class StudentProgressMetrics
         }
 
         return 'Pass';
+    }
+
+    /**
+     * Architecture broadsheet standing: GS / NGS by year of admission and outstanding units.
+     */
+    public static function standing(?float $cgpa, int $outstandingUnits, ?string $yearOfEntry = null): string
+    {
+        if ($cgpa === null) {
+            return '—';
+        }
+
+        $year = self::entryYear($yearOfEntry);
+        $cgpaFloor = ($year !== null && $year <= 2012) ? 1.0 : 1.5;
+
+        return ($cgpa >= $cgpaFloor && $outstandingUnits < 12) ? 'GS' : 'NGS';
+    }
+
+    /**
+     * @param  list<string>  $codes
+     */
+    public static function formatOutstanding(int $courseCount, int $units, array $codes): string
+    {
+        if ($courseCount <= 0 && $units <= 0 && $codes === []) {
+            return '—';
+        }
+
+        $label = $courseCount.'/'.$units;
+        if ($codes !== []) {
+            $label .= ' ('.implode(', ', $codes).')';
+        }
+
+        return $label;
+    }
+
+    public static function entryYear(?string $yearOfEntry): ?int
+    {
+        if ($yearOfEntry === null || trim($yearOfEntry) === '' || trim($yearOfEntry) === '—') {
+            return null;
+        }
+        if (preg_match('/(19\d{2}|20\d{2})/', $yearOfEntry, $match)) {
+            return (int) $match[1];
+        }
+
+        return null;
     }
 
     public static function universityName(): string
@@ -326,6 +435,11 @@ final class StudentProgressMetrics
     public static function isOnOrBeforeTerm(AcademicTerm $row, AcademicTerm $cutoff): bool
     {
         return self::termSortKey($row) <= self::termSortKey($cutoff);
+    }
+
+    public static function isBeforeTerm(AcademicTerm $row, AcademicTerm $cutoff): bool
+    {
+        return self::termSortKey($row) < self::termSortKey($cutoff);
     }
 
     /**

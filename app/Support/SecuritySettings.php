@@ -33,6 +33,7 @@ class SecuritySettings
             'studentship_years_after_graduation' => Studentship::yearsAfterGraduation(),
             ...TranscriptRequestSettings::all(),
             ...PgResearchWordLimits::all(),
+            ...PaymentGatewaySettings::all(),
         ];
     }
 
@@ -97,6 +98,9 @@ class SecuritySettings
             || array_key_exists('pg_statement_of_purpose_max_words', $data)
         ) {
             PgResearchWordLimits::update($data);
+        }
+        if (array_key_exists('payment_gateway', $data)) {
+            PaymentGatewaySettings::update($data);
         }
 
         return self::all();

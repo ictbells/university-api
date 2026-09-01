@@ -12,6 +12,7 @@ use App\Models\Grade;
 use App\Models\GradeBoundary;
 use App\Models\GradingScale;
 use App\Models\Student;
+use App\Models\StudentTermSanction;
 use App\Services\GradeEntryService;
 use App\Services\GradeWorkflowService;
 use App\Support\GpaCalculator;
@@ -21,6 +22,7 @@ use App\Support\ListSessionLevelFilter;
 use App\Support\ProgrammeChangeGpaPolicy;
 use App\Support\ResultOfficerScope;
 use App\Support\SubmissionListReportBuilder;
+use App\Services\StudentTermSanctionService;
 use App\Support\TranscriptBuilder;
 use Dompdf\Dompdf;
 use Dompdf\Options;
@@ -150,6 +152,7 @@ class ResultsController extends Controller
             'exam_score' => 'nullable|numeric|min:0|max:100',
             'score' => 'nullable|numeric|min:0|max:100',
             'letter' => 'nullable|string|max:4',
+            'exam_remark' => ['nullable', 'string', 'max:40'],
             'points' => 'nullable|numeric|min:0|max:5',
         ]);
 
@@ -165,6 +168,7 @@ class ResultsController extends Controller
             'exam_score' => 'nullable|numeric|min:0|max:100',
             'score' => 'nullable|numeric|min:0|max:100',
             'letter' => 'nullable|string|max:4',
+            'exam_remark' => ['nullable', 'string', 'max:40'],
             'points' => 'nullable|numeric|min:0|max:5',
             'sitting' => ['nullable', Rule::in(GradeStatus::sittings())],
         ]);
@@ -427,6 +431,17 @@ class ResultsController extends Controller
             ? $grades->filter(fn (Grade $g) => (int) ($g->resolvedOffering()?->academic_term_id ?? 0) === $termId)
             : $grades;
 
+        $sanction = null;
+        if ($termId) {
+            $type = StudentTermSanctionService::typesForStudents([$student->id], $termId)[$student->id] ?? null;
+            if ($type) {
+                $sanction = StudentTermSanction::query()
+                    ->where('student_id', $student->id)
+                    ->where('academic_term_id', $termId)
+                    ->first();
+            }
+        }
+
         $gradeIds = $grades->pluck('id')->all();
         $audit = AuditLog::query()
             ->where('module', 'results')
@@ -446,6 +461,7 @@ class ResultsController extends Controller
             )['gpa'],
             'transcript' => TranscriptBuilder::forStudent($student, false),
             'audit' => $audit,
+            'term_sanction' => $sanction,
         ];
     }
 
@@ -527,7 +543,8 @@ class ResultsController extends Controller
         );
         abort_unless(in_array($scope, ['department', 'faculty', 'board'], true), 404);
 
-        $reportScope = str_contains($request->path(), 'board-lists') ? 'board' : $scope;
+        $fromBoardLists = str_contains($request->path(), 'board-lists');
+        $reportScope = $fromBoardLists ? 'board' : $scope;
 
         $data = $request->validate([
             'academic_term_id' => 'required|integer|exists:academic_terms,id',
@@ -538,9 +555,13 @@ class ResultsController extends Controller
             'level' => 'nullable|string',
             'sitting' => ['nullable', Rule::in(GradeStatus::sittings())],
             'format' => 'nullable|in:json,html,pdf,doc,docx',
+            'step' => 'nullable|in:department,college,deans,senate',
         ]);
 
         $format = $data['format'] ?? 'json';
+        $step = $fromBoardLists
+            ? 'senate'
+            : (string) ($data['step'] ?? ($scope === 'faculty' ? 'college' : 'department'));
         if (in_array($format, ['pdf', 'doc', 'docx'], true) && empty($data['level'])) {
             abort(422, 'Select a level to download the list.');
         }
@@ -575,6 +596,7 @@ class ResultsController extends Controller
             $faculty,
             $department,
             $data['level'] ?? null,
+            $step,
         );
 
         if ($format === 'json') {
@@ -582,7 +604,7 @@ class ResultsController extends Controller
         }
 
         $html = view('reports.submission-list', ['report' => $report])->render();
-        $basename = $this->submissionListFilename($reportScope, $term, $report);
+        $basename = $this->submissionListFilename($step, $term, $report);
 
         if ($format === 'html') {
             return response($html, 200, ['Content-Type' => 'text/html; charset=UTF-8']);
@@ -611,15 +633,16 @@ class ResultsController extends Controller
     /**
      * @param  array<string, mixed>  $report
      */
-    private function submissionListFilename(string $scope, AcademicTerm $term, array $report): string
+    private function submissionListFilename(string $step, AcademicTerm $term, array $report): string
     {
         $session = str_replace(['/', ' '], '-', (string) ($term->session?->label ?: $term->session_label ?: $term->id));
         $semester = str_contains(strtolower((string) $term->name), 'second') ? 'second' : 'first';
         $suffix = ! empty($report['is_supplementary']) ? '-supplementary' : '';
 
-        $label = match ($scope) {
-            'department' => 'college-results',
-            'faculty' => 'deans-results',
+        $label = match ($step) {
+            'department' => 'department-results',
+            'college' => 'college-results',
+            'deans' => 'deans-results',
             default => 'senate-list',
         };
 

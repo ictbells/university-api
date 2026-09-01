@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Invoice;
 use App\Models\Student;
 use App\Services\FeeArrearsService;
-use App\Services\PaystackService;
+use App\Services\PaymentGatewayManager;
 use App\Services\WalletService;
 use App\Support\SchoolFeeAccess;
 use Illuminate\Http\Request;
@@ -14,7 +14,7 @@ class WalletController extends Controller
 {
     public function __construct(
         private WalletService $wallets,
-        private PaystackService $paystack,
+        private PaymentGatewayManager $gateways,
         private FeeArrearsService $arrears,
     ) {}
 
@@ -77,11 +77,15 @@ class WalletController extends Controller
             'portal' => 'nullable|in:student,staff',
         ]);
 
-        return $this->paystack->initializeWalletTopup(
-            $request->user(),
-            (float) $data['amount'],
-            $data['portal'] ?? 'student',
-        );
+        try {
+            return $this->gateways->initializeWalletTopup(
+                $request->user(),
+                (float) $data['amount'],
+                $data['portal'] ?? 'student',
+            );
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
     }
 
     private function resolveStudent(Request $request): ?Student

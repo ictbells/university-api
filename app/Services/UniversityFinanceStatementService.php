@@ -357,6 +357,7 @@ class UniversityFinanceStatementService
     {
         return match ($method) {
             'paystack' => 'Paystack',
+            'wema' => 'Wema Bank',
             'wallet' => 'Wallet',
             'legacy_import' => 'Import',
             'bank' => 'Bank',
@@ -452,7 +453,7 @@ class UniversityFinanceStatementService
         $row = $this->writeExcelSection($sheet, $row, 'Statement of receipts', [
             ['Fee collections', $totals['collected']],
             ['Wallet top-ups', $totals['wallet_inflows']],
-            ['Cash received (Paystack / import / bank)', $totals['cash_received']],
+            ['Cash received (Paystack / Wema / import / bank)', $totals['cash_received']],
             ['Wallet applied to invoices', $totals['wallet_applied']],
             ['Total receipts', $totals['receipts']],
         ]);
@@ -579,7 +580,7 @@ class UniversityFinanceStatementService
         $this->wordKeyValues($section, [
             ['Fee collections', $totals['collected']],
             ['Wallet top-ups', $totals['wallet_inflows']],
-            ['Cash received (Paystack / import / bank)', $totals['cash_received']],
+            ['Cash received (Paystack / Wema / import / bank)', $totals['cash_received']],
             ['Wallet applied to invoices', $totals['wallet_applied']],
             ['Total receipts', $totals['receipts']],
         ]);

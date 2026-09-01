@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Support\PaymentGatewaySettings;
 use Illuminate\Console\Command;
 use Illuminate\Support\Str;
 
@@ -67,12 +68,20 @@ class ProductionCheck extends Command
             $failures[] = 'PREMBLY_ALLOW_DEMO must be false.';
         }
 
-        if (! config('services.paystack.secret') || ! config('services.paystack.public')) {
-            $failures[] = 'PAYSTACK_SECRET_KEY and PAYSTACK_PUBLIC_KEY must be set.';
-        }
+        $activeGateway = PaymentGatewaySettings::active();
+        $usingPaystackTestKeys = false;
 
-        $paystackSecret = (string) config('services.paystack.secret');
-        $usingPaystackTestKeys = str_starts_with($paystackSecret, 'sk_test_');
+        if ($activeGateway === PaymentGatewaySettings::WEMA) {
+            if (! config('services.wema.public') || ! config('services.wema.secret') || ! config('services.wema.business_id')) {
+                $failures[] = 'WEMA_ALATPAY_PUBLIC_KEY, WEMA_ALATPAY_SECRET_KEY, and WEMA_ALATPAY_BUSINESS_ID must be set.';
+            }
+        } else {
+            if (! config('services.paystack.secret') || ! config('services.paystack.public')) {
+                $failures[] = 'PAYSTACK_SECRET_KEY and PAYSTACK_PUBLIC_KEY must be set.';
+            }
+            $paystackSecret = (string) config('services.paystack.secret');
+            $usingPaystackTestKeys = str_starts_with($paystackSecret, 'sk_test_');
+        }
 
         if (! config('services.prembly.key') || ! config('services.prembly.app_id')) {
             $failures[] = 'PREMBLY_API_KEY and PREMBLY_APP_ID must be set.';

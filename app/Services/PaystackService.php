@@ -2,48 +2,41 @@
 
 namespace App\Services;
 
+use App\Contracts\PaymentGateway;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\User;
 use App\Models\WebhookLog;
-use App\Support\FeeSchedule;
+use App\Support\PaymentGatewaySettings;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use RuntimeException;
 
-class PaystackService
+class PaystackService implements PaymentGateway
 {
-    public function __construct(
-        private InvoiceService $invoices,
-        private WalletService $wallets,
-        private ApplicationAdmissionService $admissions,
-        private AuditWriter $audit,
-        private Notifier $notifier,
-    ) {}
+    public function __construct(private PaymentFulfillmentService $fulfillment) {}
+
+    public function key(): string
+    {
+        return PaymentGatewaySettings::PAYSTACK;
+    }
 
     public function initializeInvoice(User $user, Invoice $invoice, ?string $callbackUrl = null): array
     {
-        if (! $invoice->isPayable()) {
-            abort(422, 'This invoice cannot be paid.');
-        }
-        if (! FeeSchedule::onlinePaymentAllowed($invoice->category)) {
-            abort(422, 'This invoice must be paid from the campus wallet. Only application, acceptance, and transcript fees can be paid online.');
-        }
+        $this->fulfillment->assertInvoicePayable($invoice);
         $reference = 'PSK-'.Str::upper(Str::random(12));
-        $payment = Payment::query()->create([
-            'invoice_id' => $invoice->id,
-            'user_id' => $user->id,
-            'method' => 'paystack',
-            'amount' => $invoice->balance,
-            'status' => 'pending',
-            'reference' => $reference,
-            'paystack_reference' => $reference,
-            'purpose' => $invoice->category,
-        ]);
+        $payment = $this->fulfillment->createPendingPayment(
+            $user,
+            $this->key(),
+            $reference,
+            (float) $invoice->balance,
+            $invoice->id,
+            $invoice->category,
+        );
 
         $secret = config('services.paystack.secret');
         if (! $secret) {
-            if (! config('services.paystack.allow_demo_fulfill')) {
+            if (! PaymentGatewaySettings::demoAllowed()) {
                 throw new RuntimeException('Online payments are not configured. Please pay at the admissions office.');
             }
 
@@ -53,6 +46,7 @@ class PaystackService
                 'reference' => $reference,
                 'demo' => true,
                 'payment_id' => $payment->id,
+                'provider' => $this->key(),
             ];
         }
 
@@ -60,7 +54,7 @@ class PaystackService
             'email' => $user->email,
             'amount' => (int) round(((float) $invoice->balance) * 100),
             'reference' => $reference,
-            'callback_url' => $callbackUrl ?: $this->callbackUrl('staff'),
+            'callback_url' => $callbackUrl ?: $this->fulfillment->callbackUrl('staff'),
             'metadata' => ['invoice_id' => $invoice->id, 'purpose' => $invoice->category],
         ]);
         if (! $response->successful()) {
@@ -71,25 +65,25 @@ class PaystackService
             ...$response->json('data'),
             'demo' => false,
             'payment_id' => $payment->id,
+            'provider' => $this->key(),
         ];
     }
 
     public function initializeWalletTopup(User $user, float $amount, string $portal = 'student'): array
     {
+        $user->loadMissing('student.wallet');
         if (! $user->student?->wallet) {
             throw new RuntimeException('Wallet is only available after student creation.');
         }
         $reference = 'PSK-W-'.Str::upper(Str::random(12));
-        $payment = Payment::query()->create([
-            'invoice_id' => null,
-            'user_id' => $user->id,
-            'method' => 'paystack',
-            'amount' => $amount,
-            'status' => 'pending',
-            'reference' => $reference,
-            'paystack_reference' => $reference,
-            'purpose' => 'wallet_topup',
-        ]);
+        $payment = $this->fulfillment->createPendingPayment(
+            $user,
+            $this->key(),
+            $reference,
+            $amount,
+            null,
+            'wallet_topup',
+        );
 
         $secret = config('services.paystack.secret');
         if (! $secret) {
@@ -98,6 +92,7 @@ class PaystackService
                 'reference' => $reference,
                 'demo' => true,
                 'payment_id' => $payment->id,
+                'provider' => $this->key(),
             ];
         }
 
@@ -105,7 +100,7 @@ class PaystackService
             'email' => $user->email,
             'amount' => (int) round($amount * 100),
             'reference' => $reference,
-            'callback_url' => $this->callbackUrl($portal === 'staff' ? 'staff' : 'student'),
+            'callback_url' => $this->fulfillment->callbackUrl($portal === 'staff' ? 'staff' : 'student'),
             'metadata' => ['purpose' => 'wallet_topup', 'portal' => $portal],
         ]);
         if (! $response->successful()) {
@@ -116,13 +111,20 @@ class PaystackService
             ...$response->json('data'),
             'demo' => false,
             'payment_id' => $payment->id,
+            'provider' => $this->key(),
         ];
     }
 
-    public function verify(string $reference): Payment
+    public function verify(string $reference, ?string $transactionId = null): Payment
     {
         $secret = config('services.paystack.secret');
-        $payment = Payment::query()->where('reference', $reference)->orWhere('paystack_reference', $reference)->firstOrFail();
+        $lookup = $transactionId ?: $reference;
+        $payment = Payment::query()
+            ->where('reference', $lookup)
+            ->orWhere('paystack_reference', $lookup)
+            ->orWhere('reference', $reference)
+            ->orWhere('paystack_reference', $reference)
+            ->firstOrFail();
         if ($payment->status === 'successful') {
             return $payment;
         }
@@ -132,52 +134,17 @@ class PaystackService
             if (! $response->json('status') || ($response->json('data.status') !== 'success')) {
                 throw new RuntimeException('Payment has not been confirmed by Paystack.');
             }
-        } elseif (! config('services.paystack.allow_demo_fulfill')) {
+        } elseif (! PaymentGatewaySettings::demoAllowed()) {
             throw new RuntimeException('Online payments are not configured. Please pay at the admissions office.');
         }
 
-        return $this->fulfill($payment);
-    }
-
-    public function fulfill(Payment $payment): Payment
-    {
-        if ($payment->status === 'successful') {
-            return $payment;
-        }
-        $payment->update([
-            'status' => 'successful',
-            'receipt_no' => 'RCP-'.Str::upper(Str::random(8)),
-        ]);
-
-        if ($payment->invoice_id) {
-            $invoice = $payment->invoice;
-            $this->invoices->applyPayment($invoice, (float) $payment->amount);
-            $this->audit->record('payment.paystack', 'Paystack payment for '.$invoice->number, 'payments', 'invoice', $invoice->id, null, $invoice->fresh());
-            $this->notifier->send($payment->user, 'payment', 'Payment received', 'Receipt '.$payment->receipt_no, 'payments', $payment->id);
-            $this->admissions->handleInvoicePaid($invoice->fresh());
-        } elseif ($payment->purpose === 'wallet_topup') {
-            $wallet = $payment->user->student?->wallet;
-            if ($wallet) {
-                $this->wallets->credit($wallet, (float) $payment->amount, 'Paystack wallet funding', 'payments', $payment->id, $payment->reference);
-            }
-        }
-
-        return $payment->fresh();
-    }
-
-    private function callbackUrl(string $portal): string
-    {
-        $base = $portal === 'staff'
-            ? config('app.frontend_url')
-            : config('app.student_url');
-
-        return rtrim((string) $base, '/').'/payments/callback';
+        return $this->fulfillment->fulfill($payment, 'Paystack');
     }
 
     public function handleWebhook(array $payload, ?string $signature): void
     {
         WebhookLog::query()->create([
-            'provider' => 'paystack',
+            'provider' => $this->key(),
             'event' => $payload['event'] ?? null,
             'payload' => $payload,
             'status' => 'received',

@@ -31,7 +31,7 @@ class TranscriptRequestService
 {
     public function __construct(
         private InvoiceService $invoices,
-        private PaystackService $paystack,
+        private PaymentGatewayManager $gateways,
         private AuditWriter $audit,
     ) {}
 
@@ -236,7 +236,7 @@ class TranscriptRequestService
         $callback = rtrim((string) config('app.student_url'), '/')
             .'/transcript-request/callback?token='.urlencode($request->public_token);
 
-        return $this->paystack->initializeInvoice($user, $invoice, $callback);
+        return $this->gateways->initializeInvoice($user, $invoice, $callback);
     }
 
     public function showPublic(string $token): array
@@ -246,10 +246,10 @@ class TranscriptRequestService
         return $this->publicPayload($request);
     }
 
-    public function verifyPayment(string $token, string $reference): array
+    public function verifyPayment(string $token, string $reference, ?string $transactionId = null): array
     {
         $request = $this->findByToken($token);
-        $payment = $this->paystack->verify($reference);
+        $payment = $this->gateways->verify($reference, $transactionId);
         abort_unless(
             (int) $payment->invoice_id === (int) $request->invoice_id,
             422,

@@ -113,10 +113,15 @@ class TranscriptRequestController extends Controller
         ]);
     }
 
-    public function verify(string $token, string $reference)
+    public function verify(Request $request, string $token, string $reference)
     {
+        $transactionId = $request->query('transactionId') ?: $request->query('transaction_id');
         try {
-            return response()->json($this->service->verifyPayment($token, $reference));
+            return response()->json($this->service->verifyPayment(
+                $token,
+                $reference,
+                $transactionId ? (string) $transactionId : null,
+            ));
         } catch (RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }

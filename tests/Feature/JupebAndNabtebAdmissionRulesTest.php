@@ -13,6 +13,7 @@ use App\Models\OlevelSubject;
 use App\Models\Permission;
 use App\Models\Program;
 use App\Models\Role;
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\StudentCreationService;
 use App\Support\JupebMatricColumns;
@@ -285,7 +286,35 @@ class JupebAndNabtebAdmissionRulesTest extends TestCase
         $student = app(StudentCreationService::class)->createFromApplication($application);
 
         $this->assertNotNull($student->fresh()->matric_number);
-        $this->assertMatchesRegularExpression('#^BUT/\d{4}/M/\d{4}$#', (string) $student->matric_number);
+        $this->assertSame('2025/000001', $student->matric_number);
+        $this->assertSame($student->matric_number, $student->student_number);
+    }
+
+    public function test_auto_matric_increments_from_the_last_issued_number(): void
+    {
+        $first = app(StudentCreationService::class)->createFromApplication(
+            $this->readyToSubmit('utme', $this->utmeProgram),
+        );
+        $second = app(StudentCreationService::class)->createFromApplication(
+            $this->readyToSubmit('utme', $this->utmeProgram),
+        );
+
+        $this->assertSame('2025/000001', $first->matric_number);
+        $this->assertSame('2025/000002', $second->matric_number);
+        $this->assertSame('2025/000002', Setting::getValue('matric_last'));
+    }
+
+    public function test_auto_matric_continues_from_matric_last_in_config(): void
+    {
+        config(['sis.matric_last' => '2026/000150', 'sis.matric_year' => 2026]);
+        Setting::setValue('matric_last', '2026/000150');
+
+        $student = app(StudentCreationService::class)->createFromApplication(
+            $this->readyToSubmit('utme', $this->utmeProgram),
+        );
+
+        $this->assertSame('2026/000151', $student->matric_number);
+        $this->assertSame('2026/000151', Setting::getValue('matric_last'));
     }
 
     public function test_staff_can_assign_and_import_jupeb_matric_numbers(): void

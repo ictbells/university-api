@@ -19,12 +19,18 @@ class Studentship
 
     public const STATUS_SUSPENDED = 'suspended';
 
+    public const STATUS_RUSTICATED = 'rusticated';
+
+    public const STATUS_EXPELLED = 'expelled';
+
     public const STATUSES = [
         self::STATUS_ACTIVE,
         self::STATUS_GRADUATED,
         self::STATUS_ALUMNI,
         self::STATUS_WITHDRAWN,
         self::STATUS_SUSPENDED,
+        self::STATUS_RUSTICATED,
+        self::STATUS_EXPELLED,
     ];
 
     public const CURRENT_STATUSES = [

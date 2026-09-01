@@ -1473,7 +1473,7 @@ class FinanceController extends Controller
         $method = strtolower((string) ($method ?: 'online'));
 
         return match (true) {
-            in_array($method, ['paystack', 'online', 'card', 'gateway'], true) => 'Online',
+            in_array($method, ['paystack', 'wema', 'online', 'card', 'gateway'], true) => 'Online',
             $method === 'wallet' => 'Wallet',
             $method === 'cash' => 'Cash',
             in_array($method, ['bank', 'transfer', 'bank_transfer'], true) => 'Bank transfer',

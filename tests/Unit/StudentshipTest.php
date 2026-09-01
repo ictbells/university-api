@@ -42,6 +42,13 @@ class StudentshipTest extends TestCase
         $this->assertFalse(Studentship::isCurrent($expired));
     }
 
+    public function test_rusticated_and_expelled_students_cannot_register(): void
+    {
+        $this->assertFalse(Studentship::canRegisterCourses($this->makeStudent(Studentship::STATUS_RUSTICATED)));
+        $this->assertFalse(Studentship::canRegisterCourses($this->makeStudent(Studentship::STATUS_EXPELLED)));
+        $this->assertFalse(Studentship::canApplyForAnotherProgramme($this->makeStudent(Studentship::STATUS_RUSTICATED)));
+    }
+
     public function test_only_graduated_or_alumni_students_may_apply_for_another_programme(): void
     {
         $this->assertTrue(Studentship::canApplyForAnotherProgramme(null));
