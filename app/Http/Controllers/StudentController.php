@@ -12,6 +12,7 @@ use App\Services\StudentTermSanctionService;
 use App\Support\GradeExamRemark;
 use App\Support\ListSessionLevelFilter;
 use App\Support\PhoneNumber;
+use App\Support\ResultOfficerScope;
 use App\Support\StudentTermSanctionType;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -134,7 +135,9 @@ class StudentController extends Controller
         abort_unless(
             $request->user()->hasPermission('students.view_any')
                 || $request->user()->hasPermission('students.manage')
-                || $request->user()->hasPermission('academic.graduate'),
+                || $request->user()->hasPermission('academic.graduate')
+                || $request->user()->hasPermission('results.read')
+                || $request->user()->hasPermission('results.write'),
             403,
         );
 
@@ -203,7 +206,7 @@ class StudentController extends Controller
 
     public function storeTermRemark(Request $request, Student $student)
     {
-        $this->assertCanSanction($request->user());
+        $this->assertCanRemark($request->user(), $student);
         $data = $request->validate([
             'academic_term_id' => 'required|integer|exists:academic_terms,id',
             'type' => 'required|string|max:40',
@@ -227,7 +230,7 @@ class StudentController extends Controller
 
     public function destroyTermRemark(Request $request, Student $student, StudentTermRemark $remark)
     {
-        $this->assertCanSanction($request->user());
+        $this->assertCanRemark($request->user(), $student);
         abort_unless((int) $remark->student_id === (int) $student->id, 404);
 
         return $this->officeGate(
@@ -245,6 +248,21 @@ class StudentController extends Controller
                 return ['message' => 'Remark lifted.'];
             },
         );
+    }
+
+    private function assertCanRemark($user, Student $student): void
+    {
+        abort_unless(
+            $user->hasPermission('students.manage')
+                || $user->hasPermission('academic.graduate')
+                || $user->hasPermission('results.write'),
+            403,
+        );
+        if ($user->hasPermission('results.write')
+            && ! $user->hasPermission('students.manage')
+            && ! $user->hasPermission('academic.graduate')) {
+            ResultOfficerScope::assertStudentInScope($user, $student);
+        }
     }
 
     private function assertCanSanction($user): void

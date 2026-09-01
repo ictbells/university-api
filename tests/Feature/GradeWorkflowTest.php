@@ -619,10 +619,6 @@ class GradeWorkflowTest extends TestCase
     public function test_admin_cannot_set_ar_as_a_term_remark(): void
     {
         Sanctum::actingAs($this->staffUser);
-        $this->staffUser->roles()->first()?->permissions()->syncWithoutDetaching(
-            \App\Models\Permission::query()->where('key', 'students.manage')->pluck('id'),
-        );
-        $this->staffUser->unsetRelation('roles');
 
         $this->postJson('/api/students/'.$this->student->id.'/term-remarks', [
             'academic_term_id' => $this->term->id,
@@ -630,13 +626,28 @@ class GradeWorkflowTest extends TestCase
         ])->assertStatus(422);
     }
 
+    public function test_department_officer_records_abs_np_from_result_entry(): void
+    {
+        Sanctum::actingAs($this->staffUser);
+
+        $this->postJson('/api/students/'.$this->student->id.'/term-remarks', [
+            'academic_term_id' => $this->term->id,
+            'type' => 'abs_np',
+        ])->assertOk()->assertJsonPath('type', 'abs_np');
+
+        $this->getJson(
+            '/api/academic/results/reports/submission-list/department?academic_term_id='.$this->term->id.'&status=draft'
+        )
+            ->assertOk()
+            ->assertJsonPath('students.0.status', 'ABS_NP')
+            ->assertJsonPath('students.0.scores.CSC101', 'ABS_NP')
+            ->assertJsonPath('sheets.0.summary.absent_without_permission', 1)
+            ->assertJsonPath('sheets.0.summary.incomplete', 0);
+    }
+
     public function test_admin_term_remark_counts_absent_on_the_broadsheet_without_department_scores(): void
     {
         Sanctum::actingAs($this->staffUser);
-        $this->staffUser->roles()->first()?->permissions()->syncWithoutDetaching(
-            \App\Models\Permission::query()->where('key', 'students.manage')->pluck('id'),
-        );
-        $this->staffUser->unsetRelation('roles');
 
         $this->postJson('/api/students/'.$this->student->id.'/term-remarks', [
             'academic_term_id' => $this->term->id,
@@ -666,10 +677,6 @@ class GradeWorkflowTest extends TestCase
             'faculty_id' => $this->enrollment->offering->course->department->faculty_id,
             'department_id' => $this->enrollment->offering->course->department_id,
         ]);
-        $this->staffUser->roles()->first()?->permissions()->syncWithoutDetaching(
-            \App\Models\Permission::query()->where('key', 'students.manage')->pluck('id'),
-        );
-        $this->staffUser->unsetRelation('roles');
 
         $this->postJson('/api/students/'.$this->student->id.'/term-remarks', [
             'academic_term_id' => $this->term->id,

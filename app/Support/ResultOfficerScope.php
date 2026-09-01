@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\CourseOffering;
 use App\Models\Grade;
+use App\Models\Student;
 use App\Models\User;
 use App\Services\GradeWorkflowService;
 use Illuminate\Database\Eloquent\Builder;
@@ -238,6 +239,26 @@ final class ResultOfficerScope
         }
 
         return false;
+    }
+
+    public static function assertStudentInScope(User $actor, Student $student): void
+    {
+        $scope = self::for($actor);
+        if ($scope['global'] || $scope['kind'] === 'gs') {
+            return;
+        }
+
+        $student->loadMissing('program.department');
+        $departmentId = (int) ($student->program?->department_id ?? 0);
+        $facultyId = (int) ($student->program?->department?->faculty_id ?? 0);
+        if ($scope['department_ids'] !== [] && in_array($departmentId, $scope['department_ids'], true)) {
+            return;
+        }
+        if ($scope['faculty_ids'] !== [] && in_array($facultyId, $scope['faculty_ids'], true)) {
+            return;
+        }
+
+        abort(403, 'Outside your results scope.');
     }
 
     public static function canAccessFaculty(User $actor, ?int $facultyId): bool
