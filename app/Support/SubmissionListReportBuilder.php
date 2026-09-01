@@ -5,9 +5,12 @@ namespace App\Support;
 use App\Models\AcademicTerm;
 use App\Models\Course;
 use App\Models\Department;
+use App\Models\Enrollment;
 use App\Models\Faculty;
 use App\Models\Grade;
+use App\Models\Student;
 use App\Services\GradeWorkflowService;
+use App\Services\StudentTermRemarkService;
 use App\Services\StudentTermSanctionService;
 use Illuminate\Support\Collection;
 
@@ -31,6 +34,10 @@ final class SubmissionListReportBuilder
 
         $metricsStatus = $scope === 'board' ? null : $status;
         $studentIds = $rows->map(fn (Grade $g) => self::studentId($g))->filter()->unique()->values()->all();
+        $studentIds = array_values(array_unique(array_merge(
+            $studentIds,
+            self::extraSheetStudentIds((int) $term->id, $department, $faculty, $rows),
+        )));
         $metrics = StudentProgressMetrics::forStudents($studentIds, (int) $term->id, $metricsStatus);
 
         $facultyName = $faculty?->name
@@ -80,6 +87,7 @@ final class SubmissionListReportBuilder
             $facultyName,
             $isSupplementary,
             $metricsStatus,
+            $studentIds,
         ));
     }
 
@@ -103,6 +111,7 @@ final class SubmissionListReportBuilder
     /**
      * @param  Collection<int, Grade>  $rows
      * @param  array<int, array<string, mixed>>  $metrics
+     * @param  list<int>  $includedStudentIds
      * @return array<string, mixed>
      */
     private static function buildSheets(
@@ -114,14 +123,19 @@ final class SubmissionListReportBuilder
         string $facultyName,
         bool $isSupplementary,
         ?string $metricsStatus,
+        array $includedStudentIds = [],
     ): array {
         $scoped = GradeWorkflowService::preferSupplementary(
             $rows->filter(fn (Grade $g) => ! $g->registration_held)->values()
         );
-        $studentIds = $scoped->map(fn (Grade $g) => self::studentId($g))->filter()->unique()->values()->all();
+        $studentIds = array_values(array_unique(array_filter(array_merge(
+            $scoped->map(fn (Grade $g) => self::studentId($g))->all(),
+            $includedStudentIds,
+        ))));
         $profiles = StudentProgressMetrics::sheetProfiles($studentIds);
         $termGrades = self::termGradesForStudents($studentIds, (int) $term->id, $metricsStatus);
         $byStudent = $termGrades->groupBy(fn (Grade $g) => self::studentId($g));
+        $registrations = self::termRegistrations($studentIds, (int) $term->id);
 
         $groups = [];
         foreach ($studentIds as $studentId) {
@@ -184,6 +198,7 @@ final class SubmissionListReportBuilder
             $courseColumns = self::mainCourseColumns(
                 $group['student_ids'],
                 $byStudent,
+                $registrations,
                 (int) $group['department_id'],
                 $sheetLevel,
             );
@@ -209,6 +224,10 @@ final class SubmissionListReportBuilder
                 $group['student_ids'],
                 (int) $term->id,
             );
+            $adminRemarks = StudentTermRemarkService::typesForStudents(
+                $group['student_ids'],
+                (int) $term->id,
+            );
             foreach ($sortedIds as $studentId) {
                 $studentId = (int) $studentId;
                 $profile = $profiles[$studentId] ?? [
@@ -220,11 +239,17 @@ final class SubmissionListReportBuilder
                 ];
                 $m = $metrics[$studentId] ?? [];
                 $studentRows = $byStudent->get($studentId, collect());
+                $registered = $registrations[$studentId] ?? [];
+                $registeredCodes = array_values(array_unique(array_column($registered, 'code')));
+                $adminLabel = GradeExamRemark::isRecordedOutcome($adminRemarks[$studentId] ?? null)
+                    ? GradeExamRemark::label($adminRemarks[$studentId] ?? null)
+                    : '';
                 $scores = [];
                 foreach ($courseCodes as $code) {
                     $scores[$code] = '—';
                 }
                 $other = [];
+                $otherCodes = [];
                 foreach ($studentRows as $row) {
                     $course = self::course($row);
                     $code = (string) ($course?->code ?? '');
@@ -232,11 +257,30 @@ final class SubmissionListReportBuilder
                         continue;
                     }
                     $cell = self::scoreCell($row);
+                    if ($cell === '—') {
+                        $cell = self::emptyScoreCell($code, $registeredCodes, $adminLabel);
+                    }
                     if (in_array($code, $courseCodes, true)) {
                         $scores[$code] = $cell;
                         continue;
                     }
                     $other[] = self::otherCourseLabel($course, $cell);
+                    $otherCodes[] = $code;
+                }
+                foreach ($courseCodes as $code) {
+                    if (($scores[$code] ?? '—') !== '—') {
+                        continue;
+                    }
+                    $scores[$code] = self::emptyScoreCell($code, $registeredCodes, $adminLabel);
+                }
+                foreach ($registered as $info) {
+                    $code = (string) ($info['code'] ?? '');
+                    $course = $info['course'] ?? null;
+                    if ($code === '' || in_array($code, $courseCodes, true) || in_array($code, $otherCodes, true)) {
+                        continue;
+                    }
+                    $other[] = self::otherCourseLabel($course instanceof Course ? $course : null, self::emptyScoreCell($code, $registeredCodes, $adminLabel));
+                    $otherCodes[] = $code;
                 }
 
                 $notIn = array_values(array_filter(
@@ -254,6 +298,7 @@ final class SubmissionListReportBuilder
                     (bool) ($m['has_scored_semester'] ?? false),
                     (bool) ($m['semester_incomplete'] ?? false),
                     $sanction,
+                    $adminRemarks[$studentId] ?? null,
                 );
                 $bucket = BroadsheetStanding::summaryBucket($status);
                 if (isset($summary[$bucket])) {
@@ -355,33 +400,40 @@ final class SubmissionListReportBuilder
     /**
      * @param  list<int>  $studentIds
      * @param  Collection<int, Collection<int, Grade>>  $byStudent
+     * @param  array<int, list<array{code: string, course: Course}>>  $registrations
      * @return list<array{code: string, units: int, status: string, header_meta: string}>
      */
     private static function mainCourseColumns(
         array $studentIds,
         Collection $byStudent,
+        array $registrations,
         int $departmentId,
         string $sheetLevel,
     ): array {
         $courseMeta = [];
+        $add = function (?Course $course) use (&$courseMeta, $departmentId, $sheetLevel): void {
+            $code = (string) ($course?->code ?? '');
+            if ($code === '' || isset($courseMeta[$code])) {
+                return;
+            }
+            if (! self::isMainColumnCourse($course, $departmentId, $sheetLevel)) {
+                return;
+            }
+            $units = (int) ($course?->units ?? 0);
+            $status = self::courseStatusLabel($course);
+            $courseMeta[$code] = [
+                'code' => $code,
+                'units' => $units,
+                'status' => $status,
+                'header_meta' => self::courseHeaderMeta($units, $status),
+            ];
+        };
         foreach ($studentIds as $studentId) {
             foreach ($byStudent->get((int) $studentId, collect()) as $row) {
-                $course = self::course($row);
-                $code = (string) ($course?->code ?? '');
-                if ($code === '' || isset($courseMeta[$code])) {
-                    continue;
-                }
-                if (! self::isMainColumnCourse($course, $departmentId, $sheetLevel)) {
-                    continue;
-                }
-                $units = (int) ($course?->units ?? 0);
-                $status = self::courseStatusLabel($course);
-                $courseMeta[$code] = [
-                    'code' => $code,
-                    'units' => $units,
-                    'status' => $status,
-                    'header_meta' => self::courseHeaderMeta($units, $status),
-                ];
+                $add(self::course($row));
+            }
+            foreach ($registrations[(int) $studentId] ?? [] as $info) {
+                $add($info['course'] ?? null);
             }
         }
         ksort($courseMeta);
@@ -574,6 +626,142 @@ final class SubmissionListReportBuilder
             'board' => 'senate',
             default => 'department',
         };
+    }
+
+    private static function emptyScoreCell(string $code, array $registeredCodes, string $adminLabel): string
+    {
+        if ($adminLabel !== '') {
+            return $adminLabel;
+        }
+        if (in_array($code, $registeredCodes, true)) {
+            return BroadsheetStanding::AR;
+        }
+
+        return '—';
+    }
+
+    /**
+     * @param  list<int>  $studentIds
+     * @return array<int, list<array{code: string, course: Course}>>
+     */
+    private static function termRegistrations(array $studentIds, int $academicTermId): array
+    {
+        $studentIds = array_values(array_unique(array_filter($studentIds)));
+        if ($studentIds === [] || $academicTermId <= 0) {
+            return [];
+        }
+
+        $out = [];
+        Enrollment::query()
+            ->enrolled()
+            ->with(['offering.course'])
+            ->whereIn('student_id', $studentIds)
+            ->whereHas('offering', fn ($q) => $q->where('academic_term_id', $academicTermId))
+            ->get()
+            ->each(function (Enrollment $row) use (&$out) {
+                $course = $row->offering?->course;
+                $code = (string) ($course?->code ?? '');
+                if ($code === '' || ! $course) {
+                    return;
+                }
+                $out[(int) $row->student_id][] = [
+                    'code' => $code,
+                    'course' => $course,
+                ];
+            });
+
+        return $out;
+    }
+
+    /**
+     * @param  Collection<int, Grade>  $rows
+     * @return list<int>
+     */
+    private static function extraSheetStudentIds(
+        int $academicTermId,
+        ?Department $department,
+        ?Faculty $faculty,
+        Collection $rows,
+    ): array {
+        $enrolled = Enrollment::query()
+            ->enrolled()
+            ->whereHas('offering', fn ($q) => $q->where('academic_term_id', $academicTermId))
+            ->pluck('student_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+        $enrolled = self::orgScopedStudentIds($enrolled, $department, $faculty, $rows);
+
+        $withResult = [];
+        if ($enrolled !== []) {
+            $withResult = Grade::query()
+                ->withResolved()
+                ->forTerm($academicTermId)
+                ->where(function ($q) use ($enrolled) {
+                    $q->whereIn('student_id', $enrolled)
+                        ->orWhereHas('enrollment', fn ($e) => $e->whereIn('student_id', $enrolled));
+                })
+                ->get()
+                ->filter(fn (Grade $g) => ! $g->registration_held)
+                ->map(fn (Grade $g) => $g->resolvedStudentId())
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+        }
+        $withoutResult = array_values(array_diff($enrolled, $withResult));
+
+        return self::orgScopedStudentIds(
+            array_merge(
+                $withoutResult,
+                StudentTermRemarkService::studentIdsForTerm($academicTermId),
+                StudentTermSanctionService::studentIdsForTerm($academicTermId),
+            ),
+            $department,
+            $faculty,
+            $rows,
+        );
+    }
+
+    /**
+     * @param  list<int>  $ids
+     * @param  Collection<int, Grade>  $rows
+     * @return list<int>
+     */
+    private static function orgScopedStudentIds(
+        array $ids,
+        ?Department $department,
+        ?Faculty $faculty,
+        Collection $rows,
+    ): array {
+        $ids = array_values(array_unique(array_filter($ids)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $query = Student::query()->whereIn('id', $ids);
+        if ($department) {
+            $query->whereHas('program', fn ($q) => $q->where('department_id', $department->id));
+        } elseif ($faculty) {
+            $deptIds = Department::query()->where('faculty_id', $faculty->id)->pluck('id');
+            $query->whereHas('program', fn ($q) => $q->whereIn('department_id', $deptIds));
+        } else {
+            $rowDeptIds = $rows
+                ->map(function (Grade $g) {
+                    return (int) ($g->department_id
+                        ?: $g->enrollment?->offering?->course?->department_id
+                        ?: $g->offering?->course?->department_id
+                        ?: 0);
+                })
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+            if ($rowDeptIds !== []) {
+                $query->whereHas('program', fn ($q) => $q->whereIn('department_id', $rowDeptIds));
+            }
+        }
+
+        return $query->pluck('id')->map(fn ($id) => (int) $id)->all();
     }
 
     private static function studentId(Grade $grade): int

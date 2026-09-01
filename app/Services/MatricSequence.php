@@ -134,11 +134,15 @@ class MatricSequence
      */
     private function knownValues(): array
     {
-        return array_values(array_filter([
+        $values = [
             (string) Setting::query()->where('key', self::SETTING_KEY)->value('value'),
             (string) config('sis.matric_last'),
-            (string) ($_ENV['MATRIC_LAST'] ?? getenv('MATRIC_LAST') ?: ''),
-        ]));
+        ];
+        if (! $this->runningTests()) {
+            $values[] = (string) ($_ENV['MATRIC_LAST'] ?? getenv('MATRIC_LAST') ?: '');
+        }
+
+        return array_values(array_filter($values));
     }
 
     private function maxSerialInDatabase(int $year): int
@@ -178,8 +182,15 @@ class MatricSequence
     {
         Setting::setValue(self::SETTING_KEY, $matric);
         config(['sis.matric_last' => $matric]);
-        if (! app()->environment('testing')) {
+        if (! $this->runningTests()) {
             DotenvWriter::set('MATRIC_LAST', $matric);
         }
+    }
+
+    private function runningTests(): bool
+    {
+        return app()->environment('testing')
+            || app()->runningUnitTests()
+            || defined('PHPUNIT_COMPOSER_INSTALL');
     }
 }

@@ -4,9 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\AcademicTerm;
 use App\Models\Student;
+use App\Models\StudentTermRemark;
 use App\Models\StudentTermSanction;
 use App\Services\AuditWriter;
+use App\Services\StudentTermRemarkService;
 use App\Services\StudentTermSanctionService;
+use App\Support\GradeExamRemark;
 use App\Support\ListSessionLevelFilter;
 use App\Support\PhoneNumber;
 use App\Support\StudentTermSanctionType;
@@ -19,6 +22,7 @@ class StudentController extends Controller
     public function __construct(
         private AuditWriter $audit,
         private StudentTermSanctionService $sanctions,
+        private StudentTermRemarkService $remarks,
     ) {}
 
     public function index(Request $request)
@@ -144,6 +148,10 @@ class StudentController extends Controller
                 'value' => $type,
                 'label' => ucfirst($type),
             ])->all(),
+            'remark_types' => collect(GradeExamRemark::adminTypes())->map(fn (string $type) => [
+                'value' => $type,
+                'label' => GradeExamRemark::label($type),
+            ])->all(),
         ];
     }
 
@@ -189,6 +197,52 @@ class StudentController extends Controller
                 $this->sanctions->lift($sanction);
 
                 return ['message' => 'Sanction lifted.'];
+            },
+        );
+    }
+
+    public function storeTermRemark(Request $request, Student $student)
+    {
+        $this->assertCanSanction($request->user());
+        $data = $request->validate([
+            'academic_term_id' => 'required|integer|exists:academic_terms,id',
+            'type' => 'required|string|max:40',
+            'note' => 'nullable|string|max:500',
+        ]);
+
+        return $this->officeGate(
+            'students.term_remark',
+            $student,
+            ['student_id' => $student->id, ...$data],
+            'Record term remark',
+            fn () => $this->remarks->apply(
+                $student,
+                (int) $data['academic_term_id'],
+                $data['type'],
+                $data['note'] ?? null,
+                $request->user(),
+            ),
+        );
+    }
+
+    public function destroyTermRemark(Request $request, Student $student, StudentTermRemark $remark)
+    {
+        $this->assertCanSanction($request->user());
+        abort_unless((int) $remark->student_id === (int) $student->id, 404);
+
+        return $this->officeGate(
+            'students.lift_term_remark',
+            $student,
+            [
+                'student_id' => $student->id,
+                'student_term_remark_id' => $remark->id,
+                'remark_id' => $remark->id,
+            ],
+            'Lift term remark',
+            function () use ($remark) {
+                $this->remarks->lift($remark);
+
+                return ['message' => 'Remark lifted.'];
             },
         );
     }

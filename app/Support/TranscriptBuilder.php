@@ -6,6 +6,7 @@ use App\Models\Enrollment;
 use App\Models\Grade;
 use App\Models\Program;
 use App\Models\Student;
+use App\Models\StudentLevelProgression;
 use App\Services\GradeWorkflowService;
 use App\Support\ProgrammeChangeGpaPolicy;
 
@@ -52,6 +53,13 @@ final class TranscriptBuilder
         $hasCrossCollegeChange = ProgrammeChangeGpaPolicy::changesFor($student)
             ->contains(fn ($change) => ! $change->same_college);
 
+        $program = $programId
+            ? Program::query()->with('department.faculty')->find($programId)
+            : null;
+        $student->loadMissing(['program.department.faculty']);
+        $program ??= $student->program;
+        $levelsBySession = self::levelsBySession($student);
+
         $byTerm = $visible->groupBy(fn (Grade $g) => (int) ($g->resolvedOffering()?->academic_term_id ?? 0));
         $terms = [];
         foreach ($byTerm as $termId => $termGrades) {
@@ -60,17 +68,37 @@ final class TranscriptBuilder
             }
             $first = $termGrades->first();
             $term = $first?->resolvedOffering()?->term;
+            $sessionId = (int) ($term?->academic_session_id ?? 0);
             $summary = GpaCalculator::summary($termGrades, false);
+            $credits = self::creditTotals($termGrades);
             $terms[] = [
                 'academic_term_id' => (int) $termId,
+                'academic_session_id' => $sessionId ?: null,
                 'name' => $term?->name,
                 'session_label' => $term?->session?->label ?: $term?->session_label,
+                'level' => $levelsBySession[$sessionId] ?? ($student->current_level ? (int) $student->current_level : null),
                 'gpa' => $summary['gpa'] ?? 0,
-                'rows' => $termGrades->map(fn (Grade $g) => self::serializeGrade($g, true))->values()->all(),
+                'credits_offered' => $credits['offered'],
+                'credits_passed' => $credits['passed'],
+                'rows' => $termGrades
+                    ->sortBy(fn (Grade $g) => strtoupper((string) ($g->resolvedOffering()?->course?->code ?? '')))
+                    ->map(fn (Grade $g) => self::serializeGrade($g, true))
+                    ->values()
+                    ->all(),
             ];
         }
 
         usort($terms, fn ($a, $b) => ($a['academic_term_id'] <=> $b['academic_term_id']));
+
+        $running = collect();
+        foreach ($terms as $index => $termRow) {
+            $termId = (int) $termRow['academic_term_id'];
+            $termGrades = $byTerm->get($termId) ?? $byTerm->get((string) $termId) ?? collect();
+            $running = $running->concat($termGrades);
+            $runningSummary = GpaCalculator::summary($running, false);
+            $terms[$index]['cgpa'] = $runningSummary['gpa'] ?? 0;
+            $terms[$index]['heading'] = self::termHeading($terms[$index]);
+        }
 
         $pendingCount = 0;
         if ($includePendingHint) {
@@ -85,7 +113,13 @@ final class TranscriptBuilder
         $flatRows = $visible->map(fn (Grade $g) => self::serializeGrade($g, true))->values()->all();
 
         return [
-            'student' => $student->only(['id', 'student_number', 'matric_number', 'first_name', 'last_name']),
+            'student' => [
+                ...$student->only(['id', 'student_number', 'matric_number', 'first_name', 'middle_name', 'last_name', 'current_level']),
+                'full_name' => self::officialName($student),
+                'programme' => $program?->name,
+                'department' => $program?->department?->name,
+                'college' => self::collegeLabel($program?->department?->faculty?->name),
+            ],
             'program_id' => $programId,
             'gpa' => $cgpaSummary['gpa'] ?? 0,
             'cgpa' => $cgpaSummary['gpa'] ?? 0,
@@ -117,6 +151,7 @@ final class TranscriptBuilder
             'score' => $grade->score !== null && $grade->score !== '' ? (float) $grade->score : null,
             'ca_score' => $grade->ca_score !== null && $grade->ca_score !== '' ? (float) $grade->ca_score : null,
             'exam_score' => $grade->exam_score !== null && $grade->exam_score !== '' ? (float) $grade->exam_score : null,
+            'grade_obtained' => self::formatGradeObtained($grade),
             'status' => $grade->status,
             'registration_held' => (bool) $grade->registration_held,
             'released_at' => optional($grade->released_at)?->toIso8601String(),
@@ -368,5 +403,107 @@ final class TranscriptBuilder
         }
 
         return (float) ($hasCa ? $released->ca_score : 0) + (float) ($hasExam ? $released->exam_score : 0);
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, Grade>  $grades
+     * @return array{offered: int, passed: int}
+     */
+    private static function creditTotals($grades): array
+    {
+        $offered = 0;
+        $passed = 0;
+        foreach ($grades as $grade) {
+            $units = $grade->courseUnits();
+            $offered += $units;
+            $letter = strtoupper($grade->resolvedLetter());
+            if ($letter !== '' && $letter !== 'F') {
+                $passed += $units;
+            }
+        }
+
+        return ['offered' => $offered, 'passed' => $passed];
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private static function levelsBySession(Student $student): array
+    {
+        $rows = StudentLevelProgression::query()
+            ->with('session:id,starts_on')
+            ->where('student_id', $student->id)
+            ->get()
+            ->sortBy(fn (StudentLevelProgression $row) => $row->session?->starts_on?->timestamp ?? PHP_INT_MAX)
+            ->values();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int) $row->academic_session_id] = (int) $row->from_level;
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param  array<string, mixed>  $term
+     */
+    private static function termHeading(array $term): string
+    {
+        $raw = strtoupper(trim((string) ($term['name'] ?? '')));
+        $session = trim((string) ($term['session_label'] ?? ''));
+        $level = $term['level'] ?? null;
+        $isFirst = $raw === 'FIRST' || str_contains($raw, 'FIRST') || $raw === '1' || $raw === '1ST';
+        $isSecond = $raw === 'SECOND' || str_contains($raw, 'SECOND') || $raw === '2' || $raw === '2ND';
+
+        if ($isFirst) {
+            return trim('FIRST SEMESTER'.($session !== '' ? ' '.$session : '').($level ? ' '.$level : ''));
+        }
+        if ($isSecond) {
+            return 'SECOND SEMESTER';
+        }
+
+        $label = $raw !== ''
+            ? (str_contains($raw, 'SEMESTER') ? $raw : $raw.' SEMESTER')
+            : 'SEMESTER';
+
+        return trim($label.($session !== '' ? ' '.$session : '').($level ? ' '.$level : ''));
+    }
+
+    private static function officialName(Student $student): string
+    {
+        return strtoupper(trim(collect([
+            $student->last_name,
+            $student->first_name,
+            $student->middle_name,
+        ])->filter(fn ($part) => filled($part))->implode(' ')));
+    }
+
+    private static function collegeLabel(?string $facultyName): ?string
+    {
+        $name = trim((string) $facultyName);
+        if ($name === '') {
+            return null;
+        }
+        if (stripos($name, 'college') !== false) {
+            return strtoupper($name);
+        }
+
+        return 'COLLEGE OF '.strtoupper($name);
+    }
+
+    private static function formatGradeObtained(Grade $grade): string
+    {
+        $letter = $grade->resolvedLetter();
+        $score = $grade->score;
+        if ($score === null || $score === '') {
+            return $letter !== '' ? $letter : '—';
+        }
+        $n = (float) $score;
+        $shown = abs($n - round($n)) < 0.001
+            ? (string) (int) round($n)
+            : rtrim(rtrim(number_format($n, 2, '.', ''), '0'), '.');
+
+        return $letter !== '' ? $shown.'('.$letter.')' : $shown;
     }
 }

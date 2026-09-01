@@ -7,6 +7,7 @@ use App\Mail\TranscriptRequestReadyMail;
 use App\Mail\TranscriptRequestRejectedMail;
 use App\Models\FeeItem;
 use App\Models\Invoice;
+use App\Models\NinVerification;
 use App\Models\Program;
 use App\Models\Setting;
 use App\Models\Student;
@@ -14,7 +15,11 @@ use App\Models\StudentLevelProgression;
 use App\Models\StudentProgrammeChange;
 use App\Models\TranscriptRequest;
 use App\Models\User;
+use App\Support\ApplicantPassport;
 use App\Support\AppStorage;
+use App\Support\InstitutionLogo;
+use App\Support\NinCipher;
+use App\Support\ReceiptInstitution;
 use App\Support\TranscriptBuilder;
 use App\Support\TranscriptChannel;
 use App\Support\TranscriptRequestSettings;
@@ -81,13 +86,13 @@ class TranscriptRequestService
         ];
     }
 
-    public function lookup(string $matricNumber, string $email, ?string $channel = null): array
+    public function lookup(string $nin, ?string $channel = null): array
     {
         if (! TranscriptRequestSettings::enabled() || ! $this->hasConfiguredFee()) {
             throw new RuntimeException($this->unavailableReason($this->hasConfiguredFee()) ?: 'Official transcript requests are not available.');
         }
 
-        $student = $this->findStudentForRequest($matricNumber, $email);
+        $student = $this->findStudentForRequest($nin);
         $programmes = $this->programmesForStudent($student);
         if ($channel && TranscriptChannel::isValid($channel)) {
             $programmes = array_values(array_filter(
@@ -115,14 +120,14 @@ class TranscriptRequestService
             'student' => [
                 'name' => trim(($student->first_name ?? '').' '.($student->last_name ?? '')),
                 'matric_number' => $student->matric_number,
+                'email' => $student->user?->email,
             ],
             'programmes' => $programmes,
         ];
     }
 
     public function create(
-        string $matricNumber,
-        string $email,
+        string $nin,
         int $programId,
         string $transcriptType,
         int $copies = 1,
@@ -131,12 +136,13 @@ class TranscriptRequestService
         ?string $deliveryAddress = null,
         ?string $collectionMethod = null,
         ?string $channel = null,
+        ?string $contactEmail = null,
     ): array {
         if (! TranscriptRequestSettings::enabled() || ! $this->hasConfiguredFee()) {
             throw new RuntimeException($this->unavailableReason($this->hasConfiguredFee()) ?: 'Official transcript requests are not available.');
         }
 
-        $student = $this->findStudentForRequest($matricNumber, $email);
+        $student = $this->findStudentForRequest($nin);
         $user = $student->user;
         if (! $user) {
             throw new RuntimeException('Unable to verify student account. Contact the Registry.');
@@ -160,7 +166,10 @@ class TranscriptRequestService
         $destination = $this->destinationFields($transcriptType, $deliveryEmail, $deliveryAddress, $collectionMethod);
         $copies = max(1, min(10, $copies));
         $purpose = $purpose ? Str::limit(trim($purpose), 255, '') : null;
-        $contactEmail = strtolower(trim($email));
+        $contactEmail = strtolower(trim((string) ($contactEmail ?: $user->email)));
+        if ($contactEmail === '' || ! filter_var($contactEmail, FILTER_VALIDATE_EMAIL)) {
+            throw new RuntimeException('No email is on file for this student. Enter a contact email or contact the Registry.');
+        }
         $invoiceLabel = $fee->name.' — '.$program->name.' ('.$copies.' '.Str::plural('copy', $copies).')';
 
         $existing = TranscriptRequest::query()
@@ -479,22 +488,34 @@ class TranscriptRequestService
             ->firstOrFail();
     }
 
-    private function findStudentForRequest(string $matricNumber, string $email): Student
+    private function findStudentForRequest(string $nin): Student
     {
-        $matric = trim($matricNumber);
-        $emailNorm = strtolower(trim($email));
+        $normalized = NinCipher::normalize($nin);
+        if (strlen($normalized) !== 11) {
+            throw new RuntimeException('Enter a valid 11-digit NIN.');
+        }
 
+        $hash = NinCipher::hash($normalized);
         $student = Student::query()
             ->with('user')
-            ->whereRaw('LOWER(matric_number) = ?', [strtolower($matric)])
+            ->where('nin_hash', $hash)
             ->first();
 
-        $match = $student
-            && $student->user
-            && strtolower((string) $student->user->email) === $emailNorm;
+        if (! $student) {
+            $verification = NinVerification::query()
+                ->where('nin_hash', $hash)
+                ->orderByDesc('id')
+                ->first();
+            if ($verification?->user_id) {
+                $student = Student::query()
+                    ->with('user')
+                    ->where('user_id', $verification->user_id)
+                    ->first();
+            }
+        }
 
-        if (! $match) {
-            throw new RuntimeException('We could not match that matric number and email. Check your details or contact the Registry.');
+        if (! $student) {
+            throw new RuntimeException('We could not match that NIN to a student record. Check the number or contact the Registry.');
         }
 
         return $student;
@@ -679,16 +700,27 @@ class TranscriptRequestService
 
     private function storeGeneratedPdf(TranscriptRequest $request, User $staff): string
     {
-        $request->loadMissing(['student.program', 'program']);
+        $request->loadMissing(['student.program.department.faculty', 'student.user', 'program.department.faculty']);
         $student = $request->student;
         abort_unless($student, 422, 'Student missing.');
 
+        $program = $request->program ?? $student->program;
         $programId = $request->program_id ? (int) $request->program_id : null;
         $payload = TranscriptBuilder::forStudent($student, true, false, $programId);
-        $programmeName = $request->program?->name ?: $student->program?->name;
+        $institution = ReceiptInstitution::details();
+        $institution['office'] = (string) Setting::getValue('registrar_office_title', 'Office of the Registrar');
+        $photoPath = $student->photo_path
+            ?: ($student->user ? ApplicantPassport::relativePathForUser($student->user) : null);
+        $transcriptSettings = TranscriptRequestSettings::all();
+        $registrarName = $transcriptSettings['registrar_name'] !== ''
+            ? $transcriptSettings['registrar_name']
+            : $staff->name;
         $html = view('reports.official-transcript', [
+            'institution' => $institution,
+            'logo_data_uri' => InstitutionLogo::dataUri(),
+            'photo_data_uri' => ApplicantPassport::dataUri($photoPath),
             'report' => [
-                'university' => (string) Setting::getValue('university_name', 'Bells University of Technology'),
+                'university' => $institution['name'],
                 'generated_at' => now()->format('d M Y'),
                 'cgpa' => $payload['cgpa'] ?? $payload['gpa'] ?? null,
                 'total_credits' => $payload['total_credits'] ?? null,
@@ -697,10 +729,16 @@ class TranscriptRequestService
                 'copies' => $request->copies,
                 'request_token' => $request->public_token,
                 'signed_by' => $staff->name,
+                'registrar_name' => $registrarName,
+                'registrar_title' => $transcriptSettings['registrar_title'],
                 'student' => [
-                    'name' => trim(($student->first_name ?? '').' '.($student->last_name ?? '')),
+                    'name' => $payload['student']['full_name']
+                        ?? strtoupper(trim(collect([$student->last_name, $student->first_name, $student->middle_name])->filter()->implode(' '))),
                     'matric_number' => $student->matric_number,
-                    'programme' => $programmeName,
+                    'programme' => $program?->name ?: $payload['student']['programme'] ?? null,
+                    'department' => $program?->department?->name ?: $payload['student']['department'] ?? null,
+                    'college' => $payload['student']['college']
+                        ?? $program?->department?->faculty?->name,
                 ],
             ],
         ])->render();

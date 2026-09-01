@@ -29,6 +29,22 @@ class StudentTermSanctionService
             ->all();
     }
 
+    /**
+     * @return list<int>
+     */
+    public static function studentIdsForTerm(int $academicTermId): array
+    {
+        if ($academicTermId <= 0) {
+            return [];
+        }
+
+        return StudentTermSanction::query()
+            ->where('academic_term_id', $academicTermId)
+            ->pluck('student_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+    }
+
     public function apply(Student $student, int $academicTermId, string $type, ?string $note, User $actor): StudentTermSanction
     {
         if (! in_array($type, StudentTermSanctionType::all(), true)) {

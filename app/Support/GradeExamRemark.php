@@ -18,6 +18,16 @@ final class GradeExamRemark
         return [self::ABS_P, self::ABS_NP, self::SICK, self::AR];
     }
 
+    /**
+     * Admin-set sitting remarks. AR is derived from registered courses with no score.
+     *
+     * @return list<string>
+     */
+    public static function adminTypes(): array
+    {
+        return [self::ABS_P, self::ABS_NP, self::SICK];
+    }
+
     public static function normalize(?string $value): ?string
     {
         $raw = strtolower(trim((string) $value));

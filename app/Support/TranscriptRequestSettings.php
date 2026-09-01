@@ -17,6 +17,10 @@ class TranscriptRequestSettings
 
     public const COLLECT_INSTRUCTIONS = 'transcript.collect_instructions';
 
+    public const REGISTRAR_NAME = 'registrar_name';
+
+    public const REGISTRAR_TITLE = 'registrar_title';
+
     public static function defaults(): array
     {
         return [
@@ -25,6 +29,8 @@ class TranscriptRequestSettings
             'transcript_delivery_generated_pdf' => true,
             'transcript_delivery_uploaded_pdf' => true,
             'transcript_collect_instructions' => 'Please collect your official transcript from the Registry during office hours. Bring a valid ID and your request reference.',
+            'registrar_name' => '',
+            'registrar_title' => 'Registrar',
         ];
     }
 
@@ -41,6 +47,9 @@ class TranscriptRequestSettings
                 self::COLLECT_INSTRUCTIONS,
                 $defaults['transcript_collect_instructions'],
             )) ?: $defaults['transcript_collect_instructions'],
+            'registrar_name' => trim((string) Setting::getValue(self::REGISTRAR_NAME, $defaults['registrar_name'])),
+            'registrar_title' => trim((string) Setting::getValue(self::REGISTRAR_TITLE, $defaults['registrar_title']))
+                ?: $defaults['registrar_title'],
         ];
     }
 
@@ -92,6 +101,13 @@ class TranscriptRequestSettings
                 ? $text
                 : self::defaults()['transcript_collect_instructions'];
         }
+        if (array_key_exists('registrar_name', $data)) {
+            $current['registrar_name'] = trim((string) $data['registrar_name']);
+        }
+        if (array_key_exists('registrar_title', $data)) {
+            $title = trim((string) $data['registrar_title']);
+            $current['registrar_title'] = $title !== '' ? $title : self::defaults()['registrar_title'];
+        }
 
         if (
             $current['transcript_requests_enabled']
@@ -107,6 +123,8 @@ class TranscriptRequestSettings
         Setting::setValue(self::DELIVERY_GENERATED, $current['transcript_delivery_generated_pdf'] ? '1' : '0');
         Setting::setValue(self::DELIVERY_UPLOADED, $current['transcript_delivery_uploaded_pdf'] ? '1' : '0');
         Setting::setValue(self::COLLECT_INSTRUCTIONS, $current['transcript_collect_instructions']);
+        Setting::setValue(self::REGISTRAR_NAME, $current['registrar_name']);
+        Setting::setValue(self::REGISTRAR_TITLE, $current['registrar_title']);
 
         return self::all();
     }

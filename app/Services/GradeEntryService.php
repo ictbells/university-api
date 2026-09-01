@@ -9,7 +9,6 @@ use App\Models\Grade;
 use App\Models\Student;
 use App\Models\User;
 use App\Support\GradeAuditLogger;
-use App\Support\GradeExamRemark;
 use App\Support\GradeLetterResolver;
 use App\Support\GradeScoreComposer;
 use App\Support\GradeStatus;
@@ -54,46 +53,25 @@ class GradeEntryService
         $points = array_key_exists('points', $data) && $data['points'] !== null && $data['points'] !== ''
             ? (float) $data['points']
             : null;
-        $remark = $grade ? GradeExamRemark::normalize($grade->exam_remark) : null;
-        if (array_key_exists('exam_remark', $data)) {
-            $rawRemark = $data['exam_remark'];
-            if ($rawRemark === null || $rawRemark === '') {
-                $remark = null;
-            } else {
-                $remark = GradeExamRemark::normalize((string) $rawRemark);
-                if ($remark === null) {
-                    throw ValidationException::withMessages([
-                        'exam_remark' => 'Use ABS_P, ABS_NP, SICK, or AR.',
-                    ]);
-                }
-            }
+        $composed = GradeScoreComposer::compose(
+            GradeScoreComposer::parseNullableFloat($data['ca_score'] ?? null),
+            GradeScoreComposer::parseNullableFloat($data['exam_score'] ?? null),
+            GradeScoreComposer::parseNullableFloat($data['score'] ?? null),
+            array_key_exists('ca_score', $data),
+            array_key_exists('exam_score', $data),
+            array_key_exists('score', $data),
+            $grade,
+        );
+
+        if ($letter && $points === null) {
+            $points = GradeLetterResolver::gradePointForLetter($letter);
+        } elseif (! $letter && $composed['score'] !== null) {
+            $resolved = GradeLetterResolver::fromScore((float) $composed['score']);
+            $letter = $resolved['letter'] ?? null;
+            $points = $resolved['grade_point'] ?? null;
         }
 
-        if ($remark !== null) {
-            $composed = ['ca_score' => null, 'exam_score' => null, 'score' => null];
-            $letter = null;
-            $points = null;
-        } else {
-            $composed = GradeScoreComposer::compose(
-                GradeScoreComposer::parseNullableFloat($data['ca_score'] ?? null),
-                GradeScoreComposer::parseNullableFloat($data['exam_score'] ?? null),
-                GradeScoreComposer::parseNullableFloat($data['score'] ?? null),
-                array_key_exists('ca_score', $data),
-                array_key_exists('exam_score', $data),
-                array_key_exists('score', $data),
-                $grade,
-            );
-
-            if ($letter && $points === null) {
-                $points = GradeLetterResolver::gradePointForLetter($letter);
-            } elseif (! $letter && $composed['score'] !== null) {
-                $resolved = GradeLetterResolver::fromScore((float) $composed['score']);
-                $letter = $resolved['letter'] ?? null;
-                $points = $resolved['grade_point'] ?? null;
-            }
-        }
-
-        $before = $grade?->only(['ca_score', 'exam_score', 'score', 'letter', 'exam_remark', 'points', 'status']);
+        $before = $grade?->only(['ca_score', 'exam_score', 'score', 'letter', 'points', 'status']);
 
         $payload = [
             'student_id' => $studentId,
@@ -104,7 +82,6 @@ class GradeEntryService
             'exam_score' => $composed['exam_score'],
             'score' => $composed['score'],
             'letter' => $letter,
-            'exam_remark' => $remark,
             'points' => $points,
             'source' => $data['source'] ?? ($grade?->source ?: 'manual'),
             'source_ref' => $data['source_ref'] ?? $grade?->source_ref,
@@ -118,7 +95,7 @@ class GradeEntryService
         return DB::transaction(function () use ($grade, $payload, $actor, $before) {
             if ($grade) {
                 $grade->fill($payload)->save();
-                GradeAuditLogger::updated($grade, $actor, $before ?? [], $grade->only(['ca_score', 'exam_score', 'score', 'letter', 'exam_remark', 'points', 'status']));
+                GradeAuditLogger::updated($grade, $actor, $before ?? [], $grade->only(['ca_score', 'exam_score', 'score', 'letter', 'points', 'status']));
 
                 return $grade->fresh()->loadMissing(['student', 'offering.course', 'offering.term', 'enrollment.offering.course', 'enrollment.student']);
             }
@@ -222,10 +199,7 @@ class GradeEntryService
                 'source' => 'import',
             ];
 
-            $remark = GradeExamRemark::normalize((string) ($row['remark'] ?? $row['exam_remark'] ?? ''));
-            if ($remark !== null) {
-                $data['exam_remark'] = $remark;
-            } elseif (isset($row['ca']) || isset($row['exam'])) {
+            if (isset($row['ca']) || isset($row['exam'])) {
                 if (isset($row['ca'])) {
                     $data['ca_score'] = $row['ca'];
                 }

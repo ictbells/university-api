@@ -77,6 +77,24 @@ class AdmissionsContactTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_staff_can_update_transcript_registrar_signatory(): void
+    {
+        Sanctum::actingAs($this->staffUser(['settings.manage']));
+
+        $this->putJson('/api/security-settings', [
+            'registrar_name' => 'Lamidi S. Tafa (Mr.)',
+            'registrar_title' => 'Registrar',
+        ])
+            ->assertOk()
+            ->assertJsonPath('registrar_name', 'Lamidi S. Tafa (Mr.)')
+            ->assertJsonPath('registrar_title', 'Registrar');
+
+        $this->getJson('/api/security-settings')
+            ->assertOk()
+            ->assertJsonPath('registrar_name', 'Lamidi S. Tafa (Mr.)')
+            ->assertJsonPath('registrar_title', 'Registrar');
+    }
+
     /**
      * @param  list<string>  $permissions
      */

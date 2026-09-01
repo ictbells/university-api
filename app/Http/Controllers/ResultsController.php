@@ -12,8 +12,10 @@ use App\Models\Grade;
 use App\Models\GradeBoundary;
 use App\Models\GradingScale;
 use App\Models\Student;
+use App\Models\StudentTermRemark;
 use App\Models\StudentTermSanction;
 use App\Services\GradeEntryService;
+use App\Services\StudentTermRemarkService;
 use App\Services\GradeWorkflowService;
 use App\Support\GpaCalculator;
 use App\Support\GradeAuditLogger;
@@ -152,7 +154,6 @@ class ResultsController extends Controller
             'exam_score' => 'nullable|numeric|min:0|max:100',
             'score' => 'nullable|numeric|min:0|max:100',
             'letter' => 'nullable|string|max:4',
-            'exam_remark' => ['nullable', 'string', 'max:40'],
             'points' => 'nullable|numeric|min:0|max:5',
         ]);
 
@@ -168,7 +169,6 @@ class ResultsController extends Controller
             'exam_score' => 'nullable|numeric|min:0|max:100',
             'score' => 'nullable|numeric|min:0|max:100',
             'letter' => 'nullable|string|max:4',
-            'exam_remark' => ['nullable', 'string', 'max:40'],
             'points' => 'nullable|numeric|min:0|max:5',
             'sitting' => ['nullable', Rule::in(GradeStatus::sittings())],
         ]);
@@ -432,10 +432,18 @@ class ResultsController extends Controller
             : $grades;
 
         $sanction = null;
+        $termRemark = null;
         if ($termId) {
             $type = StudentTermSanctionService::typesForStudents([$student->id], $termId)[$student->id] ?? null;
             if ($type) {
                 $sanction = StudentTermSanction::query()
+                    ->where('student_id', $student->id)
+                    ->where('academic_term_id', $termId)
+                    ->first();
+            }
+            $remarkType = StudentTermRemarkService::typesForStudents([$student->id], $termId)[$student->id] ?? null;
+            if ($remarkType) {
+                $termRemark = StudentTermRemark::query()
                     ->where('student_id', $student->id)
                     ->where('academic_term_id', $termId)
                     ->first();
@@ -462,6 +470,7 @@ class ResultsController extends Controller
             'transcript' => TranscriptBuilder::forStudent($student, false),
             'audit' => $audit,
             'term_sanction' => $sanction,
+            'term_remark' => $termRemark,
         ];
     }
 

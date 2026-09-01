@@ -27,15 +27,13 @@ class TranscriptRequestController extends Controller
     public function lookup(Request $request)
     {
         $data = $request->validate([
-            'matric_number' => 'required|string|max:64',
-            'email' => 'required|email|max:255',
+            'nin' => 'required|string|max:32',
             'channel' => ['nullable', 'string', Rule::in(TranscriptChannel::KEYS)],
         ]);
 
         try {
             return response()->json($this->service->lookup(
-                $data['matric_number'],
-                $data['email'],
+                $data['nin'],
                 $data['channel'] ?? null,
             ));
         } catch (RuntimeException $e) {
@@ -60,12 +58,12 @@ class TranscriptRequestController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'matric_number' => 'required|string|max:64',
-            'email' => 'required|email|max:255',
+            'nin' => 'required|string|max:32',
             'program_id' => 'required|integer|exists:programs,id',
             'transcript_type' => ['required', 'string', Rule::in(TranscriptType::ALL)],
             'copies' => 'nullable|integer|min:1|max:10',
             'purpose' => 'nullable|string|max:255',
+            'contact_email' => 'nullable|email|max:255',
             'delivery_email' => 'nullable|email|max:255',
             'delivery_address' => 'nullable|string|max:1000',
             'collection_method' => ['nullable', 'string', Rule::in(TranscriptType::COLLECTION_METHODS)],
@@ -74,8 +72,7 @@ class TranscriptRequestController extends Controller
 
         try {
             $result = $this->service->create(
-                $data['matric_number'],
-                $data['email'],
+                $data['nin'],
                 (int) $data['program_id'],
                 $data['transcript_type'],
                 (int) ($data['copies'] ?? 1),
@@ -84,6 +81,7 @@ class TranscriptRequestController extends Controller
                 $data['delivery_address'] ?? null,
                 $data['collection_method'] ?? null,
                 $data['channel'] ?? null,
+                $data['contact_email'] ?? null,
             );
         } catch (RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);

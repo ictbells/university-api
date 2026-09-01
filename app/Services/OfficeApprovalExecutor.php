@@ -250,6 +250,8 @@ class OfficeApprovalExecutor
             'students.update' => [\App\Http\Controllers\StudentController::class, 'update', ['key' => 'student_id', 'class' => Student::class]],
             'students.term_sanction' => [\App\Http\Controllers\StudentController::class, 'storeTermSanction', ['key' => 'student_id', 'class' => Student::class]],
             'students.lift_term_sanction' => [\App\Http\Controllers\StudentController::class, 'destroyTermSanction', ['key' => 'student_id', 'class' => Student::class]],
+            'students.term_remark' => [\App\Http\Controllers\StudentController::class, 'storeTermRemark', ['key' => 'student_id', 'class' => Student::class]],
+            'students.lift_term_remark' => [\App\Http\Controllers\StudentController::class, 'destroyTermRemark', ['key' => 'student_id', 'class' => Student::class]],
             'announcements.store' => [\App\Http\Controllers\AnnouncementController::class, 'store', null],
             'announcements.update' => [\App\Http\Controllers\AnnouncementController::class, 'update', ['key' => 'announcement_id', 'class' => Announcement::class]],
             'announcements.publish' => [\App\Http\Controllers\AnnouncementController::class, 'publish', ['key' => 'announcement_id', 'class' => Announcement::class]],

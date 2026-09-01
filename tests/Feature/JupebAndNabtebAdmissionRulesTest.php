@@ -304,6 +304,19 @@ class JupebAndNabtebAdmissionRulesTest extends TestCase
         $this->assertSame('2025/000002', Setting::getValue('matric_last'));
     }
 
+    public function test_auto_matric_does_not_continue_from_host_env(): void
+    {
+        putenv('MATRIC_LAST=2026/000011');
+        $_ENV['MATRIC_LAST'] = '2026/000011';
+        $_SERVER['MATRIC_LAST'] = '2026/000011';
+
+        $student = app(StudentCreationService::class)->createFromApplication(
+            $this->readyToSubmit('utme', $this->utmeProgram),
+        );
+
+        $this->assertSame('2025/000001', $student->matric_number);
+    }
+
     public function test_auto_matric_continues_from_matric_last_in_config(): void
     {
         config(['sis.matric_last' => '2026/000150', 'sis.matric_year' => 2026]);

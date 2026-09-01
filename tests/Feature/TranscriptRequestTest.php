@@ -38,6 +38,8 @@ class TranscriptRequestTest extends TestCase
 
     private Program $program;
 
+    private const NIN = '12345678901';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -70,10 +72,12 @@ class TranscriptRequestTest extends TestCase
             'user_id' => $this->studentUser->id,
             'program_id' => $this->program->id,
             'first_name' => 'Ada',
+            'middle_name' => 'King',
             'last_name' => 'Lovelace',
             'matric_number' => 'BUT/2018/0001',
             'student_number' => 'STU001',
             'current_level' => 400,
+            'nin' => self::NIN,
             'status' => 'active',
         ]);
 
@@ -122,8 +126,7 @@ class TranscriptRequestTest extends TestCase
     private function requestPayload(array $overrides = []): array
     {
         return array_merge([
-            'matric_number' => 'BUT/2018/0001',
-            'email' => 'alumni@example.com',
+            'nin' => self::NIN,
             'program_id' => $this->program->id,
             'transcript_type' => 'e_copy',
             'delivery_email' => 'alumni@example.com',
@@ -170,19 +173,19 @@ class TranscriptRequestTest extends TestCase
         ]);
 
         $this->postJson('/api/transcript-requests/lookup', [
-            'matric_number' => 'BUT/2018/0001',
-            'email' => 'alumni@example.com',
+            'nin' => self::NIN,
             'channel' => 'undergraduate',
         ])
             ->assertOk()
             ->assertJsonPath('student.matric_number', 'BUT/2018/0001')
+            ->assertJsonPath('student.email', 'alumni@example.com')
             ->assertJsonCount(2, 'programmes');
     }
 
-    public function test_create_rejects_email_mismatch(): void
+    public function test_create_rejects_unknown_nin(): void
     {
         $this->postJson('/api/transcript-requests', $this->requestPayload([
-            'email' => 'wrong@example.com',
+            'nin' => '99999999999',
         ]))->assertStatus(422);
     }
 
@@ -407,8 +410,7 @@ class TranscriptRequestTest extends TestCase
         ]);
 
         $this->postJson('/api/transcript-requests/lookup', [
-            'matric_number' => 'BUT/2018/0001',
-            'email' => 'alumni@example.com',
+            'nin' => self::NIN,
             'channel' => 'jupeb',
         ])->assertStatus(422);
     }
@@ -469,5 +471,67 @@ class TranscriptRequestTest extends TestCase
         $this->getJson('/api/staff/transcript-requests?channel=undergraduate&search=BSC-CS')
             ->assertOk()
             ->assertJsonPath('meta.total', 2);
+    }
+
+    public function test_lookup_rejects_invalid_nin(): void
+    {
+        $this->postJson('/api/transcript-requests/lookup', [
+            'nin' => '12345',
+            'channel' => 'undergraduate',
+        ])->assertStatus(422)
+            ->assertJsonFragment(['message' => 'Enter a valid 11-digit NIN.']);
+    }
+
+    public function test_official_transcript_matches_registry_layout(): void
+    {
+        $html = view('reports.official-transcript', [
+            'institution' => [
+                'name' => 'Bells University of Technology',
+                'office' => 'Office of the Registrar',
+            ],
+            'logo_data_uri' => null,
+            'photo_data_uri' => null,
+            'report' => [
+                'university' => 'Bells University of Technology',
+                'generated_at' => '01 Sep 2026',
+                'cgpa' => 2.62,
+                'registrar_name' => 'Lamidi S. Tafa (Mr.)',
+                'registrar_title' => 'Registrar',
+                'student' => [
+                    'name' => 'INETIABOR ELIZABETH OMONIGHO',
+                    'matric_number' => '2020/9706',
+                    'programme' => 'BUSINESS ADMINISTRATION (HUMAN RESOURCE MANAGEMENT)',
+                    'department' => 'BUSINESS ADMINISTRATION',
+                    'college' => 'COLLEGE OF MANAGEMENT SCIENCES',
+                ],
+                'terms' => [[
+                    'heading' => 'FIRST SEMESTER 2020/2021 100',
+                    'gpa' => 1.96,
+                    'cgpa' => 1.96,
+                    'credits_offered' => 25,
+                    'credits_passed' => 21,
+                    'rows' => [[
+                        'course' => [
+                            'code' => 'ACC101',
+                            'title' => 'Basic Financial Accounting I',
+                            'units' => 3,
+                        ],
+                        'grade_obtained' => '45(D)',
+                    ]],
+                ]],
+            ],
+        ])->render();
+
+        $this->assertStringContainsString('MATRIC NUMBER', strtoupper(strip_tags($html)));
+        $this->assertStringContainsString('DEGREE PROGRAMME', strtoupper(strip_tags($html)));
+        $this->assertStringContainsString('TOTAL CREDIT OFFERED', strtoupper(strip_tags($html)));
+        $this->assertStringContainsString('SEMESTER GPA', strtoupper(strip_tags($html)));
+        $this->assertStringContainsString('CUMULATIVE CGPA', strtoupper(strip_tags($html)));
+        $this->assertStringContainsString('45(D)', $html);
+        $this->assertStringContainsString('FIRST SEMESTER 2020/2021 100', $html);
+        $this->assertStringContainsString('Lamidi S. Tafa (Mr.)', $html);
+        $this->assertStringContainsString('2013', $html);
+        $this->assertStringContainsString('English Language', $html);
+        $this->assertStringContainsString('3rd Class Honours', $html);
     }
 }

@@ -39,6 +39,8 @@ class SecuritySettingsController extends Controller
             'transcript_delivery_generated_pdf' => 'sometimes|boolean',
             'transcript_delivery_uploaded_pdf' => 'sometimes|boolean',
             'transcript_collect_instructions' => 'sometimes|nullable|string|max:2000',
+            'registrar_name' => 'sometimes|nullable|string|max:120',
+            'registrar_title' => 'sometimes|nullable|string|max:80',
             'pg_research_interest_min_words' => 'sometimes|integer|min:0|max:5000',
             'pg_research_interest_max_words' => 'sometimes|integer|min:0|max:5000',
             'pg_statement_of_purpose_min_words' => 'sometimes|integer|min:0|max:5000',

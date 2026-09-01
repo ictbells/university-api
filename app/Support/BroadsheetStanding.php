@@ -35,10 +35,22 @@ final class BroadsheetStanding
         bool $hasScoredPaper,
         bool $hasAwaitingOrMissing,
         ?string $sanctionType = null,
+        ?string $adminRemark = null,
     ): string {
         $sanction = self::fromSanction($sanctionType);
         if ($sanction !== null) {
             return $sanction;
+        }
+
+        $admin = GradeExamRemark::normalize($adminRemark);
+        if ($admin === GradeExamRemark::SICK) {
+            return self::SICK;
+        }
+        if ($admin === GradeExamRemark::ABS_NP) {
+            return self::ABS_NP;
+        }
+        if ($admin === GradeExamRemark::ABS_P) {
+            return self::ABS_P;
         }
 
         $remarks = [];
@@ -59,10 +71,10 @@ final class BroadsheetStanding
             if (in_array(GradeExamRemark::ABS_P, $remarks, true)) {
                 return self::ABS_P;
             }
-            if ($hasAwaitingOrMissing || in_array(GradeExamRemark::AR, $remarks, true)) {
+            if ($hasAwaitingOrMissing) {
                 return self::AR;
             }
-        } elseif ($hasAwaitingOrMissing || in_array(GradeExamRemark::AR, $remarks, true)) {
+        } elseif ($hasAwaitingOrMissing) {
             return self::AR;
         }
 

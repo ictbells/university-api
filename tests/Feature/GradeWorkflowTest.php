@@ -178,6 +178,9 @@ class GradeWorkflowTest extends TestCase
         $this->assertNotEmpty($transcript->json('rows'));
         $transcript->assertJsonPath('rows.0.letter', 'A');
         $this->assertEquals(72, (float) $transcript->json('rows.0.score'));
+        $transcript->assertJsonPath('rows.0.grade_obtained', '72(A)');
+        $transcript->assertJsonPath('terms.0.heading', 'FIRST SEMESTER 2024/2025 100');
+        $transcript->assertJsonPath('terms.0.credits_offered', 3);
         $transcript->assertJsonPath('official', false);
         $transcript->assertJsonPath('can_sign', false);
         $this->assertStringContainsString('not signed', (string) $transcript->json('notice'));
@@ -595,28 +598,92 @@ class GradeWorkflowTest extends TestCase
             ->assertOk()
             ->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 
-        $this->assertSame(['matric', 'ca', 'exam', 'score', 'remark'], ResultImportColumns::all());
+        $this->assertSame(['matric', 'ca', 'exam', 'score'], ResultImportColumns::all());
     }
 
-    public function test_exam_remark_skips_gpa_and_counts_absent_on_the_broadsheet(): void
+    public function test_registered_course_without_score_is_ar_without_admin_remark(): void
     {
         Sanctum::actingAs($this->staffUser);
-        $this->postJson('/api/academic/results/grades', [
-            'enrollment_id' => $this->enrollment->id,
-            'exam_remark' => 'abs_p',
-        ])->assertOk()
-            ->assertJsonPath('exam_remark', 'abs_p')
-            ->assertJsonPath('score', null);
+
+        $this->getJson(
+            '/api/academic/results/reports/submission-list/department?academic_term_id='.$this->term->id.'&status=draft'
+        )
+            ->assertOk()
+            ->assertJsonPath('students.0.status', 'AR')
+            ->assertJsonPath('students.0.scores.CSC101', 'AR')
+            ->assertJsonPath('sheets.0.summary.incomplete', 1)
+            ->assertJsonPath('sheets.0.summary.good_standing', 0)
+            ->assertJsonPath('students.0.sgpa', '—');
+    }
+
+    public function test_admin_cannot_set_ar_as_a_term_remark(): void
+    {
+        Sanctum::actingAs($this->staffUser);
+        $this->staffUser->roles()->first()?->permissions()->syncWithoutDetaching(
+            \App\Models\Permission::query()->where('key', 'students.manage')->pluck('id'),
+        );
+        $this->staffUser->unsetRelation('roles');
+
+        $this->postJson('/api/students/'.$this->student->id.'/term-remarks', [
+            'academic_term_id' => $this->term->id,
+            'type' => 'ar',
+        ])->assertStatus(422);
+    }
+
+    public function test_admin_term_remark_counts_absent_on_the_broadsheet_without_department_scores(): void
+    {
+        Sanctum::actingAs($this->staffUser);
+        $this->staffUser->roles()->first()?->permissions()->syncWithoutDetaching(
+            \App\Models\Permission::query()->where('key', 'students.manage')->pluck('id'),
+        );
+        $this->staffUser->unsetRelation('roles');
+
+        $this->postJson('/api/students/'.$this->student->id.'/term-remarks', [
+            'academic_term_id' => $this->term->id,
+            'type' => 'abs_p',
+        ])->assertOk()->assertJsonPath('type', 'abs_p');
 
         $this->getJson(
             '/api/academic/results/reports/submission-list/department?academic_term_id='.$this->term->id.'&status=draft'
         )
             ->assertOk()
             ->assertJsonPath('students.0.status', 'ABS_P')
-            ->assertJsonPath('students.0.scores.CSC101', 'ABS_P')
             ->assertJsonPath('sheets.0.summary.absent_with_permission', 1)
             ->assertJsonPath('sheets.0.summary.good_standing', 0)
             ->assertJsonPath('students.0.sgpa', '—');
+    }
+
+    public function test_admin_term_remark_outranks_uploaded_scores_on_the_broadsheet(): void
+    {
+        Sanctum::actingAs($this->staffUser);
+        Grade::query()->create([
+            'enrollment_id' => $this->enrollment->id,
+            'sitting' => 'main',
+            'score' => 70,
+            'letter' => 'A',
+            'points' => 5,
+            'status' => GradeStatus::DRAFT,
+            'faculty_id' => $this->enrollment->offering->course->department->faculty_id,
+            'department_id' => $this->enrollment->offering->course->department_id,
+        ]);
+        $this->staffUser->roles()->first()?->permissions()->syncWithoutDetaching(
+            \App\Models\Permission::query()->where('key', 'students.manage')->pluck('id'),
+        );
+        $this->staffUser->unsetRelation('roles');
+
+        $this->postJson('/api/students/'.$this->student->id.'/term-remarks', [
+            'academic_term_id' => $this->term->id,
+            'type' => 'abs_p',
+        ])->assertOk();
+
+        $report = $this->getJson(
+            '/api/academic/results/reports/submission-list/department?academic_term_id='.$this->term->id.'&status=draft'
+        )->assertOk();
+        $report
+            ->assertJsonPath('students.0.status', 'ABS_P')
+            ->assertJsonPath('sheets.0.summary.absent_with_permission', 1)
+            ->assertJsonPath('sheets.0.summary.good_standing', 0);
+        $this->assertStringContainsString('70', (string) $report->json('students.0.scores.CSC101'));
     }
 
     public function test_term_sanction_overrides_standing_on_the_broadsheet(): void

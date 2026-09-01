@@ -194,6 +194,8 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::patch('/students/{student}', [StudentController::class, 'update']);
     Route::post('/students/{student}/term-sanctions', [StudentController::class, 'storeTermSanction']);
     Route::delete('/students/{student}/term-sanctions/{sanction}', [StudentController::class, 'destroyTermSanction']);
+    Route::post('/students/{student}/term-remarks', [StudentController::class, 'storeTermRemark']);
+    Route::delete('/students/{student}/term-remarks/{remark}', [StudentController::class, 'destroyTermRemark']);
     Route::post('/students/{student}/confer', [GraduationController::class, 'conferOne']);
 
     Route::get('/wallet', [WalletController::class, 'show']);

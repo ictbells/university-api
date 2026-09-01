@@ -88,6 +88,8 @@ class SecuritySettings
             || array_key_exists('transcript_delivery_generated_pdf', $data)
             || array_key_exists('transcript_delivery_uploaded_pdf', $data)
             || array_key_exists('transcript_collect_instructions', $data)
+            || array_key_exists('registrar_name', $data)
+            || array_key_exists('registrar_title', $data)
         ) {
             TranscriptRequestSettings::update($data);
         }
