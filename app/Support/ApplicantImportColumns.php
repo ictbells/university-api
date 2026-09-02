@@ -169,7 +169,7 @@ class ApplicantImportColumns
      */
     public static function required(string $entryMode): array
     {
-        $required = ['email', 'phone', 'first_name', 'last_name', 'first_choice_programme_id'];
+        $required = ['email', 'first_name', 'last_name'];
         if (in_array($entryMode, AdmissionEntryRules::JAMB_ENTRY_MODES, true)) {
             $required[] = 'jamb_registration';
         }

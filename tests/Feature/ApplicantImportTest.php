@@ -140,7 +140,8 @@ class ApplicantImportTest extends TestCase
         $this->assertStringContainsString('copy ids from this workbook', strtolower($instructions));
         $this->assertStringContainsString('four subject scores whose total equals utme_aggregate', strtolower($instructions));
         $this->assertStringContainsString('nin is optional', strtolower($instructions));
-        $this->assertStringContainsString('Required columns: email, phone, first_name, last_name, first_choice_programme_id, jamb_registration', $instructions);
+        $this->assertStringContainsString('Required columns: email, first_name, last_name, jamb_registration', $instructions);
+        $this->assertStringContainsString('phone is optional', strtolower($instructions));
     }
 
     public function test_import_creates_unsubmitted_application_and_allows_student_login(): void
@@ -180,7 +181,8 @@ class ApplicantImportTest extends TestCase
             return $mail->loginId === '12345678AB'
                 && $label === 'JAMB number'
                 && $value === '12345678AB'
-                && $mail->envelope()->subject === 'Your Bells University student portal account';
+                && $mail->envelope()->subject === 'Your Bells University student portal account'
+                && str_contains($mail->render(), 'You must update your records before you submit your application');
         });
         $this->assertNotNull($plain);
 
@@ -236,6 +238,89 @@ class ApplicantImportTest extends TestCase
         ])->assertOk()
             ->assertJsonPath('is_student', false)
             ->assertJsonPath('nin_verified', false);
+    }
+
+    public function test_import_allows_blank_phone_and_programme(): void
+    {
+        Mail::fake();
+        Sanctum::actingAs($this->staffUser());
+        $file = $this->spreadsheet([
+            'email' => 'optional.fields@example.com',
+            'phone' => '',
+            'alternate_phone' => '',
+            'password' => 'OldPortal1!',
+            'nin' => '',
+            'jamb_registration' => '12345678OP',
+            'first_choice_programme_id' => '',
+            'second_choice_programme_id' => '',
+        ]);
+
+        $this->post('/api/applicants/import', [
+            'file' => $file,
+            'intake_id' => $this->intake->id,
+            'entry_mode' => 'utme',
+            'verify_nin' => '0',
+            'send_credentials' => '0',
+        ], ['Accept' => 'application/json'])->assertOk()
+            ->assertJsonPath('data.created', 1);
+
+        $application = Application::query()->where('jamb_registration', '12345678OP')->first();
+        $this->assertNotNull($application);
+        $this->assertNull($application->program_id);
+        $this->assertNull($application->user->phone);
+        $this->assertSame('pending', $application->steps()->where('step_key', 'programme_selection')->value('status'));
+        $form = $application->steps()->where('step_key', 'application_form')->first();
+        $this->assertSame('', $form?->payload['phone'] ?? null);
+
+        $this->postJson('/api/login', [
+            'portal' => 'student',
+            'login' => '12345678OP',
+            'password' => 'OldPortal1!',
+        ])->assertOk();
+    }
+
+    public function test_nin_verify_after_import_uses_nin_phone_not_excel_phone(): void
+    {
+        Mail::fake();
+        config([
+            'services.prembly.key' => '',
+            'services.prembly.app_id' => '',
+            'services.prembly.allow_demo' => true,
+        ]);
+        Sanctum::actingAs($this->staffUser());
+        $file = $this->spreadsheet([
+            'email' => 'nin.phone@example.com',
+            'phone' => '08039990001',
+            'alternate_phone' => '',
+            'password' => 'OldPortal1!',
+            'nin' => '12345678901',
+            'jamb_registration' => '12345678NP',
+        ]);
+
+        $this->post('/api/applicants/import', [
+            'file' => $file,
+            'intake_id' => $this->intake->id,
+            'entry_mode' => 'utme',
+            'verify_nin' => '0',
+            'send_credentials' => '0',
+        ], ['Accept' => 'application/json'])->assertOk()
+            ->assertJsonPath('data.created', 1);
+
+        $application = Application::query()->where('jamb_registration', '12345678NP')->first();
+        $this->assertNotNull($application);
+        $this->assertSame('+2348039990001', $application->user->phone);
+        $form = $application->steps()->where('step_key', 'application_form')->first();
+        $this->assertSame('+2348039990001', $form?->payload['phone'] ?? null);
+
+        Sanctum::actingAs($application->user);
+        $this->postJson("/api/applications/{$application->id}/nin", ['nin' => '12345678901'])
+            ->assertOk();
+
+        $this->assertSame('08030000000', $application->user->fresh()->phone);
+        $this->assertSame('+2348039990001', $application->user->fresh()->alternate_phone);
+        $form = $application->fresh()->steps()->where('step_key', 'application_form')->first();
+        $this->assertSame('08030000000', $form?->payload['phone'] ?? null);
+        $this->assertSame('+2348039990001', $form?->payload['alternate_phone'] ?? null);
     }
 
     public function test_credentials_mail_sends_jamb_or_application_number_by_entry_mode(): void

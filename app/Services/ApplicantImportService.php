@@ -56,16 +56,17 @@ class ApplicantImportService
                 '',
                 '1. Keep the header row on the Applicants sheet. Do not rename columns. Do not paste data into Instructions or lookup sheets.',
                 '2. Fill one row per applicant. Leave password blank to generate a new password and email it.',
-                '3. Copy ids from this workbook’s lookup sheets. Do not paste names from the old portal — spellings will not match. first_choice_programme_id / second_choice_programme_id from Programmes. state_id from States. lga_id from LGAs (must belong to that state). sitting*_subject_*_id from O-level subjects. Import stores this system’s official titles.',
+                '3. Copy ids from this workbook’s lookup sheets when you have them. Do not paste names from the old portal — spellings will not match. first_choice_programme_id / second_choice_programme_id from Programmes (optional — applicants can choose a programme after they sign in). state_id from States. lga_id from LGAs (must belong to that state). sitting*_subject_*_id from O-level subjects. Import stores this system’s official titles.',
                 '4. Country is Nigeria or Non-Nigeria (text). Do not enter college or department on the Applicants sheet — those lookup sheets are reference only. College and department come from the programme you pick.',
                 '5. O-level: maximum 2 sittings (sitting1_ and sitting2_ columns). Sitting 2 is optional.',
                 '6. UTME/JUPEB: enter four subject scores whose total equals utme_aggregate.',
                 '7. Lookup sheets (Campuses, Colleges, Departments, Programmes, Levels, States, LGAs, O-level subjects) are for reference. Import reads only the Applicants sheet.',
                 '8. Documents are not imported from Excel. Import does not submit the application. Applicants must upload required documents and submit after they sign in.',
                 '9. NIN is optional (legacy files often omit it). If a NIN is present it must be 11 digits. Applicants verify NIN themselves when they sign in. If Verify NIN is checked on upload, Prembly runs only for rows that have a NIN.',
-                '10. Login on the student portal uses application number (APP/YYYY/#####) or JAMB registration, not email.',
-                '11. Import invoices first when application fee was paid on the old portal (category application_fee, keyed by application_number or JAMB). Matching rows are posted and marked paid.',
-                '12. If no matching invoice is found, an unpaid application fee is generated when a catalog or session amount exists. Import still succeeds if the fee cannot be generated — the student portal will ask the applicant to pay.',
+                '10. phone is optional. Leave it blank if the applicant will take the number from NIN after they sign in. If you fill it, it must be a valid Nigerian or international number.',
+                '11. Login on the student portal uses application number (APP/YYYY/#####) or JAMB registration, not email.',
+                '12. Import invoices first when application fee was paid on the old portal (category application_fee, keyed by application_number or JAMB). Matching rows are posted and marked paid.',
+                '13. If no matching invoice is found, an unpaid application fee is generated when a catalog or session amount exists. Import still succeeds if the fee cannot be generated — the student portal will ask the applicant to pay.',
                 '',
                 'Required columns: '.implode(', ', ApplicantImportColumns::required($entryMode)),
             ],
@@ -263,7 +264,8 @@ class ApplicantImportService
 
         $this->assertNotDuplicate($email, $nin, $jamb, $oldNumber, $intake->id);
 
-        $firstProgram = $this->resolveProgram($data['first_choice_programme_id'], $entryMode);
+        $phone = PhoneNumber::importValue($data['phone'] ?? null, 'phone number');
+        $firstProgram = $this->resolveOptionalProgram($data['first_choice_programme_id'] ?? null, $entryMode);
         $secondProgram = filled($data['second_choice_programme_id'] ?? null)
             ? $this->resolveProgram($data['second_choice_programme_id'], $entryMode)
             : null;
@@ -283,7 +285,7 @@ class ApplicantImportService
         $user = User::query()->create([
             'name' => $name,
             'email' => $email,
-            'phone' => trim($data['phone']),
+            'phone' => $phone,
             'alternate_phone' => $this->alternatePhone($data),
             'jamb_registration' => $jamb !== '' ? $jamb : null,
             'password' => $plainPassword,
@@ -302,7 +304,7 @@ class ApplicantImportService
             'user_id' => $user->id,
             'intake_id' => $intake->id,
             'academic_session_id' => $intake->academicSessionId(),
-            'program_id' => $firstProgram->id,
+            'program_id' => $firstProgram?->id,
             'entry_mode' => $entryMode,
             'jamb_registration' => $jamb !== '' ? $jamb : null,
             'jamb_status' => $jamb !== '' ? 'pending' : null,
@@ -381,7 +383,7 @@ class ApplicantImportService
     private function writeSteps(
         Application $application,
         array $data,
-        Program $first,
+        ?Program $first,
         ?Program $second,
         string $nin,
         bool $verifyNin,
@@ -428,7 +430,7 @@ class ApplicantImportService
             'sponsor_address' => $data['sponsor_address'] ?? '',
         ]);
         $this->saveStep($application, 'application_form', [
-            'phone' => $data['phone'],
+            'phone' => PhoneNumber::importValue($data['phone'] ?? null, 'phone number') ?? '',
             'alternate_phone' => $this->alternatePhone($data),
             'address' => $data['address'] ?? '',
             'declaration' => true,
@@ -440,11 +442,13 @@ class ApplicantImportService
                 $this->saveStep($application, 'utme', ['utme' => $utme]);
             }
         }
-        $this->saveStep($application, 'programme_selection', [
-            'first_choice_program_id' => $first->id,
-            'second_choice_program_id' => $second?->id,
-            'program_id' => $first->id,
-        ]);
+        if ($first) {
+            $this->saveStep($application, 'programme_selection', [
+                'first_choice_program_id' => $first->id,
+                'second_choice_program_id' => $second?->id,
+                'program_id' => $first->id,
+            ]);
+        }
 
         if ($application->entry_mode === 'de') {
             $this->saveStep($application, 'direct_entry', [
@@ -637,6 +641,9 @@ class ApplicantImportService
      */
     private function rowLooksComplete(array $data, string $entryMode): bool
     {
+        if (blank($data['first_choice_programme_id'] ?? null)) {
+            return false;
+        }
         if (blank($data['sitting1_exam_type'] ?? null) || blank($data['sitting1_subject_1_id'] ?? null)) {
             return false;
         }
@@ -651,6 +658,15 @@ class ApplicantImportService
         }
 
         return true;
+    }
+
+    private function resolveOptionalProgram(?string $value, string $entryMode): ?Program
+    {
+        if (SpreadsheetImport::parseOptionalId($value, 'programme_id') === null) {
+            return null;
+        }
+
+        return $this->resolveProgram((string) $value, $entryMode);
     }
 
     private function resolveProgram(string $value, string $entryMode): Program

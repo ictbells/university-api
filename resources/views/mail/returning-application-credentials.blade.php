@@ -21,7 +21,11 @@ Your previous programme is complete and a new application has been started for y
 Open student portal
 </x-mail::button>
 
-Sign in with your {{ strtolower($signInLabel) }} and this new password. Then open **Apply**, pay the application fee if it is unpaid, and complete the form.
+Sign in with your {{ strtolower($signInLabel) }} and this new password.
+
+<x-mail::panel>
+**You must update your records before you submit this application.** Open **Apply**, pay the application fee if it is unpaid, complete any missing details, and submit.
+</x-mail::panel>
 
 Keep these details safe. Email is used for notifications and password reset only — sign in with your {{ strtolower($signInLabel) }}, not your email.
 

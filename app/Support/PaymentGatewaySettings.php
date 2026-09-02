@@ -30,11 +30,13 @@ class PaymentGatewaySettings
                     'key' => self::PAYSTACK,
                     'label' => 'Paystack',
                     'configured' => self::paystackConfigured(),
+                    'missing' => self::paystackMissing(),
                 ],
                 self::WEMA => [
                     'key' => self::WEMA,
                     'label' => 'Wema Bank',
                     'configured' => self::wemaConfigured(),
+                    'missing' => self::wemaMissing(),
                 ],
             ],
         ];
@@ -60,15 +62,47 @@ class PaymentGatewaySettings
 
     public static function paystackConfigured(): bool
     {
-        return (string) config('services.paystack.secret') !== ''
-            && (string) config('services.paystack.public') !== '';
+        return self::paystackMissing() === [];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function paystackMissing(): array
+    {
+        $missing = [];
+        if ((string) config('services.paystack.public') === '') {
+            $missing[] = 'PAYSTACK_PUBLIC_KEY';
+        }
+        if ((string) config('services.paystack.secret') === '') {
+            $missing[] = 'PAYSTACK_SECRET_KEY';
+        }
+
+        return $missing;
     }
 
     public static function wemaConfigured(): bool
     {
-        return (string) config('services.wema.public') !== ''
-            && (string) config('services.wema.secret') !== ''
-            && (string) config('services.wema.business_id') !== '';
+        return self::wemaMissing() === [];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function wemaMissing(): array
+    {
+        $missing = [];
+        if ((string) config('services.wema.public') === '') {
+            $missing[] = 'WEMA_ALATPAY_PUBLIC_KEY';
+        }
+        if ((string) config('services.wema.secret') === '') {
+            $missing[] = 'WEMA_ALATPAY_SECRET_KEY';
+        }
+        if ((string) config('services.wema.business_id') === '') {
+            $missing[] = 'WEMA_ALATPAY_BUSINESS_ID';
+        }
+
+        return $missing;
     }
 
     public static function configured(string $gateway): bool
@@ -96,7 +130,10 @@ class PaymentGatewaySettings
         }
 
         if ($gateway === self::WEMA && ! self::wemaConfigured()) {
-            throw new InvalidArgumentException('Wema Bank is not configured. Add ALATPay keys in the server environment first.');
+            $missing = implode(', ', self::wemaMissing());
+            throw new InvalidArgumentException(
+                'Wema Bank is not configured. Add '.$missing.' in the server environment first.',
+            );
         }
 
         Setting::setValue(self::ACTIVE, $gateway);

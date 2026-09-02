@@ -7,6 +7,7 @@ use App\Models\NinVerification;
 use App\Models\Student;
 use App\Models\User;
 use App\Support\NinCipher;
+use App\Support\PhoneNumber;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
@@ -351,17 +352,10 @@ class PremblyService
             $step->save();
         }
 
-        $phone = $this->phoneFromMapped($mapped);
-        $address = $this->addressFromMapped($mapped);
-        if ($phone !== '' && blank($user->phone)) {
-            $user->update(['phone' => $phone]);
-        }
-
         $contact = $application->steps()->firstOrNew(['step_key' => 'application_form']);
         $contactPayload = is_array($contact->payload) ? $contact->payload : [];
-        if ($phone !== '' && blank($contactPayload['phone'] ?? null)) {
-            $contactPayload['phone'] = $phone;
-        }
+        $this->applyNinPhone($user, $contactPayload, $mapped);
+        $address = $this->addressFromMapped($mapped);
         if ($address !== '' && blank($contactPayload['address'] ?? null)) {
             $contactPayload['address'] = $address;
         }
@@ -388,6 +382,51 @@ class PremblyService
                 'current_step' => 'personal_details',
             ]);
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $mapped
+     * @param  array<string, mixed>  $contactPayload
+     */
+    private function applyNinPhone(User $user, array &$contactPayload, array $mapped): void
+    {
+        $phone = $this->phoneFromMapped($mapped);
+        if ($phone === '') {
+            return;
+        }
+
+        $previous = trim((string) ($contactPayload['phone'] ?? ''));
+        if ($previous === '') {
+            $previous = trim((string) ($user->phone ?? ''));
+        }
+
+        $userUpdates = ['phone' => $phone];
+        $contactPayload['phone'] = $phone;
+
+        if (
+            $previous !== ''
+            && ! $this->samePhone($previous, $phone)
+            && blank($contactPayload['alternate_phone'] ?? null)
+            && blank($user->alternate_phone)
+        ) {
+            $contactPayload['alternate_phone'] = $previous;
+            $userUpdates['alternate_phone'] = $previous;
+        }
+
+        $user->update($userUpdates);
+    }
+
+    private function samePhone(string $left, string $right): bool
+    {
+        $normalizedLeft = PhoneNumber::normalize($left);
+        $normalizedRight = PhoneNumber::normalize($right);
+        if ($normalizedLeft && $normalizedRight) {
+            return $normalizedLeft === $normalizedRight;
+        }
+
+        $compact = static fn (string $value): string => strtoupper((string) preg_replace('/[\s().-]+/', '', $value));
+
+        return $compact($left) === $compact($right);
     }
 
     private function attachPassportDocument(Application $application, ?string $photoPath): void

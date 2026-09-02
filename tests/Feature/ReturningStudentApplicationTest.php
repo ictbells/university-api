@@ -136,6 +136,7 @@ class ReturningStudentApplicationTest extends TestCase
             $mail->assertSeeInHtml($newNumber);
             $mail->assertSeeInHtml((string) $plain);
             $mail->assertSeeInHtml('Sign in with your matric number', false);
+            $mail->assertSeeInHtml('You must update your records before you submit this application', false);
 
             return $mail->previousApplicationNumber === $prior->application_number
                 && $mail->application->application_number === $newNumber

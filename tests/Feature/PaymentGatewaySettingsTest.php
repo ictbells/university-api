@@ -58,9 +58,30 @@ class PaymentGatewaySettingsTest extends TestCase
             'payment_gateway' => 'wema',
         ])
             ->assertStatus(422)
-            ->assertJsonPath('message', 'Wema Bank is not configured. Add ALATPay keys in the server environment first.');
+            ->assertJsonPath('message', 'Wema Bank is not configured. Add WEMA_ALATPAY_PUBLIC_KEY, WEMA_ALATPAY_SECRET_KEY, WEMA_ALATPAY_BUSINESS_ID in the server environment first.');
 
         $this->assertSame('paystack', PaymentGatewaySettings::active());
+    }
+
+    public function test_wema_stays_unconfigured_until_business_id_is_set(): void
+    {
+        config([
+            'services.wema.public' => 'pk_wema_test',
+            'services.wema.secret' => 'sk_wema_test',
+            'services.wema.business_id' => '',
+        ]);
+        Sanctum::actingAs($this->staffUser(['settings.manage']));
+
+        $this->getJson('/api/security-settings')
+            ->assertOk()
+            ->assertJsonPath('payment_gateways.wema.configured', false)
+            ->assertJsonPath('payment_gateways.wema.missing', ['WEMA_ALATPAY_BUSINESS_ID']);
+
+        $this->putJson('/api/security-settings', [
+            'payment_gateway' => 'wema',
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Wema Bank is not configured. Add WEMA_ALATPAY_BUSINESS_ID in the server environment first.');
     }
 
     public function test_updating_payment_gateway_requires_settings_manage(): void

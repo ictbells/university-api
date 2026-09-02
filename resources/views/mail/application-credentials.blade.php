@@ -17,7 +17,9 @@ Use the details below to sign in to the student portal.
 Open student portal
 </x-mail::button>
 
-After you sign in, update your records, upload any required documents, and submit your application if it is not yet submitted. If the application fee is unpaid, the portal will ask you to pay before you continue.
+<x-mail::panel>
+**You must update your records before you submit your application.** Sign in, complete any missing details (including phone from NIN and programme choice), upload required documents, then submit. If the application fee is unpaid, the portal will ask you to pay before you continue.
+</x-mail::panel>
 
 Keep these details safe. Your email address is used for notifications and password reset only — sign in with your {{ $signInLabel }}, not your email.
 
