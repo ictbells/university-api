@@ -5,9 +5,13 @@ namespace Tests\Feature;
 use App\Models\AcademicSession;
 use App\Models\AcademicTerm;
 use App\Models\Application;
+use App\Models\Campus;
 use App\Models\CandidateData;
+use App\Models\Department;
+use App\Models\Faculty;
 use App\Models\Intake;
 use App\Models\NinVerification;
+use App\Models\Program;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\PremblyService;
@@ -325,7 +329,7 @@ class ApplicationSignupGateTest extends TestCase
         $this->assertNull($application->jamb_registration);
     }
 
-    public function test_register_rejects_jamb_missing_from_the_candidate_list(): void
+    public function test_register_allows_jamb_missing_from_the_candidate_list(): void
     {
         $intake = $this->openApplicationSession();
         CandidateData::query()->create([
@@ -340,12 +344,11 @@ class ApplicationSignupGateTest extends TestCase
         $this->postJson('/api/register', $this->registerPayload([
             'intake_id' => $intake->id,
             'jamb_registration' => '20269999ZZ',
-        ]))
-            ->assertStatus(422)
-            ->assertJsonValidationErrors(['jamb_registration']);
+        ]))->assertOk()
+            ->assertJsonPath('message', 'Registration successful');
 
-        Http::assertNothingSent();
-        $this->assertSame(0, User::query()->count());
+        $this->assertSame(1, User::query()->count());
+        $this->assertSame('pending', Application::query()->value('jamb_status'));
     }
 
     public function test_register_accepts_jamb_on_the_candidate_list(): void
@@ -366,6 +369,42 @@ class ApplicationSignupGateTest extends TestCase
         ]))->assertOk();
 
         $this->assertSame('validated', Application::query()->value('jamb_status'));
+    }
+
+    public function test_submit_allows_jamb_missing_from_the_candidate_list(): void
+    {
+        $intake = $this->openApplicationSession();
+        CandidateData::query()->create([
+            'rg_num' => '20261234AB',
+            'academic_year' => '2025/2026',
+            'rg_candname' => 'Ada Okoye',
+        ]);
+        $application = $this->readyToSubmit($intake, '20269999ZZ');
+        Sanctum::actingAs($application->user);
+
+        $this->postJson("/api/applications/{$application->id}/submit", [
+            'submission_notice_accepted' => true,
+        ])->assertOk()
+            ->assertJsonPath('stage', 'submitted')
+            ->assertJsonPath('jamb_status', 'pending');
+    }
+
+    public function test_submit_accepts_jamb_on_the_candidate_list(): void
+    {
+        $intake = $this->openApplicationSession();
+        CandidateData::query()->create([
+            'rg_num' => '20261234AB',
+            'academic_year' => '2025/2026',
+            'rg_candname' => 'Ada Okoye',
+        ]);
+        $application = $this->readyToSubmit($intake, '20261234AB');
+        Sanctum::actingAs($application->user);
+
+        $this->postJson("/api/applications/{$application->id}/submit", [
+            'submission_notice_accepted' => true,
+        ])->assertOk()
+            ->assertJsonPath('stage', 'submitted')
+            ->assertJsonPath('jamb_status', 'validated');
     }
 
     public function test_register_accepts_an_email_without_public_dns(): void
@@ -470,6 +509,65 @@ class ApplicationSignupGateTest extends TestCase
             ->assertJsonPath('current_session_kind', 'application')
             ->assertJsonPath('current_session', '2025/2026')
             ->assertJsonMissing(['current_session' => 'UTME']);
+    }
+
+    private function readyToSubmit(Intake $intake, string $jamb): Application
+    {
+        $this->ensureApplicantRole();
+        $role = Role::query()->where('slug', 'applicant')->firstOrFail();
+        $user = User::factory()->create(['jamb_registration' => $jamb]);
+        $user->roles()->attach($role->id);
+        $campus = Campus::query()->create(['name' => 'Main', 'is_active' => true]);
+        $faculty = Faculty::query()->create(['campus_id' => $campus->id, 'name' => 'Science']);
+        $department = Department::query()->create(['faculty_id' => $faculty->id, 'name' => 'Computer Science']);
+        $program = Program::query()->create([
+            'department_id' => $department->id,
+            'name' => 'B.Sc Computer Science',
+            'award_type' => 'B.Sc',
+            'study_level' => 'undergraduate',
+            'entry_modes' => ['utme'],
+            'duration_years' => 4,
+            'is_active' => true,
+        ]);
+        $application = Application::query()->create([
+            'application_number' => 'APP/2026/'.str_pad((string) $user->id, 5, '0', STR_PAD_LEFT),
+            'user_id' => $user->id,
+            'intake_id' => $intake->id,
+            'program_id' => $program->id,
+            'entry_mode' => 'utme',
+            'jamb_registration' => $jamb,
+            'jamb_status' => 'pending',
+            'stage' => 'form_in_progress',
+            'current_step' => 'required_documents',
+        ]);
+        foreach (Application::formSteps('utme') as $step) {
+            $payload = [];
+            if ($step === 'biodata') {
+                $payload = ['nin_locked' => true, 'nin' => '12345678901', 'photo_path' => 'passports/a.jpg'];
+            }
+            if ($step === 'programme_selection') {
+                $payload = [
+                    'first_choice_program_id' => $program->id,
+                    'first_choice_college_id' => $faculty->id,
+                    'first_choice_department_id' => $department->id,
+                    'second_choice_program_id' => null,
+                ];
+            }
+            $application->steps()->create([
+                'step_key' => $step,
+                'status' => 'saved',
+                'payload' => $payload,
+            ]);
+        }
+        foreach (['birth_certificate', 'jamb_result', 'olevel_first_sitting'] as $docType) {
+            $application->documents()->create([
+                'doc_type' => $docType,
+                'path' => "docs/{$docType}.pdf",
+                'original_name' => "{$docType}.pdf",
+            ]);
+        }
+
+        return $application->fresh(['user', 'steps', 'intake.term']);
     }
 
     private function openApplicationSession(): Intake

@@ -176,12 +176,5 @@ class CandidateEligibility
                     : 'JAMB registration number is required for this application session.',
             ]);
         }
-
-        $year = $intake->term?->session_label ?: self::sessionLabelForIntake($intake->id);
-        if (self::candidateListRequiredFor($intake) && ! self::findByJamb($jamb, $year)) {
-            throw ValidationException::withMessages([
-                'jamb_registration' => 'This registration number is not on the candidate list for this application session.',
-            ]);
-        }
     }
 }

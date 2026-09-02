@@ -645,11 +645,17 @@ class ApplicationController extends Controller
             ['submission_notice_accepted' => ['required', 'accepted']],
             ['submission_notice_accepted.accepted' => 'Confirm the submission notice before submitting your application.'],
         );
+        $application->loadMissing('intake.term');
+        $year = $application->intake?->term?->session_label;
+        $jambStatus = $application->jamb_registration
+            ? (CandidateEligibility::findByJamb($application->jamb_registration, $year) ? 'validated' : 'pending')
+            : $application->jamb_status;
         $application->steps()->where('step_key', 'required_documents')->update(['status' => 'complete']);
         $application->update([
             'stage' => 'submitted',
             'submitted_at' => now(),
             'current_step' => 'required_documents',
+            'jamb_status' => $jambStatus,
         ]);
         $this->audit->record('application.submitted', 'Application submitted for screening', 'admissions', 'application', $application->id);
         $this->notifier->send($application->user, 'application_submitted', 'Application submitted', 'Your file is now in screening.', 'admissions', $application->id);
