@@ -38,6 +38,7 @@ use App\Support\TuitionProgress;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
@@ -109,26 +110,16 @@ class FinanceController extends Controller
             'is_active' => 'boolean',
         ]);
 
-        $code = FeeSchedule::codeFromName($data['name']);
-        $base = $code;
-        $suffix = 2;
-        while (FeeCategory::query()->where('code', $code)->exists()) {
-            $code = substr($base, 0, 56).'_'.$suffix;
-            $suffix++;
-        }
-
         $payload = [
-            'code' => $code,
+            'code' => FeeSchedule::codeFromName($data['name']),
             'name' => trim($data['name']),
             'description' => $data['description'] ?? null,
             'is_schedule' => $request->boolean('is_schedule', false),
-            'is_system' => false,
             'is_active' => $request->boolean('is_active', true),
-            'display_order' => (int) (FeeCategory::query()->max('display_order') ?? 0) + 1,
         ];
 
-        return $this->officeGate('finance.store_fee_category', null, $payload, 'Create fee category', function () use ($payload) {
-            $category = FeeCategory::query()->create($payload);
+        return $this->officeGate('finance.store_fee_category', null, $payload, 'Create fee category', function () use ($data, $request) {
+            $category = $this->persistFeeCategory($data, $request);
             $this->audit->record('fee_category.created', 'Fee category created', 'fees', 'fee_category', $category->id, null, $category);
 
             return $category;
@@ -192,6 +183,53 @@ class FinanceController extends Controller
                 return response()->noContent();
             }
         );
+    }
+
+    /**
+     * @param  array{name: string, description?: string|null}  $data
+     */
+    private function persistFeeCategory(array $data, Request $request): FeeCategory
+    {
+        $base = FeeSchedule::codeFromName($data['name']);
+        $existing = FeeCategory::withTrashed()->where('code', $base)->first();
+        $attributes = [
+            'name' => trim($data['name']),
+            'description' => $data['description'] ?? null,
+            'is_schedule' => $request->boolean('is_schedule', false),
+            'is_system' => false,
+            'is_active' => $request->boolean('is_active', true),
+        ];
+
+        if ($existing?->trashed()) {
+            $existing->restore();
+            $existing->update($attributes);
+
+            return $existing->fresh();
+        }
+
+        try {
+            return FeeCategory::query()->create([
+                ...$attributes,
+                'code' => $this->uniqueFeeCategoryCode($base),
+                'display_order' => (int) (FeeCategory::withTrashed()->max('display_order') ?? 0) + 1,
+            ]);
+        } catch (UniqueConstraintViolationException) {
+            throw ValidationException::withMessages([
+                'name' => 'A fee category with this name already exists.',
+            ]);
+        }
+    }
+
+    private function uniqueFeeCategoryCode(string $base): string
+    {
+        $code = $base;
+        $suffix = 2;
+        while (FeeCategory::withTrashed()->where('code', $code)->exists()) {
+            $code = substr($base, 0, 56).'_'.$suffix;
+            $suffix++;
+        }
+
+        return $code;
     }
 
     public function storeFee(Request $request)
