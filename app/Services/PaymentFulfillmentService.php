@@ -6,6 +6,7 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\User;
 use App\Support\FeeSchedule;
+use App\Support\PaymentGatewaySettings;
 use Illuminate\Support\Str;
 
 class PaymentFulfillmentService
@@ -36,6 +37,24 @@ class PaymentFulfillmentService
         ?int $invoiceId,
         string $purpose,
     ): Payment {
+        if ($invoiceId && $method === PaymentGatewaySettings::WEMA) {
+            $existing = Payment::query()
+                ->where('invoice_id', $invoiceId)
+                ->where('user_id', $user->id)
+                ->where('method', $method)
+                ->where('status', 'pending')
+                ->latest('id')
+                ->first();
+            if ($existing) {
+                $existing->update([
+                    'amount' => $amount,
+                    'purpose' => $purpose,
+                ]);
+
+                return $existing->fresh();
+            }
+        }
+
         return Payment::query()->create([
             'invoice_id' => $invoiceId,
             'user_id' => $user->id,
@@ -93,6 +112,7 @@ class PaymentFulfillmentService
         if ($payment->invoice_id) {
             $invoice = $payment->invoice;
             $this->invoices->applyPayment($invoice, (float) $payment->amount);
+            $this->abandonSiblingPendingPayments($payment);
             $this->audit->record(
                 'payment.'.strtolower($payment->method ?: 'online'),
                 $source.' payment for '.$invoice->number,
@@ -112,5 +132,18 @@ class PaymentFulfillmentService
         }
 
         return $payment->fresh();
+    }
+
+    public function abandonSiblingPendingPayments(Payment $payment): void
+    {
+        if (! $payment->invoice_id) {
+            return;
+        }
+
+        Payment::query()
+            ->where('invoice_id', $payment->invoice_id)
+            ->whereKeyNot($payment->id)
+            ->where('status', 'pending')
+            ->update(['status' => 'abandoned']);
     }
 }

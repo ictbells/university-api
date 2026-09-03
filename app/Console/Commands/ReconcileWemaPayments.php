@@ -23,6 +23,26 @@ class ReconcileWemaPayments extends Command
         $since = $this->option('since');
         $ids = array_filter(array_map('intval', (array) $this->option('id')));
 
+        $staleQuery = Payment::query()
+            ->where('method', 'wema')
+            ->where('status', 'pending')
+            ->whereHas('invoice', fn ($query) => $query->whereIn('status', ['paid', 'cancelled']));
+        if ($ids !== []) {
+            $staleQuery->whereIn('id', $ids);
+        }
+        if ($since) {
+            $staleQuery->where('created_at', '>=', $since);
+        }
+        $staleCount = (clone $staleQuery)->count();
+        if ($staleCount > 0) {
+            if ($dryRun) {
+                $this->line("Would abandon {$staleCount} pending payment(s) on invoices that are already settled.");
+            } else {
+                $staleQuery->update(['status' => 'abandoned']);
+                $this->info("Abandoned {$staleCount} pending payment(s) on invoices that are already settled.");
+            }
+        }
+
         $query = Payment::query()
             ->where('method', 'wema')
             ->where('status', 'pending')
@@ -67,6 +87,18 @@ class ReconcileWemaPayments extends Command
                 $txId,
                 (float) $payment->amount,
             );
+
+            if ($payment->invoice && ! $payment->invoice->isPayable()) {
+                if ($dryRun) {
+                    $this->line('  [dry-run] would abandon (invoice already settled): '.$label);
+                    $skipped++;
+                    continue;
+                }
+                $payment->update(['status' => 'abandoned']);
+                $this->warn('  – invoice already settled, abandoned: '.$label);
+                $skipped++;
+                continue;
+            }
 
             if ($dryRun) {
                 $this->line('  [dry-run] would verify: '.$label);

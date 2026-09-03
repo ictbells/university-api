@@ -146,6 +146,31 @@ class ReconcileWemaPaymentsTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_reconcile_abandons_pending_payments_when_invoice_already_paid(): void
+    {
+        $user = User::factory()->create(['status' => 'active']);
+        $invoice = $this->pendingInvoice($user, 7350);
+        $invoice->update(['status' => 'paid', 'balance' => 0]);
+        $stale = Payment::query()->create([
+            'user_id' => $user->id,
+            'invoice_id' => $invoice->id,
+            'method' => 'wema',
+            'amount' => 7350,
+            'status' => 'pending',
+            'reference' => 'WEMA-ALREADYPAID',
+            'paystack_reference' => 'tx-already-paid',
+            'purpose' => 'application_fee',
+        ]);
+
+        Http::fake();
+
+        $this->artisan('payments:reconcile-wema')
+            ->assertExitCode(0);
+
+        $this->assertSame('abandoned', $stale->fresh()->status);
+        Http::assertNothingSent();
+    }
+
     private function pendingInvoice(User $user, float $amount): Invoice
     {
         return Invoice::query()->create([

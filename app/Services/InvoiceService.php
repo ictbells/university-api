@@ -242,6 +242,16 @@ class InvoiceService
 
     public function createApplicationFeeInvoice(User $user, Intake $intake, int $applicationId): Invoice
     {
+        $existing = Invoice::query()
+            ->where('application_id', $applicationId)
+            ->where('category', 'application_fee')
+            ->whereIn('status', ['unpaid', 'partial'])
+            ->latest('id')
+            ->first();
+        if ($existing) {
+            return $existing->loadMissing('items');
+        }
+
         $amount = $this->resolveApplicationFeeAmount($intake);
         $number = 'INV-'.now()->format('Ymd').'-'.str_pad((string) (Invoice::query()->count() + 1), 5, '0', STR_PAD_LEFT);
         $invoice = Invoice::query()->create([

@@ -92,6 +92,70 @@ class AlatpayPaymentTest extends TestCase
         $this->assertSame('tx-alatpay-1', Payment::query()->where('reference', $reference)->value('paystack_reference'));
     }
 
+    public function test_initialize_reuses_pending_wema_payment_for_the_same_invoice(): void
+    {
+        $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
+        $invoice = $this->payableInvoice($user, 7350);
+        Sanctum::actingAs($user);
+
+        $first = $this->postJson('/api/payments/initialize', [
+            'invoice_id' => $invoice->id,
+            'portal' => 'student',
+        ])->assertOk();
+
+        $second = $this->postJson('/api/payments/initialize', [
+            'invoice_id' => $invoice->id,
+            'portal' => 'student',
+        ])->assertOk();
+
+        $this->assertSame($first->json('payment_id'), $second->json('payment_id'));
+        $this->assertSame($first->json('reference'), $second->json('reference'));
+        $this->assertSame(1, Payment::query()->where('invoice_id', $invoice->id)->count());
+    }
+
+    public function test_verify_abandons_other_pending_payments_on_the_same_invoice(): void
+    {
+        $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
+        $invoice = $this->payableInvoice($user, 7350);
+        Sanctum::actingAs($user);
+
+        $reference = $this->postJson('/api/payments/initialize', [
+            'invoice_id' => $invoice->id,
+            'portal' => 'student',
+        ])->assertOk()->json('reference');
+
+        $stale = Payment::query()->create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $user->id,
+            'method' => 'wema',
+            'amount' => 7350,
+            'status' => 'pending',
+            'reference' => 'WEMA-STALEATTEMPT',
+            'paystack_reference' => 'tx-stale-1',
+            'purpose' => 'application_fee',
+        ]);
+
+        Http::fake([
+            'https://apibox.alatpay.ng/alatpaytransaction/api/v1/transactions/*' => Http::response([
+                'status' => true,
+                'message' => 'Success',
+                'data' => [
+                    'id' => 'tx-alatpay-1',
+                    'status' => 'completed',
+                    'amount' => 7350,
+                    'orderId' => 'BELLSUNIVERSITY-internal',
+                ],
+            ]),
+        ]);
+
+        $this->getJson('/api/payments/verify/'.$reference.'?transactionId=tx-alatpay-1')
+            ->assertOk()
+            ->assertJsonPath('status', 'successful');
+
+        $this->assertSame('abandoned', $stale->fresh()->status);
+        $this->assertSame('paid', $invoice->fresh()->status);
+    }
+
     public function test_verify_succeeds_when_alatpay_returns_merchant_prefixed_order_id(): void
     {
         // AlatPay's GET /transactions/{txId} response returns data.orderId as their own
