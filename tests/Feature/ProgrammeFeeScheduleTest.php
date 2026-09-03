@@ -7,6 +7,7 @@ use App\Models\Department;
 use App\Models\Faculty;
 use App\Models\FeeItem;
 use App\Models\OfficeApprovalRequest;
+use App\Models\ProgrammeFee;
 use App\Models\OfficeDepartment;
 use App\Models\Permission;
 use App\Models\Program;
@@ -331,5 +332,93 @@ class ProgrammeFeeScheduleTest extends TestCase
         ]);
 
         return [$user->fresh(['roles.permissions', 'staff']), $program, $tuition, $clinic];
+    }
+
+    public function test_bulk_store_restores_soft_deleted_programme_fee_row(): void
+    {
+        [$staff, $program, $tuition] = $this->seedSchedule(assign: false, syncNav: false);
+        Sanctum::actingAs($staff);
+
+        // Create the row once.
+        $this->postJson('/api/programme-fees/bulk', [
+            'program_id' => $program->id,
+            'level_code' => '100 Level',
+            'semester' => 'both',
+            'items' => [
+                ['fee_item_id' => $tuition->id, 'amount' => 100000, 'installment_tranche' => 2],
+            ],
+        ])->assertOk();
+
+        $firstId = ProgrammeFee::query()
+            ->where(['program_id' => $program->id, 'fee_item_id' => $tuition->id])
+            ->value('id');
+        $this->assertNotNull($firstId);
+
+        // Soft-delete it directly (simulates a staff delete or office-gate replay race).
+        ProgrammeFee::query()->whereKey($firstId)->delete();
+        $this->assertSoftDeleted('programme_fees', ['id' => $firstId]);
+
+        // Bulk-store the same key again — must restore instead of colliding.
+        $this->postJson('/api/programme-fees/bulk', [
+            'program_id' => $program->id,
+            'level_code' => '100 Level',
+            'semester' => 'both',
+            'items' => [
+                ['fee_item_id' => $tuition->id, 'amount' => 120000, 'installment_tranche' => 2],
+            ],
+        ])->assertOk();
+
+        // Row restored with the same id, updated amount, no duplicate.
+        $this->assertDatabaseHas('programme_fees', [
+            'id' => $firstId,
+            'amount' => 120000,
+            'deleted_at' => null,
+        ]);
+        $this->assertSame(
+            1,
+            ProgrammeFee::withTrashed()
+                ->where(['program_id' => $program->id, 'fee_item_id' => $tuition->id, 'level_code' => '100 Level', 'installment_tranche' => 2])
+                ->count()
+        );
+    }
+
+    public function test_single_store_restores_soft_deleted_programme_fee_row(): void
+    {
+        [$staff, $program, $tuition] = $this->seedSchedule(assign: false, syncNav: false);
+        Sanctum::actingAs($staff);
+
+        $pf = ProgrammeFee::query()->create([
+            'program_id' => $program->id,
+            'fee_item_id' => $tuition->id,
+            'level_code' => '100 Level',
+            'semester' => 'both',
+            'installment_tranche' => 2,
+            'amount' => 100000,
+            'is_active' => true,
+        ]);
+        $pf->delete();
+        $this->assertSoftDeleted('programme_fees', ['id' => $pf->id]);
+
+        $this->postJson('/api/programme-fees', [
+            'program_id' => $program->id,
+            'fee_item_id' => $tuition->id,
+            'level_code' => '100 Level',
+            'semester' => 'both',
+            'installment_tranche' => 2,
+            'amount' => 120000,
+            'is_active' => true,
+        ])->assertOk();
+
+        $this->assertDatabaseHas('programme_fees', [
+            'id' => $pf->id,
+            'amount' => 120000,
+            'deleted_at' => null,
+        ]);
+        $this->assertSame(
+            1,
+            ProgrammeFee::withTrashed()
+                ->where(['program_id' => $program->id, 'fee_item_id' => $tuition->id, 'level_code' => '100 Level', 'installment_tranche' => 2])
+                ->count()
+        );
     }
 }

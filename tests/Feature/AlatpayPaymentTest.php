@@ -76,6 +76,8 @@ class AlatpayPaymentTest extends TestCase
                     'id' => 'tx-alatpay-1',
                     'status' => 'completed',
                     'amount' => 15000,
+                    // AlatPay verify returns their own internal orderId here (merchant-prefixed),
+                    // NOT our reference — we must not fail the check because of this.
                     'orderId' => $reference,
                 ],
             ]),
@@ -88,6 +90,41 @@ class AlatpayPaymentTest extends TestCase
 
         $this->assertSame('paid', $invoice->fresh()->status);
         $this->assertSame('tx-alatpay-1', Payment::query()->where('reference', $reference)->value('paystack_reference'));
+    }
+
+    public function test_verify_succeeds_when_alatpay_returns_merchant_prefixed_order_id(): void
+    {
+        // AlatPay's GET /transactions/{txId} response returns data.orderId as their own
+        // merchant-prefixed warehousing ID (e.g. "BELLSUNIVERSITY-abc123"), not the orderId
+        // we passed in metadata. Verification must not reject this.
+        $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
+        $invoice = $this->payableInvoice($user, 20000);
+        Sanctum::actingAs($user);
+
+        $reference = $this->postJson('/api/payments/initialize', [
+            'invoice_id' => $invoice->id,
+            'portal' => 'student',
+        ])->assertOk()->json('reference');
+
+        Http::fake([
+            'https://api.alatpay.ng/alatpaytransaction/api/v1/transactions/*' => Http::response([
+                'status' => true,
+                'message' => 'Success',
+                'data' => [
+                    'id' => 'tx-alatpay-2',
+                    'status' => 'completed',
+                    'amount' => 20000,
+                    // Merchant-prefixed orderId — different from our reference
+                    'orderId' => 'BELLSUNIVERSITY-tx-alatpay-2-INTERNAL',
+                ],
+            ]),
+        ]);
+
+        $this->getJson('/api/payments/verify/'.$reference.'?transactionId=tx-alatpay-2')
+            ->assertOk()
+            ->assertJsonPath('status', 'successful');
+
+        $this->assertSame('paid', $invoice->fresh()->status);
     }
 
     public function test_webhook_fulfills_once(): void

@@ -219,10 +219,10 @@ class AlatpayService implements PaymentGateway
             throw new RuntimeException('Payment has not been confirmed by Wema Bank.');
         }
 
-        $orderId = $this->stringValue($data, ['orderId', 'OrderId']);
-        if ($orderId !== '' && $orderId !== $payment->reference) {
-            throw new RuntimeException('Payment does not match this transaction.');
-        }
+        // Note: data.orderId in the AlatPay verify response is AlatPay's own internal
+        // warehousing identifier (prefixed with the merchant name), NOT the orderId we
+        // passed in metadata. We therefore cannot use it to cross-check our reference.
+        // The transactionId we queried by is already sufficient to identify the transaction.
 
         if (isset($data['amount'])) {
             $paid = (float) $data['amount'];

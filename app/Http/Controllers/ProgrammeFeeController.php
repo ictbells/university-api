@@ -11,6 +11,7 @@ use App\Models\ProgrammeFee;
 use App\Services\AuditWriter;
 use App\Support\FeeSchedule;
 use App\Support\ProgrammeFeeResolver;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -176,7 +177,15 @@ class ProgrammeFeeController extends Controller
         $data = $this->validated($request);
 
         return $this->officeGate('finance.store_programme_fee', null, $data, 'Create programme fee', function () use ($data) {
-            $fee = ProgrammeFee::query()->create($data);
+            $keys = [
+                'program_id' => $data['program_id'],
+                'fee_item_id' => $data['fee_item_id'],
+                'level_code' => $data['level_code'] ?? 'all',
+                'semester' => $data['semester'] ?? 'both',
+                'installment_tranche' => $data['installment_tranche'] ?? null,
+            ];
+            $values = array_diff_key($data, $keys);
+            $fee = $this->upsertProgrammeFee($keys, $values);
             $this->syncProgramTuitionCache((int) $fee->program_id);
             $this->audit->record('programme_fee.created', 'Programme fee assigned', 'fees', 'programme_fee', $fee->id, null, $fee);
 
@@ -259,7 +268,7 @@ class ProgrammeFeeController extends Controller
                             abort(422, "Fee “{$feeItem->name}” cannot be assigned to a programme schedule.");
                         }
 
-                        $row = ProgrammeFee::query()->updateOrCreate(
+                        $row = $this->upsertProgrammeFee(
                             [
                                 'program_id' => $programId,
                                 'fee_item_id' => $feeItem->id,
@@ -347,7 +356,7 @@ class ProgrammeFeeController extends Controller
                             if (! $feeItem || ! FeeSchedule::isScheduleCategory((string) $feeItem->category)) {
                                 continue;
                             }
-                            $row = ProgrammeFee::query()->updateOrCreate(
+                            $row = $this->upsertProgrammeFee(
                                 [
                                     'program_id' => $toId,
                                     'fee_item_id' => $line->fee_item_id,
@@ -382,6 +391,38 @@ class ProgrammeFeeController extends Controller
                 ];
             },
         );
+    }
+
+    /**
+     * Upsert a programme fee row, restoring a soft-deleted match when one exists
+     * instead of colliding with the unique index.
+     *
+     * @param  array<string, mixed>  $keys    Unique-key columns
+     * @param  array<string, mixed>  $values  Non-key columns to set/update
+     */
+    private function upsertProgrammeFee(array $keys, array $values): ProgrammeFee
+    {
+        $trashed = ProgrammeFee::withTrashed()
+            ->where($keys)
+            ->whereNotNull('deleted_at')
+            ->first();
+
+        if ($trashed) {
+            $trashed->restore();
+            $trashed->update($values);
+
+            return $trashed->fresh();
+        }
+
+        try {
+            return ProgrammeFee::query()->updateOrCreate($keys, $values);
+        } catch (UniqueConstraintViolationException) {
+            // A concurrent insert beat us — fall back to an update on the live row.
+            $live = ProgrammeFee::query()->where($keys)->firstOrFail();
+            $live->update($values);
+
+            return $live->fresh();
+        }
     }
 
     /**
