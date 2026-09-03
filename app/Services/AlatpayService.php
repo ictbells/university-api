@@ -203,7 +203,7 @@ class AlatpayService implements PaymentGateway
 
     private function assertAlatpaySuccess(Payment $payment, string $transactionId): void
     {
-        $base = rtrim((string) config('services.wema.base', 'https://api.alatpay.ng'), '/');
+        $base = rtrim((string) config('services.wema.base', 'https://apibox.alatpay.ng'), '/');
         $response = Http::withHeaders([
             'Ocp-Apim-Subscription-Key' => (string) config('services.wema.secret'),
             'Content-Type' => 'application/json',

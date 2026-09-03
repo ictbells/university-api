@@ -24,7 +24,7 @@ class AlatpayPaymentTest extends TestCase
             'services.wema.public' => 'pk_wema_test',
             'services.wema.secret' => 'sk_wema_test',
             'services.wema.business_id' => 'biz-wema-test',
-            'services.wema.base' => 'https://api.alatpay.ng',
+            'services.wema.base' => 'https://apibox.alatpay.ng',
             'services.paystack.allow_demo_fulfill' => false,
         ]);
         PaymentGatewaySettings::update(['payment_gateway' => 'wema']);
@@ -69,7 +69,7 @@ class AlatpayPaymentTest extends TestCase
         ])->assertOk()->json('reference');
 
         Http::fake([
-            'https://api.alatpay.ng/alatpaytransaction/api/v1/transactions/*' => Http::response([
+            'https://apibox.alatpay.ng/alatpaytransaction/api/v1/transactions/*' => Http::response([
                 'status' => true,
                 'message' => 'Success',
                 'data' => [
@@ -107,7 +107,7 @@ class AlatpayPaymentTest extends TestCase
         ])->assertOk()->json('reference');
 
         Http::fake([
-            'https://api.alatpay.ng/alatpaytransaction/api/v1/transactions/*' => Http::response([
+            'https://apibox.alatpay.ng/alatpaytransaction/api/v1/transactions/*' => Http::response([
                 'status' => true,
                 'message' => 'Success',
                 'data' => [
@@ -143,7 +143,7 @@ class AlatpayPaymentTest extends TestCase
         ]);
 
         Http::fake([
-            'https://api.alatpay.ng/alatpaytransaction/api/v1/transactions/*' => Http::response([
+            'https://apibox.alatpay.ng/alatpaytransaction/api/v1/transactions/*' => Http::response([
                 'status' => true,
                 'data' => [
                     'id' => 'tx-hook-1',

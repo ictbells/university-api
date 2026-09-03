@@ -21,7 +21,7 @@ class ReconcileWemaPaymentsTest extends TestCase
             'services.wema.public' => 'pk_wema_test',
             'services.wema.secret' => 'sk_wema_test',
             'services.wema.business_id' => 'biz-wema-test',
-            'services.wema.base' => 'https://api.alatpay.ng',
+            'services.wema.base' => 'https://apibox.alatpay.ng',
             'services.paystack.allow_demo_fulfill' => false,
         ]);
         PaymentGatewaySettings::update(['payment_gateway' => 'wema']);
@@ -43,7 +43,7 @@ class ReconcileWemaPaymentsTest extends TestCase
         ]);
 
         Http::fake([
-            'https://api.alatpay.ng/alatpaytransaction/api/v1/transactions/tx-reconcile-001' => Http::response([
+            'https://apibox.alatpay.ng/alatpaytransaction/api/v1/transactions/tx-reconcile-001' => Http::response([
                 'status' => true,
                 'message' => 'Success',
                 'data' => [
@@ -78,7 +78,7 @@ class ReconcileWemaPaymentsTest extends TestCase
         ]);
 
         Http::fake([
-            'https://api.alatpay.ng/alatpaytransaction/api/v1/transactions/tx-notdone-001' => Http::response([
+            'https://apibox.alatpay.ng/alatpaytransaction/api/v1/transactions/tx-notdone-001' => Http::response([
                 'status' => true,
                 'message' => 'Success',
                 'data' => [

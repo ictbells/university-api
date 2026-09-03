@@ -47,7 +47,7 @@ return [
         'secret' => env('WEMA_ALATPAY_SECRET_KEY'),
         'business_id' => env('WEMA_ALATPAY_BUSINESS_ID'),
         'webhook_secret' => env('WEMA_ALATPAY_WEBHOOK_SECRET'),
-        'base' => env('WEMA_ALATPAY_BASE_URL', 'https://api.alatpay.ng'),
+        'base' => env('WEMA_ALATPAY_BASE_URL', 'https://apibox.alatpay.ng'),
     ],
 
     'prembly' => [
