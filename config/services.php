@@ -50,6 +50,18 @@ return [
         'base' => env('WEMA_ALATPAY_BASE_URL', 'https://apibox.alatpay.ng'),
     ],
 
+    'paygate' => [
+        'merchant_id' => env('PAYGATE_MERCHANT_ID'),
+        'username' => env('PAYGATE_USERNAME'),
+        'password' => env('PAYGATE_PASSWORD'),
+        'secret' => env('PAYGATE_SECRET_KEY'),
+        'base' => env('PAYGATE_BASE_URL', 'https://thirdparty.paygate.upperlink.ng'),
+        'country_code' => env('PAYGATE_COUNTRY_CODE', 'NG'),
+        'currency' => env('PAYGATE_CURRENCY', 'NGN'),
+        'default_city' => env('PAYGATE_DEFAULT_CITY', 'Ota'),
+        'default_address' => env('PAYGATE_DEFAULT_ADDRESS', 'Bells University of Technology, Ota'),
+    ],
+
     'prembly' => [
         'key' => env('PREMBLY_API_KEY'),
         'app_id' => env('PREMBLY_APP_ID'),

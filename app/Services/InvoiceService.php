@@ -18,6 +18,7 @@ use App\Support\ProgrammeFeeResolver;
 use App\Support\Studentship;
 use App\Support\TuitionProgress;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -34,7 +35,7 @@ class InvoiceService
         $amount = $amountOverride !== null ? round($amountOverride, 2) : (float) $fee->amount;
         $walletAllowed = FeeSchedule::walletAllowed($fee->category);
 
-        $number = 'INV-'.now()->format('Ymd').'-'.str_pad((string) (Invoice::query()->count() + 1), 5, '0', STR_PAD_LEFT);
+        $number = $this->nextInvoiceNumber();
         $invoice = Invoice::query()->create([
             'number' => $number,
             'user_id' => $user->id,
@@ -72,7 +73,7 @@ class InvoiceService
             throw new InvalidArgumentException('Charge amount must be greater than zero.');
         }
 
-        $number = 'INV-'.now()->format('Ymd').'-'.str_pad((string) (Invoice::query()->count() + 1), 5, '0', STR_PAD_LEFT);
+        $number = $this->nextInvoiceNumber();
         $invoice = Invoice::query()->create([
             'number' => $number,
             'user_id' => $user->id,
@@ -118,7 +119,7 @@ class InvoiceService
             throw new InvalidArgumentException('Charge amount must be greater than zero.');
         }
 
-        $number = 'INV-'.now()->format('Ymd').'-'.str_pad((string) (Invoice::query()->count() + 1), 5, '0', STR_PAD_LEFT);
+        $number = $this->nextInvoiceNumber();
         $invoice = Invoice::query()->create([
             'number' => $number,
             'user_id' => $student->user_id,
@@ -212,7 +213,7 @@ class InvoiceService
         }
 
         $total = round(array_sum(array_column($lines, 'amount')), 2);
-        $number = 'INV-'.now()->format('Ymd').'-'.str_pad((string) (Invoice::query()->count() + 1), 5, '0', STR_PAD_LEFT);
+        $number = $this->nextInvoiceNumber();
         $invoice = Invoice::query()->create([
             'number' => $number,
             'user_id' => $student->user_id,
@@ -253,7 +254,7 @@ class InvoiceService
         }
 
         $amount = $this->resolveApplicationFeeAmount($intake);
-        $number = 'INV-'.now()->format('Ymd').'-'.str_pad((string) (Invoice::query()->count() + 1), 5, '0', STR_PAD_LEFT);
+        $number = $this->nextInvoiceNumber();
         $invoice = Invoice::query()->create([
             'number' => $number,
             'user_id' => $user->id,
@@ -293,13 +294,27 @@ class InvoiceService
         int $applicationId,
         ?float $amountOverride = null,
     ): Invoice {
+        $existing = Invoice::query()
+            ->where('application_id', $applicationId)
+            ->where('category', 'acceptance_fee')
+            ->whereIn('status', ['unpaid', 'partial'])
+            ->latest('id')
+            ->first();
+        if ($existing) {
+            if ($amountOverride !== null) {
+                return $this->updateAcceptanceFeeInvoice($existing, $amountOverride);
+            }
+
+            return $existing->loadMissing('items');
+        }
+
         $amount = $amountOverride ?? $this->resolveAcceptanceFeeAmount($intake);
         if ($amount <= 0) {
             throw new RuntimeException('Set an acceptance fee amount in the fee catalog for this entry mode, or on the application session.');
         }
         $fee = $this->catalogFeeForEntryMode('acceptance_fee', $intake->entry_mode);
 
-        $number = 'INV-'.now()->format('Ymd').'-'.str_pad((string) (Invoice::query()->count() + 1), 5, '0', STR_PAD_LEFT);
+        $number = $this->nextInvoiceNumber();
         $invoice = Invoice::query()->create([
             'number' => $number,
             'user_id' => $user->id,
@@ -523,7 +538,7 @@ class InvoiceService
         }
 
         $amount = round($fullAmount * ($deltaPercent / 100), 2);
-        $number = 'INV-'.now()->format('Ymd').'-'.str_pad((string) (Invoice::query()->count() + 1), 5, '0', STR_PAD_LEFT);
+        $number = $this->nextInvoiceNumber();
         $invoice = Invoice::query()->create([
             'number' => $number,
             'user_id' => $student->user_id,
@@ -600,7 +615,7 @@ class InvoiceService
             throw new RuntimeException('No unpaid fee items remain for this installment. You may already have paid this share.');
         }
 
-        $number = 'INV-'.now()->format('Ymd').'-'.str_pad((string) (Invoice::query()->count() + 1), 5, '0', STR_PAD_LEFT);
+        $number = $this->nextInvoiceNumber();
         $invoice = Invoice::query()->create([
             'number' => $number,
             'user_id' => $student->user_id,
@@ -838,6 +853,37 @@ class InvoiceService
         }
 
         return $invoice->fresh();
+    }
+
+    private function nextInvoiceNumber(): string
+    {
+        $prefix = 'INV-'.now()->format('Ymd').'-';
+
+        return DB::transaction(function () use ($prefix) {
+            // Serialize allocation and include soft-deleted rows so we never recycle a
+            // number that still occupies the unique index.
+            Invoice::withTrashed()->lockForUpdate()->orderByDesc('id')->first();
+
+            $last = Invoice::withTrashed()
+                ->where('number', 'like', $prefix.'%')
+                ->orderByDesc('id')
+                ->value('number');
+
+            $sequence = 1;
+            if (is_string($last) && preg_match('/(\d+)$/', $last, $matches)) {
+                $sequence = (int) $matches[1] + 1;
+            }
+
+            $candidate = $prefix.str_pad((string) $sequence, 5, '0', STR_PAD_LEFT);
+
+            // Extremely rare race across connections: bump until free.
+            while (Invoice::withTrashed()->where('number', $candidate)->exists()) {
+                $sequence++;
+                $candidate = $prefix.str_pad((string) $sequence, 5, '0', STR_PAD_LEFT);
+            }
+
+            return $candidate;
+        });
     }
 
     private function currentSessionId(): ?int

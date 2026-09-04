@@ -65,6 +65,7 @@ Route::post('/two-factor/confirm', [TwoFactorController::class, 'confirm']);
 Route::post('/two-factor/verify', [TwoFactorController::class, 'verify']);
 Route::post('/payments/paystack/webhook', [PaymentController::class, 'webhook']);
 Route::post('/payments/wema/webhook', [PaymentController::class, 'wemaWebhook']);
+Route::post('/payments/paygate/webhook', [PaymentController::class, 'paygateWebhook']);
 
 Route::get('/transcript-requests/meta', [TranscriptRequestController::class, 'meta']);
 Route::post('/transcript-requests/lookup', [TranscriptRequestController::class, 'lookup'])

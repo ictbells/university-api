@@ -45,7 +45,7 @@ class SecuritySettingsController extends Controller
             'pg_research_interest_max_words' => 'sometimes|integer|min:0|max:5000',
             'pg_statement_of_purpose_min_words' => 'sometimes|integer|min:0|max:5000',
             'pg_statement_of_purpose_max_words' => 'sometimes|integer|min:0|max:5000',
-            'payment_gateway' => 'sometimes|in:paystack,wema',
+            'payment_gateway' => 'sometimes|in:paystack,wema,paygate',
         ]);
 
         return $this->officeGate('settings.update', null, $data, 'Update application settings', function () use ($data) {

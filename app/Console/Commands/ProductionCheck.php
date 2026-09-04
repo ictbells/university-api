@@ -75,6 +75,10 @@ class ProductionCheck extends Command
             if (! config('services.wema.public') || ! config('services.wema.secret') || ! config('services.wema.business_id')) {
                 $failures[] = 'WEMA_ALATPAY_PUBLIC_KEY, WEMA_ALATPAY_SECRET_KEY, and WEMA_ALATPAY_BUSINESS_ID must be set.';
             }
+        } elseif ($activeGateway === PaymentGatewaySettings::PAYGATE) {
+            if (! config('services.paygate.merchant_id') || ! config('services.paygate.username') || ! config('services.paygate.password') || ! config('services.paygate.secret')) {
+                $failures[] = 'PAYGATE_MERCHANT_ID, PAYGATE_USERNAME, PAYGATE_PASSWORD, and PAYGATE_SECRET_KEY must be set.';
+            }
         } else {
             if (! config('services.paystack.secret') || ! config('services.paystack.public')) {
                 $failures[] = 'PAYSTACK_SECRET_KEY and PAYSTACK_PUBLIC_KEY must be set.';

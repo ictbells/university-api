@@ -109,4 +109,14 @@ class PaymentController extends Controller
 
         return response()->json(['status' => 'ok']);
     }
+
+    public function paygateWebhook(Request $request)
+    {
+        $this->gateways->driver('paygate')->handleWebhook(
+            $request->all(),
+            $request->input('hash') ? (string) $request->input('hash') : null,
+        );
+
+        return response()->json(['code' => '00', 'message' => 'Successful']);
+    }
 }

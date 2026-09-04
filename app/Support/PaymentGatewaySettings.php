@@ -13,12 +13,14 @@ class PaymentGatewaySettings
 
     public const WEMA = 'wema';
 
+    public const PAYGATE = 'paygate';
+
     /**
      * @return list<string>
      */
     public static function keys(): array
     {
-        return [self::PAYSTACK, self::WEMA];
+        return [self::PAYSTACK, self::WEMA, self::PAYGATE];
     }
 
     public static function defaults(): array
@@ -37,6 +39,12 @@ class PaymentGatewaySettings
                     'label' => 'Wema Bank',
                     'configured' => self::wemaConfigured(),
                     'missing' => self::wemaMissing(),
+                ],
+                self::PAYGATE => [
+                    'key' => self::PAYGATE,
+                    'label' => 'PayGate (Upperlink)',
+                    'configured' => self::paygateConfigured(),
+                    'missing' => self::paygateMissing(),
                 ],
             ],
         ];
@@ -105,10 +113,38 @@ class PaymentGatewaySettings
         return $missing;
     }
 
+    public static function paygateConfigured(): bool
+    {
+        return self::paygateMissing() === [];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function paygateMissing(): array
+    {
+        $missing = [];
+        if ((string) config('services.paygate.merchant_id') === '') {
+            $missing[] = 'PAYGATE_MERCHANT_ID';
+        }
+        if ((string) config('services.paygate.username') === '') {
+            $missing[] = 'PAYGATE_USERNAME';
+        }
+        if ((string) config('services.paygate.password') === '') {
+            $missing[] = 'PAYGATE_PASSWORD';
+        }
+        if ((string) config('services.paygate.secret') === '') {
+            $missing[] = 'PAYGATE_SECRET_KEY';
+        }
+
+        return $missing;
+    }
+
     public static function configured(string $gateway): bool
     {
         return match ($gateway) {
             self::WEMA => self::wemaConfigured(),
+            self::PAYGATE => self::paygateConfigured(),
             default => self::paystackConfigured(),
         };
     }
@@ -133,6 +169,13 @@ class PaymentGatewaySettings
             $missing = implode(', ', self::wemaMissing());
             throw new InvalidArgumentException(
                 'Wema Bank is not configured. Add '.$missing.' in the server environment first.',
+            );
+        }
+
+        if ($gateway === self::PAYGATE && ! self::paygateConfigured()) {
+            $missing = implode(', ', self::paygateMissing());
+            throw new InvalidArgumentException(
+                'PayGate is not configured. Add '.$missing.' in the server environment first.',
             );
         }
 

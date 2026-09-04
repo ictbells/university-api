@@ -6,7 +6,6 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\User;
 use App\Support\FeeSchedule;
-use App\Support\PaymentGatewaySettings;
 use Illuminate\Support\Str;
 
 class PaymentFulfillmentService
@@ -37,7 +36,7 @@ class PaymentFulfillmentService
         ?int $invoiceId,
         string $purpose,
     ): Payment {
-        if ($invoiceId && $method === PaymentGatewaySettings::WEMA) {
+        if ($invoiceId) {
             $existing = Payment::query()
                 ->where('invoice_id', $invoiceId)
                 ->where('user_id', $user->id)

@@ -13,6 +13,7 @@ class PaymentGatewayManager
     public function __construct(
         private PaystackService $paystack,
         private AlatpayService $alatpay,
+        private PaygateService $paygate,
     ) {}
 
     public function activeKey(): string
@@ -26,15 +27,20 @@ class PaymentGatewayManager
 
         return match ($key) {
             PaymentGatewaySettings::WEMA => $this->alatpay,
+            PaymentGatewaySettings::PAYGATE => $this->paygate,
             default => $this->paystack,
         };
     }
 
     public function driverFor(Payment $payment): PaymentGateway
     {
-        return $this->driver($payment->method === PaymentGatewaySettings::WEMA
-            ? PaymentGatewaySettings::WEMA
-            : PaymentGatewaySettings::PAYSTACK);
+        $method = strtolower((string) $payment->method);
+
+        return $this->driver(match ($method) {
+            PaymentGatewaySettings::WEMA => PaymentGatewaySettings::WEMA,
+            PaymentGatewaySettings::PAYGATE => PaymentGatewaySettings::PAYGATE,
+            default => PaymentGatewaySettings::PAYSTACK,
+        });
     }
 
     public function initializeInvoice(User $user, Invoice $invoice, ?string $callbackUrl = null): array
