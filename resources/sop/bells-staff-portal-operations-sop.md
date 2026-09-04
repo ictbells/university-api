@@ -164,6 +164,7 @@ Users with `settings.manage` configure policies under **System → Application s
 | **Two-factor authentication** | On / Off | When on, every staff member must use TOTP at sign-in |
 | **Password rotation** | Off, 30, 60, 90, or 180 days | Staff must change password when the interval expires |
 | **Inactivity logout** | Off, 15, 30, 60, or 120 minutes | Staff are signed out after idle time |
+| **Absolute session** | 8 hours from sign-in | Staff SPA token ends after 8 hours even if active |
 | **Studentship after graduation** | 1–10 years (default 2) | Years after registrar conferment before graduates become alumni and student-portal login is locked |
 | **Admissions contact** | Email, phone | Shown on student login and signup |
 | **Staff login support** | Label, email, phone | Shown on staff sign-in (default label: ICT & Registry support) |

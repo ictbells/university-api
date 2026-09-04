@@ -18,8 +18,20 @@ class EnsureStaffSecurity
             return $next($request);
         }
 
+        // Re-read activity from DB (avoids stale in-memory attrs under persistent workers / tests).
+        $user->refresh();
+
+        if ($this->security->sessionExceeded($user)) {
+            $this->security->revokeSpaAccess($user);
+
+            return response()->json([
+                'message' => 'Your session has expired. Please sign in again.',
+                'code' => 'session_expired',
+            ], 401);
+        }
+
         if ($this->security->inactivityExceeded($user)) {
-            $user->currentAccessToken()?->delete();
+            $this->security->revokeSpaAccess($user);
 
             return response()->json([
                 'message' => 'Your session expired due to inactivity.',
