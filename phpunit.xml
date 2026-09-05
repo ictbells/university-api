@@ -36,5 +36,7 @@
         <env name="LOAD_ENV_FROM_S3" value="false" force="true"/>
         <env name="MATRIC_LAST" value="" force="true"/>
         <env name="MATRIC_YEAR" value="" force="true"/>
+        <env name="PG_MATRIC_LAST" value="" force="true"/>
+        <env name="PG_MATRIC_YEAR" value="" force="true"/>
     </php>
 </phpunit>

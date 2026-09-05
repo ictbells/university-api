@@ -14,8 +14,13 @@ abstract class TestCase extends BaseTestCase
 
     protected function isolateMatricSequence(): void
     {
-        config(['sis.matric_last' => '', 'sis.matric_year' => '']);
-        foreach (['MATRIC_LAST', 'MATRIC_YEAR'] as $key) {
+        config([
+            'sis.matric_last' => '',
+            'sis.matric_year' => '',
+            'sis.pg_matric_last' => '',
+            'sis.pg_matric_year' => '',
+        ]);
+        foreach (['MATRIC_LAST', 'MATRIC_YEAR', 'PG_MATRIC_LAST', 'PG_MATRIC_YEAR'] as $key) {
             putenv($key.'=');
             $_ENV[$key] = '';
             $_SERVER[$key] = '';

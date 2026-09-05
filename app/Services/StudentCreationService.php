@@ -264,9 +264,9 @@ class StudentCreationService
             $biodata = $application->mergedProfilePayload();
             $contact = $application->steps()->where('step_key', 'application_form')->first()?->payload ?? [];
             $number = $studentNumber ?: $matricNumber;
-            $this->matrics->noteIssued($matricNumber);
+            $this->matrics->noteIssued($matricNumber, $application);
             if ($number !== $matricNumber) {
-                $this->matrics->noteIssued($number);
+                $this->matrics->noteIssued($number, $application);
             }
 
             $student = Student::query()->create([

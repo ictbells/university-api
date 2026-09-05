@@ -6,53 +6,69 @@ use App\Models\Application;
 use App\Models\Setting;
 use App\Models\Student;
 use App\Support\DotenvWriter;
+use App\Support\StudyLevel;
 use Illuminate\Support\Facades\DB;
 
 class MatricSequence
 {
+    public const TRACK_UNDERGRADUATE = 'undergraduate';
+
+    public const TRACK_POSTGRADUATE = 'postgraduate';
+
     public const SETTING_KEY = 'matric_last';
+
+    public const PG_SETTING_KEY = 'pg_matric_last';
 
     public function allocate(?Application $application = null): string
     {
-        $year = $this->year($application);
+        $track = $this->trackFor($application);
+        $year = $this->year($application, $track);
 
-        return DB::transaction(function () use ($year) {
-            $this->lock();
-            $serial = $this->nextSerial($year);
+        return DB::transaction(function () use ($year, $track) {
+            $this->lock($track);
+            $serial = $this->nextSerial($year, $track);
             $matric = $this->format($year, $serial);
             while ($this->taken($matric)) {
                 $serial++;
                 $matric = $this->format($year, $serial);
             }
-            $this->persist($matric);
+            $this->persist($matric, $track);
 
             return $matric;
         });
     }
 
-    public function noteIssued(string $matric): void
+    public function noteIssued(string $matric, ?Application $application = null): void
     {
         $parsed = $this->parse($matric);
         if (! $parsed) {
             return;
         }
 
-        DB::transaction(function () use ($parsed) {
-            $this->lock();
-            $current = $this->parse($this->highestKnown($parsed['year']));
+        $track = $this->trackFor($application);
+
+        DB::transaction(function () use ($parsed, $track) {
+            $this->lock($track);
+            $current = $this->parse($this->highestKnown($parsed['year'], $track));
             if ($current
                 && (int) $current['year'] === $parsed['year']
                 && (int) $current['serial'] >= $parsed['serial']
             ) {
                 return;
             }
-            $this->persist($this->format($parsed['year'], $parsed['serial']));
+            $this->persist($this->format($parsed['year'], $parsed['serial']), $track);
         });
     }
 
-    public function year(?Application $application = null): int
+    public function year(?Application $application = null, ?string $track = null): int
     {
-        $override = (int) config('sis.matric_year');
+        $track ??= $this->trackFor($application);
+        $overrideKey = $track === self::TRACK_POSTGRADUATE ? 'sis.pg_matric_year' : 'sis.matric_year';
+        $override = (int) config($overrideKey);
+        if ($override < 2000 || $override > 2100) {
+            // PG year can fall back to the shared undergraduate year override.
+            $override = (int) config('sis.matric_year');
+        }
         if ($override >= 2000 && $override <= 2100) {
             return $override;
         }
@@ -63,6 +79,22 @@ class MatricSequence
         }
 
         return (int) now()->format('Y');
+    }
+
+    public function trackFor(?Application $application = null): string
+    {
+        if ($application && strtolower((string) $application->entry_mode) === 'pg') {
+            return self::TRACK_POSTGRADUATE;
+        }
+
+        if ($application?->program_id) {
+            $application->loadMissing('program');
+            if ($application->program && StudyLevel::ofProgram($application->program) === StudyLevel::POSTGRADUATE) {
+                return self::TRACK_POSTGRADUATE;
+            }
+        }
+
+        return self::TRACK_UNDERGRADUATE;
     }
 
     /**
@@ -88,29 +120,45 @@ class MatricSequence
         return $year.'/'.str_pad((string) $serial, $digits, '0', STR_PAD_LEFT);
     }
 
-    private function lock(): void
+    private function settingKey(string $track): string
     {
-        Setting::query()->firstOrCreate(['key' => self::SETTING_KEY], ['value' => '']);
-        Setting::query()->where('key', self::SETTING_KEY)->lockForUpdate()->first();
+        return $track === self::TRACK_POSTGRADUATE ? self::PG_SETTING_KEY : self::SETTING_KEY;
     }
 
-    private function nextSerial(int $year): int
+    private function envKey(string $track): string
     {
-        return $this->highestSerial($year) + 1;
+        return $track === self::TRACK_POSTGRADUATE ? 'PG_MATRIC_LAST' : 'MATRIC_LAST';
     }
 
-    private function highestSerial(int $year): int
+    private function configLastKey(string $track): string
     {
-        $parsed = $this->parse($this->highestKnown($year));
+        return $track === self::TRACK_POSTGRADUATE ? 'sis.pg_matric_last' : 'sis.matric_last';
+    }
+
+    private function lock(string $track): void
+    {
+        $key = $this->settingKey($track);
+        Setting::query()->firstOrCreate(['key' => $key], ['value' => '']);
+        Setting::query()->where('key', $key)->lockForUpdate()->first();
+    }
+
+    private function nextSerial(int $year, string $track): int
+    {
+        return $this->highestSerial($year, $track) + 1;
+    }
+
+    private function highestSerial(int $year, string $track): int
+    {
+        $parsed = $this->parse($this->highestKnown($year, $track));
 
         return $parsed && $parsed['year'] === $year ? $parsed['serial'] : 0;
     }
 
-    private function highestKnown(int $year): string
+    private function highestKnown(int $year, string $track): string
     {
         $best = 0;
         $bestValue = '';
-        foreach ($this->knownValues() as $value) {
+        foreach ($this->knownValues($track) as $value) {
             $parsed = $this->parse($value);
             if (! $parsed || $parsed['year'] !== $year) {
                 continue;
@@ -121,7 +169,7 @@ class MatricSequence
             }
         }
 
-        $dbMax = $this->maxSerialInDatabase($year);
+        $dbMax = $this->maxSerialInDatabase($year, $track);
         if ($dbMax > $best) {
             return $this->format($year, $dbMax);
         }
@@ -132,29 +180,44 @@ class MatricSequence
     /**
      * @return list<string>
      */
-    private function knownValues(): array
+    private function knownValues(string $track): array
     {
         $values = [
-            (string) Setting::query()->where('key', self::SETTING_KEY)->value('value'),
-            (string) config('sis.matric_last'),
+            (string) Setting::query()->where('key', $this->settingKey($track))->value('value'),
+            (string) config($this->configLastKey($track)),
         ];
         if (! $this->runningTests()) {
-            $values[] = (string) ($_ENV['MATRIC_LAST'] ?? getenv('MATRIC_LAST') ?: '');
+            $values[] = (string) ($_ENV[$this->envKey($track)] ?? getenv($this->envKey($track)) ?: '');
         }
 
         return array_values(array_filter($values));
     }
 
-    private function maxSerialInDatabase(int $year): int
+    private function maxSerialInDatabase(int $year, string $track): int
     {
         $prefix = $year.'/';
         $max = 0;
-        $rows = Student::query()
-            ->where(function ($query) use ($prefix) {
-                $query->where('matric_number', 'like', $prefix.'%')
+        $query = Student::query()
+            ->where(function ($builder) use ($prefix) {
+                $builder->where('matric_number', 'like', $prefix.'%')
                     ->orWhere('student_number', 'like', $prefix.'%');
-            })
-            ->get(['matric_number', 'student_number']);
+            });
+
+        if ($track === self::TRACK_POSTGRADUATE) {
+            $query->where(function ($builder) {
+                $builder->where('study_level', StudyLevel::POSTGRADUATE)
+                    ->orWhereHas('application', fn ($apps) => $apps->where('entry_mode', 'pg'));
+            });
+        } else {
+            $query->where(function ($builder) {
+                $builder->where(function ($inner) {
+                    $inner->whereNull('study_level')
+                        ->orWhereNotIn('study_level', [StudyLevel::POSTGRADUATE, StudyLevel::JUPEB]);
+                })->whereDoesntHave('application', fn ($apps) => $apps->whereIn('entry_mode', ['pg', 'jupeb']));
+            });
+        }
+
+        $rows = $query->get(['matric_number', 'student_number']);
 
         foreach ($rows as $row) {
             foreach ([(string) $row->matric_number, (string) $row->student_number] as $value) {
@@ -178,12 +241,12 @@ class MatricSequence
             ->exists();
     }
 
-    private function persist(string $matric): void
+    private function persist(string $matric, string $track): void
     {
-        Setting::setValue(self::SETTING_KEY, $matric);
-        config(['sis.matric_last' => $matric]);
+        Setting::setValue($this->settingKey($track), $matric);
+        config([$this->configLastKey($track) => $matric]);
         if (! $this->runningTests()) {
-            DotenvWriter::set('MATRIC_LAST', $matric);
+            DotenvWriter::set($this->envKey($track), $matric);
         }
     }
 
