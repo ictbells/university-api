@@ -93,7 +93,7 @@ class ProgrammeFeeController extends Controller
         if ($departmentId) {
             $query->where('department_id', $departmentId);
         }
-        if (in_array($studyLevel, ['undergraduate', 'postgraduate'], true)) {
+        if (in_array($studyLevel, ['undergraduate', 'jupeb', 'postgraduate'], true)) {
             $query->where('study_level', $studyLevel);
         }
 
@@ -109,6 +109,7 @@ class ProgrammeFeeController extends Controller
                 'name' => $program->name,
                 'code' => $program->code,
                 'study_level' => $program->study_level,
+                'entry_modes' => $program->entryModeList(),
                 'is_active' => $program->is_active,
                 'department' => $program->department?->only(['id', 'name']),
                 'faculty' => $program->department?->faculty?->only(['id', 'name']),

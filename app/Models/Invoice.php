@@ -45,6 +45,50 @@ class Invoice extends BaseModel
         return $this->hasMany(Payment::class);
     }
 
+    public function latestPendingOnlinePayment(): ?Payment
+    {
+        return $this->payments()
+            ->where('status', 'pending')
+            ->whereIn('method', ['wema', 'paystack', 'paygate'])
+            ->latest('id')
+            ->first();
+    }
+
+    /**
+     * @return array{id: int, reference: string, transaction_id: string|null, method: string, amount: float}|null
+     */
+    public function pendingOnlinePaymentPayload(): ?array
+    {
+        if (! $this->isPayable()) {
+            return null;
+        }
+
+        $payment = $this->relationLoaded('payments')
+            ? $this->payments
+                ->where('status', 'pending')
+                ->filter(fn (Payment $row) => in_array($row->method, ['wema', 'paystack', 'paygate'], true))
+                ->sortByDesc('id')
+                ->first()
+            : $this->latestPendingOnlinePayment();
+
+        if (! $payment) {
+            return null;
+        }
+
+        $txId = trim((string) $payment->paystack_reference);
+        if ($txId === '' || preg_match('/^(WEMA|PSK|UPG)-/i', $txId) === 1) {
+            $txId = '';
+        }
+
+        return [
+            'id' => $payment->id,
+            'reference' => (string) $payment->reference,
+            'transaction_id' => $txId !== '' ? $txId : null,
+            'method' => (string) $payment->method,
+            'amount' => (float) $payment->amount,
+        ];
+    }
+
     public function application(): BelongsTo
     {
         return $this->belongsTo(Application::class);

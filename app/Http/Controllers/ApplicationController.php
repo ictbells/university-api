@@ -1041,6 +1041,23 @@ class ApplicationController extends Controller
         $application->setAttribute('pg_word_limits', PgResearchWordLimits::all());
         $application->setAttribute('application_window_open', $application->applicationWindowOpen());
 
+        $application->loadMissing([
+            'applicationFeeInvoice.payments',
+            'acceptanceFeeInvoice.payments',
+        ]);
+        if ($application->applicationFeeInvoice) {
+            $application->applicationFeeInvoice->setAttribute(
+                'pending_online_payment',
+                $application->applicationFeeInvoice->pendingOnlinePaymentPayload(),
+            );
+        }
+        if ($application->acceptanceFeeInvoice) {
+            $application->acceptanceFeeInvoice->setAttribute(
+                'pending_online_payment',
+                $application->acceptanceFeeInvoice->pendingOnlinePaymentPayload(),
+            );
+        }
+
         return $application;
     }
 

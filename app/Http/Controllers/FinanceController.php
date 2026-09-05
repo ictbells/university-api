@@ -492,7 +492,7 @@ class FinanceController extends Controller
             ->with([
                 'items',
                 'academicSession:id,label',
-                'payments' => fn ($q) => $q->where('status', 'successful')->latest(),
+                'payments' => fn ($q) => $q->whereIn('status', ['successful', 'pending'])->latest(),
                 'rebates.rebateType',
             ])
             ->where('user_id', $userId)
@@ -503,7 +503,8 @@ class FinanceController extends Controller
                 $row = $invoice->toArray();
                 $row['kind'] = 'invoice';
                 $row['invoice_id'] = $invoice->id;
-                $row['payment_id'] = $invoice->payments->first()?->id;
+                $row['payment_id'] = $invoice->payments->firstWhere('status', 'successful')?->id;
+                $row['pending_online_payment'] = $invoice->pendingOnlinePaymentPayload();
                 $row['installment_label'] = $invoice->shareLabel();
                 $row['sort_at'] = optional($invoice->created_at)->timestamp ?? 0;
 

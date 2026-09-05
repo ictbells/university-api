@@ -32,7 +32,8 @@ class ProgrammeFeeScheduleTest extends TestCase
             ->assertOk()
             ->assertJsonPath('meta.programmes', 1)
             ->assertJsonPath('data.0.name', 'B.Sc Computer Science')
-            ->assertJsonPath('data.0.line_count', 2);
+            ->assertJsonPath('data.0.line_count', 2)
+            ->assertJsonPath('data.0.entry_modes', ['utme']);
 
         $this->assertEquals(55000, $this->getJson('/api/programme-fees/summaries')->json('data.0.total_amount'));
 

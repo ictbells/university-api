@@ -57,6 +57,28 @@ class AlatpayPaymentTest extends TestCase
         $this->assertStringStartsWith('WEMA-', $payment->reference);
     }
 
+    public function test_pending_wema_payment_is_exposed_on_transaction_history(): void
+    {
+        $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
+        $invoice = $this->payableInvoice($user, 15000);
+        Sanctum::actingAs($user);
+
+        $reference = $this->postJson('/api/payments/initialize', [
+            'invoice_id' => $invoice->id,
+            'portal' => 'student',
+        ])->assertOk()->json('reference');
+
+        Payment::query()->where('reference', $reference)->update([
+            'paystack_reference' => 'tx-alatpay-pending',
+        ]);
+
+        $this->getJson('/api/transactions')
+            ->assertOk()
+            ->assertJsonPath('data.0.pending_online_payment.reference', $reference)
+            ->assertJsonPath('data.0.pending_online_payment.transaction_id', 'tx-alatpay-pending')
+            ->assertJsonPath('data.0.pending_online_payment.method', 'wema');
+    }
+
     public function test_verify_fulfills_invoice_after_alatpay_success(): void
     {
         $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
