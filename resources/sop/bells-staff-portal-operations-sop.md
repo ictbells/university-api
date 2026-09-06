@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.45  
+**Version:** 1.46  
 **Effective date:** September 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -211,7 +211,7 @@ When a section (for example Administration) contains a single dropdown whose lab
 
 **Results** contains: Results dashboard, Result entry, Upload Score, College, Committee of Deans, Senate, Release, Grading scale. Grade changes appear under System → Audit (module `results`).
 
-**Fees & payments** contains: Payment dashboard (university financial statement), Fee categories, Fee items, Rebates, Programme fees, Generate invoice, Payments, Students Financial Status, Import invoices, Import wallet history. On Students Financial Status, **Billed** is 100% school fees plus other invoices; **Cleared** only when 100% of school fees is paid. Disabled invoices and rebates on those invoices are excluded from billed, rebated, paid, outstanding, and the university statement. On Payments and Students Financial Status, staff can **View receipt** for a paid invoice (and for a successful wallet top-up); the HTML is the same bursary receipt students receive, including **Particulars** (each fee line and amount). Admitted students see the same bursary position on the student portal **Financial status** page. On the Payment dashboard, **Collected** is fee payments (wallet top-ups are shown separately); **Cleared** student status is not the same as university receipts.
+**Fees & payments** contains: Payment dashboard (university financial statement), Fee categories, Fee items, Rebates, Programme fees, Generate invoice, Payments, Students Financial Status, Import invoices, Import wallet history. On Students Financial Status, **Billed** is 100% school fees plus other invoices; **Cleared** only when 100% of school fees is paid. Disabled invoices and rebates on those invoices are excluded from billed, rebated, paid, outstanding, and the university statement. On Payments and Students Financial Status, staff can **View receipt** for a paid invoice (and for a successful wallet top-up); the HTML is the same **Official Receipt** students receive (see §8.7). Admitted students see the same bursary position on the student portal **Financial status** page. On the Payment dashboard, **Collected** is fee payments (wallet top-ups are shown separately); **Cleared** student status is not the same as university receipts.
 
 ### 6.3 Office hierarchy
 
@@ -590,7 +590,18 @@ E-exam sync is not included in this release.
 
 ### 8.7 Services
 
-- **Fees & payments** — **Payment dashboard** (university financial statement: fee collections, invoices issued, outstanding receivables, wallet liability; download PDF/Excel/Word), **Fee categories** (charge types, including programme-schedule vs operational) and **Fee items** (priced lines: **application and acceptance fees per entry mode**, **official transcript fees per programme and transcript type**, **Clinic services** visit charges, and **school-fee installment shares**: any programme-schedule catalog line — tuition, ICT, laboratory, infrastructure, and the rest — can be tagged 1st/2nd/3rd/4th 25% or optional Full 100% pay-at-once; application, acceptance, and transcript fees stay online-only and cannot use shares), rebates, **Programme fees** (assign catalog lines to programmes with a naira override per line; select several levels at once when the amount is the same; copy a schedule to other programmes in the same college), invoice generation (enter matric number; the fee list is catalog **fee items**, not programme-fee assignments), **Payments** (staff can **View receipt** on a paid invoice or successful wallet top-up; the receipt includes **Particulars** — each fee line and amount, matching the student bursary receipt), **Students Financial Status** (same billed/paid/outstanding as the student portal **Financial status** page), **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices filter by session and level; Programme fees filter by level. When schedule lines are tagged with installment shares, student school-fee invoices bill those fixed amounts (already-paid fee items are skipped; 50% bills unpaid 1st + 2nd slices). Untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices. Hostel **Accommodation** on a school-fee sheet is a schedule catalog item, not a hostel-bed charge.
+- **Fees & payments** — **Payment dashboard** (university financial statement: fee collections, invoices issued, outstanding receivables, wallet liability; download PDF/Excel/Word; remittance breakdown can include **by fee item**), **Fee categories** (charge types, including programme-schedule vs operational) and **Fee items** (priced lines: **application and acceptance fees per entry mode**, **official transcript fees per programme and transcript type**, **Clinic services** visit charges, and **school-fee installment shares**: any programme-schedule catalog line — tuition, ICT, laboratory, infrastructure, and the rest — can be tagged 1st/2nd/3rd/4th 25% or optional Full 100% pay-at-once; application, acceptance, and transcript fees stay online-only and cannot use shares), rebates, **Programme fees** (assign catalog lines to programmes with a naira override per line; select several levels at once when the amount is the same; copy a schedule to other programmes in the same college), invoice generation (enter matric number; the fee list is catalog **fee items**, not programme-fee assignments), **Payments** (staff can **View receipt** on a paid invoice or successful wallet top-up; see **Official Receipt** below), **Students Financial Status** (same billed/paid/outstanding as the student portal **Financial status** page), **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices filter by session and level; Programme fees filter by level. When schedule lines are tagged with installment shares, student school-fee invoices bill those fixed amounts (already-paid fee items are skipped; 50% bills unpaid 1st + 2nd slices). Untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices. Hostel **Accommodation** on a school-fee sheet is a schedule catalog item, not a hostel-bed charge.
+
+#### Official Receipt
+
+Staff and students open the same HTML **Official Receipt** (Print / Download). The amount is the **invoice amount** (not any gateway surcharge). Sign-off is **For: Bursar** (Bursary Department). A QR code verifies the receipt online.
+
+| Field | Behaviour |
+|-------|-----------|
+| Identity | Prefer **Matric number** for returning / enrolled students; otherwise application number, then JAMB |
+| **Course** and **Level** | Shown on **acceptance** and **tuition** (and similar post-admission fees). Hidden on **application fee** (candidate may not yet have a programme). Course resolves from the student programme, linked application, or first-choice selection — including soft-deleted programmes so historical receipts still print the name |
+| **Particulars** | Each invoice fee line and amount (for example Tuition, BUPF, BUSA) |
+| **Date paid** | Shown in **Africa/Lagos** so it matches the Payments list timestamp in Nigeria (server storage remains UTC) |
 
 #### Programme fees (25% matrix)
 
@@ -793,6 +804,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.43 | Aug 2026 | Platform team | Results CSV import is labelled Upload Score |
 | 1.44 | Aug 2026 | Platform team | Cross-college change of programme CGPA keeps only old-programme levels below the new level |
 | 1.45 | Sep 2026 | Platform team | Applicant import: phone and programme optional; blank old_application_number generates APP/{year}/{#####}; pending invoices match that number or JAMB. Invoice import screen: Posted / Pending / Accounts waiting / N row(s) per key. Candidate list no longer blocks signup or submit. Credentials email requires record update before submit. |
+| 1.46 | Sep 2026 | Platform team | Official Receipt: title and Bursar sign-off; Course/Level on acceptance and tuition (not application fee); Matric preferred; invoice amount only; Particulars; Date paid in Africa/Lagos to match Payments list |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 
