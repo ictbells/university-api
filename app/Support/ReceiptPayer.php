@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\Application;
 use App\Models\Invoice;
 use App\Models\Payment;
+use App\Models\Program;
 use App\Models\Student;
 use App\Models\User;
 
@@ -25,19 +26,21 @@ class ReceiptPayer
             'user.student.program',
             'student.program',
             'application.program',
+            'application.steps',
             'application.user.student.program',
         ]);
 
         $student = self::resolveStudent($invoice, $payment);
         $application = $invoice->application;
         $user = $invoice->user ?: $payment?->user;
-        $showAcademic = ! in_array((string) $invoice->category, ['application_fee'], true);
+        $category = strtolower((string) $invoice->category);
+        $showAcademic = $category !== 'application_fee';
 
         return [
             'name' => self::name($user, $student, $invoice),
             ...self::identity($student, $application, $user),
             'programme' => $showAcademic ? self::programme($student, $application) : null,
-            'level' => $showAcademic ? self::level($student, $invoice) : null,
+            'level' => $showAcademic ? self::level($student, $invoice, $application) : null,
         ];
     }
 
@@ -57,6 +60,7 @@ class ReceiptPayer
             'invoice.user.student.program',
             'invoice.student.program',
             'invoice.application.program',
+            'invoice.application.steps',
         ]);
 
         if ($payment->invoice) {
@@ -69,26 +73,25 @@ class ReceiptPayer
             'name' => self::name($payment->user, $student, null),
             ...self::identity($student, null, $payment->user),
             'programme' => self::programme($student, null),
-            'level' => self::level($student, null),
+            'level' => self::level($student, null, null),
         ];
     }
 
     private static function resolveStudent(Invoice $invoice, ?Payment $payment): ?Student
     {
-        if ($invoice->student) {
-            return $invoice->student;
+        $student = $invoice->student
+            ?: $invoice->user?->student
+            ?: $payment?->user?->student;
+
+        if (! $student && $invoice->user_id) {
+            $student = Student::query()->with('program')->where('user_id', $invoice->user_id)->first();
         }
 
-        $fromUser = $invoice->user?->student ?: $payment?->user?->student;
-        if ($fromUser) {
-            return $fromUser;
+        if ($student && $student->program_id && ! $student->relationLoaded('program')) {
+            $student->load('program');
         }
 
-        if ($invoice->user_id) {
-            return Student::query()->with('program')->where('user_id', $invoice->user_id)->first();
-        }
-
-        return null;
+        return $student;
     }
 
     private static function name(?User $user, ?Student $student, ?Invoice $invoice): string
@@ -130,16 +133,100 @@ class ReceiptPayer
 
     private static function programme(?Student $student, ?Application $application): ?string
     {
-        $name = $student?->program?->name ?: $application?->program?->name;
+        if ($student?->program_id) {
+            $student->loadMissing('program');
+        }
+        $fromStudent = trim((string) ($student?->program?->name ?? ''));
+        if ($fromStudent !== '') {
+            return $fromStudent;
+        }
 
-        return $name ? (string) $name : null;
+        if (! $application) {
+            return null;
+        }
+
+        $application->loadMissing(['program', 'steps']);
+        $fromApplication = trim((string) ($application->program?->name ?? ''));
+        if ($fromApplication !== '') {
+            return $fromApplication;
+        }
+
+        $firstChoiceId = ProgrammeEligibility::firstChoiceId($application);
+        if ($firstChoiceId) {
+            $name = Program::query()->whereKey($firstChoiceId)->value('name');
+            if (is_string($name) && trim($name) !== '') {
+                return trim($name);
+            }
+        }
+
+        return null;
     }
 
-    private static function level(?Student $student, ?Invoice $invoice): ?string
+    private static function level(?Student $student, ?Invoice $invoice, ?Application $application): ?string
     {
-        $level = $invoice?->level_code ?: $student?->current_level;
-        $level = is_string($level) ? trim($level) : '';
+        $formatted = self::formatLevel($invoice?->level_code ?? $student?->current_level);
+        if ($formatted) {
+            return $formatted;
+        }
 
-        return $level !== '' ? $level : null;
+        // Acceptance is paid before matriculation — use the admission entry level.
+        if ($application && strtolower((string) ($invoice?->category ?? '')) === 'acceptance_fee') {
+            return self::applicationEntryLevel($application);
+        }
+
+        return null;
+    }
+
+    private static function applicationEntryLevel(Application $application): string
+    {
+        $mode = strtolower((string) $application->entry_mode);
+        if ($mode === 'transfer') {
+            $assessed = ProgrammeEligibility::step($application, 'credit_assessment')['approved_entry_level'] ?? null;
+
+            return self::formatLevel($assessed) ?: '200 Level';
+        }
+        if ($mode === 'de') {
+            $requested = ProgrammeEligibility::step($application, 'direct_entry')['requested_entry_level'] ?? null;
+
+            return self::formatLevel($requested) ?: '200 Level';
+        }
+        if ($mode === 'pg') {
+            return '1';
+        }
+
+        return '100 Level';
+    }
+
+    private static function formatLevel(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_numeric($value)) {
+            $n = (int) $value;
+            if ($n <= 0) {
+                return null;
+            }
+            // Undergraduate bands are stored as 100/200/…; PG may use 1–5.
+            if ($n < 100) {
+                return (string) $n;
+            }
+
+            return $n.' Level';
+        }
+
+        $text = trim((string) $value);
+        if ($text === '') {
+            return null;
+        }
+        if (preg_match('/^(\d{3})\s*L(?:evel)?$/i', $text, $match)) {
+            return ((int) $match[1]).' Level';
+        }
+        if (preg_match('/^\d+$/', $text)) {
+            return self::formatLevel((int) $text);
+        }
+
+        return $text;
     }
 }

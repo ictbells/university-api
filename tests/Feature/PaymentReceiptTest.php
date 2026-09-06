@@ -142,6 +142,152 @@ class PaymentReceiptTest extends TestCase
         $this->assertSame($student->id, $user->fresh()->student->id);
     }
 
+    public function test_tuition_receipt_shows_course_and_level_from_student(): void
+    {
+        $user = User::factory()->create(['name' => 'Bola Adebayo', 'status' => 'active']);
+        $campus = \App\Models\Campus::query()->firstOrCreate(['name' => 'Main'], ['is_active' => true]);
+        $faculty = \App\Models\Faculty::query()->firstOrCreate(
+            ['name' => 'College of Engineering'],
+            ['campus_id' => $campus->id, 'is_active' => true],
+        );
+        $department = \App\Models\Department::query()->firstOrCreate(
+            ['name' => 'Mechanical Engineering', 'faculty_id' => $faculty->id],
+            ['is_active' => true],
+        );
+        $program = \App\Models\Program::query()->create([
+            'department_id' => $department->id,
+            'name' => 'B.Eng Mechanical Engineering',
+            'code' => 'MEE-RCP',
+            'award_type' => 'B.Eng',
+            'study_level' => 'undergraduate',
+            'entry_modes' => ['utme'],
+            'duration_years' => 5,
+            'is_active' => true,
+        ]);
+        $student = \App\Models\Student::query()->create([
+            'user_id' => $user->id,
+            'program_id' => $program->id,
+            'first_name' => 'Bola',
+            'last_name' => 'Adebayo',
+            'matric_number' => '2025/000222',
+            'current_level' => 200, // numeric DB value must still print as level
+            'status' => 'active',
+        ]);
+        $invoice = Invoice::query()->create([
+            'number' => 'INV-TUI-COURSE',
+            'user_id' => $user->id,
+            'student_id' => $student->id,
+            'category' => 'tuition',
+            'installment_percent' => 25,
+            'amount' => 50000,
+            'full_amount' => 200000,
+            'balance' => 0,
+            'status' => 'paid',
+            'wallet_allowed' => true,
+            'level_code' => null,
+        ]);
+        $invoice->items()->create(['description' => 'Tuition (25%)', 'amount' => 50000]);
+        $invoice->payments()->create([
+            'user_id' => $user->id,
+            'method' => 'wallet',
+            'amount' => 50000,
+            'status' => 'successful',
+            'reference' => 'WALLET-TUI-COURSE',
+            'receipt_no' => 'RCP-TUICOURSE',
+            'purpose' => 'tuition',
+        ]);
+
+        Sanctum::actingAs($user);
+        $html = $this->get('/api/invoices/'.$invoice->id.'/receipt')
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('Course', $html);
+        $this->assertStringContainsString('B.Eng Mechanical Engineering', $html);
+        $this->assertStringContainsString('Level', $html);
+        $this->assertStringContainsString('200 Level', $html);
+    }
+
+    public function test_acceptance_fee_receipt_shows_course_and_entry_level(): void
+    {
+        $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
+        $campus = \App\Models\Campus::query()->firstOrCreate(['name' => 'Main'], ['is_active' => true]);
+        $faculty = \App\Models\Faculty::query()->firstOrCreate(
+            ['name' => 'College of Natural Sciences'],
+            ['campus_id' => $campus->id, 'is_active' => true],
+        );
+        $department = \App\Models\Department::query()->firstOrCreate(
+            ['name' => 'Computer Science', 'faculty_id' => $faculty->id],
+            ['is_active' => true],
+        );
+        $program = \App\Models\Program::query()->create([
+            'department_id' => $department->id,
+            'name' => 'B.Sc Computer Science',
+            'code' => 'CSC-ACC',
+            'award_type' => 'B.Sc',
+            'study_level' => 'undergraduate',
+            'entry_modes' => ['utme'],
+            'duration_years' => 4,
+            'is_active' => true,
+        ]);
+        $session = \App\Models\AcademicSession::query()->firstOrCreate(['label' => '2025/2026']);
+        $term = \App\Models\AcademicTerm::query()->firstOrCreate(
+            ['academic_session_id' => $session->id, 'name' => 'First'],
+            ['session_label' => '2025/2026', 'is_current' => true],
+        );
+        $intake = \App\Models\Intake::query()->firstOrCreate(
+            ['entry_mode' => 'utme'],
+            [
+                'academic_term_id' => $term->id,
+                'name' => 'UTME 2025',
+                'is_open' => true,
+                'application_fee_amount' => 5000,
+                'acceptance_fee_amount' => 25000,
+                'opens_on' => now()->subDay()->toDateString(),
+                'closes_on' => now()->addMonth()->toDateString(),
+            ],
+        );
+        $application = \App\Models\Application::query()->create([
+            'user_id' => $user->id,
+            'program_id' => $program->id,
+            'intake_id' => $intake->id,
+            'entry_mode' => 'utme',
+            'stage' => 'awaiting_acceptance_fee',
+            'application_number' => 'APP/2025/00091',
+        ]);
+        $invoice = Invoice::query()->create([
+            'number' => 'INV-ACC-RCP',
+            'user_id' => $user->id,
+            'application_id' => $application->id,
+            'category' => 'acceptance_fee',
+            'amount' => 25000,
+            'full_amount' => 25000,
+            'balance' => 0,
+            'status' => 'paid',
+            'wallet_allowed' => false,
+        ]);
+        $invoice->items()->create(['description' => 'Acceptance fee', 'amount' => 25000]);
+        $invoice->payments()->create([
+            'user_id' => $user->id,
+            'method' => 'wema',
+            'amount' => 25000,
+            'status' => 'successful',
+            'reference' => 'WEMA-ACC-RCP',
+            'receipt_no' => 'RCP-ACCRCP',
+            'purpose' => 'acceptance_fee',
+        ]);
+
+        Sanctum::actingAs($user);
+        $html = $this->get('/api/invoices/'.$invoice->id.'/receipt')
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('Course', $html);
+        $this->assertStringContainsString('B.Sc Computer Science', $html);
+        $this->assertStringContainsString('Level', $html);
+        $this->assertStringContainsString('100 Level', $html);
+    }
+
     public function test_tuition_receipt_lists_fee_component_particulars(): void
     {
         $user = User::factory()->create(['name' => 'Bola Adebayo', 'status' => 'active']);
