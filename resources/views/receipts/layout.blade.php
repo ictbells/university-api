@@ -283,10 +283,16 @@
       font-size: 12px;
       color: #475569;
     }
+    .sign-dots {
+      margin-top: 8px;
+      letter-spacing: 0.12em;
+      color: #64748b;
+      font-size: 14px;
+    }
     .sign-line {
-      margin-top: 28px;
-      border-top: 1px solid #94a3b8;
-      padding-top: 6px;
+      margin-top: 8px;
+      padding-top: 0;
+      border-top: none;
       font-weight: 700;
       color: #0f172a;
     }
@@ -334,7 +340,6 @@
     <hr class="rules">
     <div class="doc-bar">
       <div>
-        <p class="doc-kicker">Official bursary document</p>
         <h1 class="doc-title">{{ $doc_title }}</h1>
         <span class="badge">PAID</span>
       </div>
@@ -358,11 +363,10 @@
     @yield('body')
     <div class="signoff">
       <div>
-        <div class="sign-line">Cashier / Teller</div>
+        <div class="sign-dots">……………………</div>
+        <div class="sign-line">For: Bursar</div>
       </div>
-      <div>
-        <div class="sign-line">Bursar</div>
-      </div>
+      <div></div>
     </div>
     <p class="footer">
       This is a computer-generated receipt of {{ $institution['name'] }}. It is valid without a physical signature.<br>

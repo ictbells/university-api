@@ -48,7 +48,10 @@ class PaymentReceiptTest extends TestCase
             ->assertHeader('content-type', 'text/html; charset=UTF-8')
             ->getContent();
 
-        $this->assertStringContainsString('Official payment receipt', $html);
+        $this->assertStringContainsString('Official Receipt', $html);
+        $this->assertStringNotContainsString('Official bursary document', $html);
+        $this->assertStringNotContainsString('Cashier / Teller', $html);
+        $this->assertStringContainsString('For: Bursar', $html);
         $this->assertStringContainsString('Bursary Department', $html);
         $this->assertStringContainsString('RCP-TEST01', $html);
         $this->assertStringContainsString('Ada Okoye', $html);
@@ -60,6 +63,124 @@ class PaymentReceiptTest extends TestCase
         $this->assertStringContainsString('signature=', $html);
         $this->assertStringContainsString('Scan to verify', $html);
         $this->assertStringContainsString('Scan the QR code to confirm this receipt online', $html);
+    }
+
+    public function test_returning_student_receipt_prefers_matric_over_jamb_without_course_or_level(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Chioma Okoye',
+            'status' => 'active',
+            'jamb_registration' => '12345678AB',
+        ]);
+        $campus = \App\Models\Campus::query()->firstOrCreate(['name' => 'Main'], ['is_active' => true]);
+        $faculty = \App\Models\Faculty::query()->firstOrCreate(
+            ['name' => 'College of Natural Sciences'],
+            ['campus_id' => $campus->id, 'is_active' => true],
+        );
+        $department = \App\Models\Department::query()->firstOrCreate(
+            ['name' => 'Computer Science', 'faculty_id' => $faculty->id],
+            ['is_active' => true],
+        );
+        $program = \App\Models\Program::query()->create([
+            'department_id' => $department->id,
+            'name' => 'B.Sc Computer Science',
+            'code' => 'CSC-RCP',
+            'award_type' => 'B.Sc',
+            'study_level' => 'undergraduate',
+            'entry_modes' => ['utme'],
+            'duration_years' => 4,
+            'is_active' => true,
+        ]);
+        $student = \App\Models\Student::query()->create([
+            'user_id' => $user->id,
+            'program_id' => $program->id,
+            'first_name' => 'Chioma',
+            'last_name' => 'Okoye',
+            'matric_number' => '2024/000111',
+            'current_level' => '400 Level',
+            'status' => 'active',
+        ]);
+        $invoice = Invoice::query()->create([
+            'number' => 'INV-RETURN-RCP',
+            'user_id' => $user->id,
+            'student_id' => null, // application-fee style invoice before student_id is set
+            'category' => 'application_fee',
+            'amount' => 7000,
+            'full_amount' => 7000,
+            'balance' => 0,
+            'status' => 'paid',
+            'wallet_allowed' => false,
+            'level_code' => null,
+        ]);
+        $invoice->items()->create(['description' => 'Application fee', 'amount' => 7000]);
+        $invoice->payments()->create([
+            'user_id' => $user->id,
+            'method' => 'wema',
+            'amount' => 7000, // gateway may have charged 7350; receipt stays at invoice amount
+            'status' => 'successful',
+            'reference' => 'WEMA-RETURN01',
+            'receipt_no' => 'RCP-RETURN01',
+            'purpose' => 'application_fee',
+        ]);
+
+        Sanctum::actingAs($user);
+        $html = $this->get('/api/invoices/'.$invoice->id.'/receipt')
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('Matric number', $html);
+        $this->assertStringContainsString('2024/000111', $html);
+        $this->assertStringNotContainsString('JAMB number', $html);
+        $this->assertStringNotContainsString('12345678AB', $html);
+        // Application fee is paid before admission — do not show prior course/level.
+        $this->assertStringNotContainsString('>Course<', $html);
+        $this->assertStringNotContainsString('B.Sc Computer Science', $html);
+        $this->assertStringNotContainsString('>Level<', $html);
+        $this->assertStringNotContainsString('400 Level', $html);
+        $this->assertStringContainsString('7,000.00', $html);
+        $this->assertStringNotContainsString('7,350', $html);
+        $this->assertSame($student->id, $user->fresh()->student->id);
+    }
+
+    public function test_tuition_receipt_lists_fee_component_particulars(): void
+    {
+        $user = User::factory()->create(['name' => 'Bola Adebayo', 'status' => 'active']);
+        $invoice = Invoice::query()->create([
+            'number' => 'INV-COMP-RCP',
+            'user_id' => $user->id,
+            'category' => 'tuition',
+            'installment_percent' => 25,
+            'amount' => 25000,
+            'full_amount' => 100000,
+            'balance' => 0,
+            'status' => 'paid',
+            'wallet_allowed' => true,
+            'level_code' => '200 Level',
+        ]);
+        $invoice->items()->create(['description' => 'Tuition (25%)', 'amount' => 20000]);
+        $invoice->items()->create(['description' => 'BUPF (25%)', 'amount' => 3000]);
+        $invoice->items()->create(['description' => 'BUSA levy (25%)', 'amount' => 2000]);
+        $invoice->payments()->create([
+            'user_id' => $user->id,
+            'method' => 'wallet',
+            'amount' => 25000,
+            'status' => 'successful',
+            'reference' => 'WALLET-COMP-RCP',
+            'receipt_no' => 'RCP-COMP01',
+            'purpose' => 'tuition',
+        ]);
+
+        Sanctum::actingAs($user);
+        $html = $this->get('/api/invoices/'.$invoice->id.'/receipt')
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('Particulars', $html);
+        $this->assertStringContainsString('Tuition (25%)', $html);
+        $this->assertStringContainsString('BUPF (25%)', $html);
+        $this->assertStringContainsString('BUSA levy (25%)', $html);
+        $this->assertStringContainsString('Level', $html);
+        $this->assertStringContainsString('200 Level', $html);
     }
 
     public function test_tuition_receipt_includes_installment_percent(): void
@@ -171,7 +292,7 @@ class PaymentReceiptTest extends TestCase
             ->assertOk()
             ->getContent();
 
-        $this->assertStringContainsString('Official payment receipt', $html);
+        $this->assertStringContainsString('Official Receipt', $html);
         $this->assertStringContainsString('Particulars', $html);
         $this->assertStringContainsString('Tuition', $html);
         $this->assertStringContainsString('ICT', $html);
@@ -208,7 +329,7 @@ class PaymentReceiptTest extends TestCase
             ->assertOk()
             ->getContent();
 
-        $this->assertStringContainsString('Official payment receipt', $html);
+        $this->assertStringContainsString('Official Receipt', $html);
         $this->assertStringContainsString('RCP-PARTIAL01', $html);
         $this->assertStringContainsString('Emeka Obi', $html);
         $this->assertStringContainsString('Twenty Thousand Naira Only', $html);

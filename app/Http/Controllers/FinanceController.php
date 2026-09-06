@@ -30,6 +30,7 @@ use App\Support\ListSessionLevelFilter;
 use App\Support\NairaWords;
 use App\Support\ProgrammeFeeResolver;
 use App\Support\ReceiptInstitution;
+use App\Support\ReceiptPayer;
 use App\Support\ReceiptQr;
 use App\Support\SchoolFeeAccess;
 use App\Support\StudentFinanceStatus;
@@ -570,7 +571,7 @@ class FinanceController extends Controller
         abort_unless($payment->purpose === 'wallet_topup', 422, 'Receipt is not available for this payment.');
 
         $payment->load(['user', 'user.student']);
-        $student = $payment->user?->student;
+        $payer = ReceiptPayer::forPayment($payment);
         $method = $this->paymentMethodLabel($payment->method ?: 'online');
         $amount = (float) $payment->amount;
         $receiptNo = $payment->receipt_no ?: $payment->reference ?: 'RCP-'.$payment->id;
@@ -582,9 +583,9 @@ class FinanceController extends Controller
             'receipt_no' => $receiptNo,
             'qr_data_uri' => ReceiptQr::dataUri($verifyUrl),
             'qr_verify_url' => $verifyUrl,
-            'payer' => $payment->user?->name ?: '—',
-            'payer_id' => $student?->matric_number,
-            'payer_id_label' => 'Matric number',
+            'payer' => $payer['name'],
+            'payer_id' => $payer['id'],
+            'payer_id_label' => $payer['id_label'],
             'category_label' => 'Campus wallet funding',
             'payment_method' => $method,
             'reference' => $payment->reference ?: '—',
@@ -611,9 +612,9 @@ class FinanceController extends Controller
 
         $invoice->load([
             'items',
-            'user.student',
+            'user.student.program',
             'student.program',
-            'application',
+            'application.program',
             'payments' => fn ($q) => $q->where('status', 'successful')->latest(),
         ]);
         if ($payment) {
@@ -625,19 +626,7 @@ class FinanceController extends Controller
         }
         abort_unless($payment, 422, 'Receipt is available after payment succeeds.');
 
-        $student = $invoice->student ?: $invoice->user?->student;
-        $application = $invoice->application;
-        $payerId = $student?->matric_number;
-        $payerIdLabel = 'Matric number';
-        if (! $payerId) {
-            $payerId = $application?->jamb_registration
-                ?: $invoice->user?->jamb_registration
-                ?: $application?->application_number;
-            $payerIdLabel = ($application?->jamb_registration || $invoice->user?->jamb_registration)
-                ? 'JAMB number'
-                : 'Application number';
-        }
-
+        $payer = ReceiptPayer::forInvoice($invoice, $payment);
         $amount = (float) $payment->amount;
         $category = (string) $invoice->category;
         $installmentPercent = $category === 'tuition' && $invoice->installment_percent !== null
@@ -648,16 +637,15 @@ class FinanceController extends Controller
         $html = view('receipts.invoice', [
             'institution' => ReceiptInstitution::details(),
             'logo_data_uri' => InstitutionLogo::dataUri(),
-            'doc_title' => 'Official payment receipt',
+            'doc_title' => 'Official Receipt',
             'receipt_no' => $receiptNo,
             'qr_data_uri' => ReceiptQr::dataUri($verifyUrl),
             'qr_verify_url' => $verifyUrl,
-            'payer' => $invoice->user?->name
-                ?: trim(implode(' ', array_filter([$student?->first_name, $student?->last_name])))
-                ?: '—',
-            'payer_id' => $payerId,
-            'payer_id_label' => $payerIdLabel,
-            'programme' => $student?->program?->name,
+            'payer' => $payer['name'],
+            'payer_id' => $payer['id'],
+            'payer_id_label' => $payer['id_label'],
+            'programme' => $payer['programme'],
+            'level' => $payer['level'],
             'category_label' => FeeSchedule::label($category),
             'installment_percent' => $installmentPercent,
             'invoice_number' => $invoice->number,

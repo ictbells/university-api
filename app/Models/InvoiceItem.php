@@ -14,4 +14,9 @@ class InvoiceItem extends BaseModel
     {
         return $this->belongsTo(Invoice::class);
     }
+
+    public function feeItem(): BelongsTo
+    {
+        return $this->belongsTo(FeeItem::class);
+    }
 }

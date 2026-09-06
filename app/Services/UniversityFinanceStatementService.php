@@ -101,6 +101,7 @@ class UniversityFinanceStatementService
                 'failed' => $this->applyPeriod(Payment::query()->whereIn('status', ['failed', 'cancelled']), $from, $to)->count(),
             ],
             'by_category' => $this->byCategory($from, $to),
+            'by_fee_item' => $this->byFeeItem($from, $to),
             'by_method' => $this->byMethod($from, $to),
             'monthly' => $this->monthly($from, $to),
             'recent_payments' => $this->recentPayments($from, $to),
@@ -174,6 +175,77 @@ class UniversityFinanceStatementService
                     'invoices' => (int) ($billed[$code]->invoices ?? 0),
                 ];
             })
+            ->sortByDesc('collected')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Fee-item / levy breakdown for remittance and financial reporting (e.g. BUPF, BUSA).
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function byFeeItem(?CarbonInterface $from, ?CarbonInterface $to): array
+    {
+        $invoiced = $this->activeInvoices($from, $to)
+            ->join('invoice_items', 'invoice_items.invoice_id', '=', 'invoices.id')
+            ->leftJoin('fee_items', 'fee_items.id', '=', 'invoice_items.fee_item_id')
+            ->selectRaw("
+                COALESCE(fee_items.id, 0) as fee_item_id,
+                COALESCE(NULLIF(fee_items.name, ''), NULLIF(invoice_items.description, ''), 'Other') as label,
+                COALESCE(SUM(invoice_items.amount), 0) as invoiced
+            ")
+            ->groupByRaw("COALESCE(fee_items.id, 0), COALESCE(NULLIF(fee_items.name, ''), NULLIF(invoice_items.description, ''), 'Other')")
+            ->get()
+            ->keyBy(fn ($row) => (string) $row->fee_item_id.'|'.$row->label);
+
+        $collectedRows = [];
+        $payments = $this->feePayments($from, $to)
+            ->with(['invoice.items.feeItem'])
+            ->get();
+
+        foreach ($payments as $payment) {
+            $invoice = $payment->invoice;
+            if (! $invoice) {
+                continue;
+            }
+            $items = $invoice->items;
+            $invoiceTotal = (float) $invoice->amount;
+            $paid = (float) $payment->amount;
+            if ($items->isEmpty() || $invoiceTotal <= 0) {
+                $key = '0|'.FeeSchedule::label((string) $invoice->category);
+                $collectedRows[$key] = ($collectedRows[$key] ?? 0) + $paid;
+                continue;
+            }
+            $itemSum = (float) $items->sum(fn ($item) => (float) $item->amount);
+            $basis = $itemSum > 0 ? $itemSum : $invoiceTotal;
+            foreach ($items as $item) {
+                $share = $basis > 0 ? ((float) $item->amount / $basis) * $paid : 0;
+                $label = $item->feeItem?->name
+                    ?: (string) ($item->description ?: FeeSchedule::label((string) $invoice->category));
+                $key = (string) ((int) ($item->fee_item_id ?: 0)).'|'.$label;
+                $collectedRows[$key] = ($collectedRows[$key] ?? 0) + $share;
+            }
+        }
+
+        $keys = collect($invoiced->keys())
+            ->merge(array_keys($collectedRows))
+            ->unique()
+            ->values();
+
+        return $keys
+            ->map(function (string $key) use ($invoiced, $collectedRows) {
+                $row = $invoiced->get($key);
+                $label = $row?->label ?? (explode('|', $key, 2)[1] ?? 'Other');
+
+                return [
+                    'fee_item_id' => (int) ($row?->fee_item_id ?? explode('|', $key, 2)[0]),
+                    'label' => (string) $label,
+                    'invoiced' => $this->money((float) ($row?->invoiced ?? 0)),
+                    'collected' => $this->money((float) ($collectedRows[$key] ?? 0)),
+                ];
+            })
+            ->filter(fn (array $row) => $row['invoiced'] > 0 || $row['collected'] > 0)
             ->sortByDesc('collected')
             ->values()
             ->all();
@@ -475,6 +547,16 @@ class UniversityFinanceStatementService
             ])->all(),
         );
         $row += 1;
+        $row = $this->writeExcelTable(
+            $sheet,
+            $row,
+            'By fee item / levy',
+            ['Fee item', 'Invoiced', 'Collected'],
+            collect($statement['by_fee_item'] ?? [])->map(fn ($line) => [
+                $line['label'], $line['invoiced'], $line['collected'],
+            ])->all(),
+        );
+        $row += 1;
         $this->writeExcelTable(
             $sheet,
             $row,
@@ -596,6 +678,11 @@ class UniversityFinanceStatementService
         $section->addText('By fee category', ['bold' => true, 'size' => 12, 'color' => '0C4A6E']);
         $this->wordTable($section, ['Category', 'Invoiced', 'Collected', 'Outstanding'], collect($statement['by_category'])->map(fn ($line) => [
             $line['label'], $this->naira((float) $line['invoiced']), $this->naira((float) $line['collected']), $this->naira((float) $line['outstanding']),
+        ])->all());
+        $section->addTextBreak(1);
+        $section->addText('By fee item / levy', ['bold' => true, 'size' => 12, 'color' => '0C4A6E']);
+        $this->wordTable($section, ['Fee item', 'Invoiced', 'Collected'], collect($statement['by_fee_item'] ?? [])->map(fn ($line) => [
+            $line['label'], $this->naira((float) $line['invoiced']), $this->naira((float) $line['collected']),
         ])->all());
         $section->addTextBreak(1);
         $section->addText('By payment method', ['bold' => true, 'size' => 12, 'color' => '0C4A6E']);

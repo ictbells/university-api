@@ -95,6 +95,29 @@
         </tbody>
     </table>
 
+    <h2>Income by fee item / levy</h2>
+    <p class="note">Component breakdown for remittance reporting (e.g. BUPF, BUSA). Collected amounts allocate each payment across the invoice line items.</p>
+    <table>
+        <thead>
+            <tr>
+                <th>Fee item</th>
+                <th class="num">Invoiced</th>
+                <th class="num">Collected</th>
+            </tr>
+        </thead>
+        <tbody>
+            @forelse ($statement['by_fee_item'] as $row)
+                <tr>
+                    <td>{{ $row['label'] }}</td>
+                    <td class="num">{{ $naira($row['invoiced']) }}</td>
+                    <td class="num">{{ $naira($row['collected']) }}</td>
+                </tr>
+            @empty
+                <tr><td colspan="3" style="text-align:center; color:#64748b;">No fee-item activity in this period.</td></tr>
+            @endforelse
+        </tbody>
+    </table>
+
     <h2>Receipts by payment method</h2>
     <table>
         <thead>

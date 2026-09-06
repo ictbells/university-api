@@ -6,6 +6,7 @@ use App\Models\Payment;
 use App\Support\FeeSchedule;
 use App\Support\InstitutionLogo;
 use App\Support\ReceiptInstitution;
+use App\Support\ReceiptPayer;
 use Illuminate\Http\Response;
 
 class ReceiptVerificationController extends Controller
@@ -27,17 +28,22 @@ class ReceiptVerificationController extends Controller
 
     private function html(bool $verified, string $receiptNo, ?Payment $payment): Response
     {
-        $payment?->load(['user.student', 'invoice.student', 'invoice.application', 'invoice.user']);
-        $payerId = $verified ? $this->payerId($payment) : ['label' => null, 'value' => null];
+        $payer = $verified && $payment ? ReceiptPayer::forPayment($payment) : [
+            'name' => null,
+            'id' => null,
+            'id_label' => null,
+            'programme' => null,
+            'level' => null,
+        ];
 
         $html = view('receipts.verify', [
             'institution' => ReceiptInstitution::details(),
             'logo_data_uri' => InstitutionLogo::dataUri(),
             'verified' => $verified,
             'receipt_no' => $receiptNo,
-            'payer' => $verified ? $this->payerName($payment) : null,
-            'payer_id' => $payerId['value'],
-            'payer_id_label' => $payerId['label'],
+            'payer' => $verified ? $payer['name'] : null,
+            'payer_id' => $verified ? $payer['id'] : null,
+            'payer_id_label' => $verified ? $payer['id_label'] : null,
             'category_label' => $verified ? $this->categoryLabel($payment) : null,
             'amount' => $verified ? (float) $payment->amount : null,
             'paid_at' => $verified ? (optional($payment->created_at)->format('d M Y, h:i A') ?: '—') : null,
@@ -46,41 +52,6 @@ class ReceiptVerificationController extends Controller
         return response($html, $verified ? 200 : 404, [
             'Content-Type' => 'text/html; charset=UTF-8',
         ]);
-    }
-
-    private function payerName(?Payment $payment): string
-    {
-        $invoice = $payment?->invoice;
-        $student = $invoice?->student ?: $payment?->user?->student;
-
-        return $invoice?->user?->name
-            ?: $payment?->user?->name
-            ?: trim(implode(' ', array_filter([$student?->first_name, $student?->last_name])))
-            ?: '—';
-    }
-
-    /**
-     * @return array{label: string, value: ?string}
-     */
-    private function payerId(?Payment $payment): array
-    {
-        $invoice = $payment?->invoice;
-        $student = $invoice?->student ?: $payment?->user?->student;
-        $application = $invoice?->application;
-
-        $value = $student?->matric_number;
-        $label = 'Matric number';
-        if (! $value) {
-            $value = $application?->jamb_registration
-                ?: $invoice?->user?->jamb_registration
-                ?: $payment?->user?->jamb_registration
-                ?: $application?->application_number;
-            $label = ($application?->jamb_registration || $invoice?->user?->jamb_registration || $payment?->user?->jamb_registration)
-                ? 'JAMB number'
-                : 'Application number';
-        }
-
-        return ['label' => $label, 'value' => $value];
     }
 
     private function categoryLabel(?Payment $payment): string

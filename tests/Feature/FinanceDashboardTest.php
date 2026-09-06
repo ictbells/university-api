@@ -53,6 +53,9 @@ class FinanceDashboardTest extends TestCase
             'status' => 'partial',
             'wallet_allowed' => true,
         ]);
+        $tuition->items()->create(['description' => 'Tuition', 'amount' => 7000]);
+        $tuition->items()->create(['description' => 'BUPF', 'amount' => 2000]);
+        $tuition->items()->create(['description' => 'BUSA levy', 'amount' => 1000]);
         Payment::query()->create([
             'user_id' => $user->id,
             'invoice_id' => $tuition->id,
@@ -105,6 +108,11 @@ class FinanceDashboardTest extends TestCase
         $this->assertEquals(10000.0, $tuitionRow['invoiced']);
         $this->assertEquals(7500.0, $tuitionRow['collected']);
         $this->assertEquals(2500.0, $tuitionRow['outstanding']);
+
+        $bupf = collect($payload['by_fee_item'])->firstWhere('label', 'BUPF');
+        $this->assertNotNull($bupf);
+        $this->assertEquals(2000.0, $bupf['invoiced']);
+        $this->assertEquals(1500.0, $bupf['collected']); // 2000/10000 * 7500
 
         $this->assertTrue(collect($payload['by_method'])->contains(
             fn ($row) => $row['method'] === 'paystack' && (float) $row['amount'] === 9500.0

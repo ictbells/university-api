@@ -7,7 +7,10 @@
         <tr><th>{{ $payer_id_label }}</th><td class="mono">{{ $payer_id }}</td></tr>
       @endif
       @if (!empty($programme))
-        <tr><th>Programme</th><td>{{ $programme }}</td></tr>
+        <tr><th>Course</th><td>{{ $programme }}</td></tr>
+      @endif
+      @if (!empty($level))
+        <tr><th>Level</th><td>{{ $level }}</td></tr>
       @endif
       <tr><th>Payment for</th><td>{{ $category_label }}@if (!empty($installment_percent)) ({{ (int) $installment_percent }}%)@endif</td></tr>
       @if (!empty($invoice_number))
