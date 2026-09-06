@@ -213,22 +213,99 @@ class AlatpayService implements PaymentGateway
             throw new RuntimeException($response->json('message') ?: 'Payment has not been confirmed by Wema Bank.');
         }
 
-        $data = $response->json('data') ?? [];
+        $data = $response->json('data');
+        $data = is_array($data) ? $data : [];
         $status = strtolower((string) ($data['status'] ?? ''));
         if (! in_array($status, ['completed', 'successful', 'success', 'paid'], true)) {
             throw new RuntimeException('Payment has not been confirmed by Wema Bank.');
         }
 
+        $returnedId = $this->stringValue($data, ['id', 'Id']);
+        if ($returnedId !== '' && strcasecmp($returnedId, $transactionId) !== 0) {
+            throw new RuntimeException('Payment does not match this transaction.');
+        }
+
         // Note: data.orderId in the AlatPay verify response is AlatPay's own internal
         // warehousing identifier (prefixed with the merchant name), NOT the orderId we
-        // passed in metadata. We therefore cannot use it to cross-check our reference.
-        // The transactionId we queried by is already sufficient to identify the transaction.
+        // passed in metadata. Prefer metadata.orderId when AlatPay echoes our reference.
+        $this->assertAlatpayReference($payment, $data);
 
-        if (isset($data['amount'])) {
+        if (isset($data['amount']) && is_numeric($data['amount'])) {
             $paid = (float) $data['amount'];
-            if (abs($paid - (float) $payment->amount) > 0.5) {
+            if (! $this->alatpayAmountMatches($payment, $paid, $data)) {
                 throw new RuntimeException('Payment amount does not match this transaction.');
             }
+        }
+    }
+
+    /**
+     * Match the invoice/payment amount against AlatPay's reported total.
+     * payments.amount stays what the student owes; AlatPay may add a variable gateway fee,
+     * so a completed charge is valid when paid >= expected (or when a reported fee explains the gap).
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function alatpayAmountMatches(Payment $payment, float $paid, array $data = []): bool
+    {
+        $expected = (float) $payment->amount;
+        $tolerance = 0.5;
+
+        if (abs($paid - $expected) <= $tolerance) {
+            return true;
+        }
+
+        // Prefer an explicit net/principal amount from AlatPay when present.
+        foreach (['amountExcludingFee', 'netAmount', 'settlementAmount', 'principalAmount', 'baseAmount'] as $key) {
+            if (isset($data[$key]) && is_numeric($data[$key]) && abs(((float) $data[$key]) - $expected) <= $tolerance) {
+                return true;
+            }
+        }
+
+        $fee = $this->alatpayReportedFee($data);
+        if ($fee !== null) {
+            return abs($paid - ($expected + $fee)) <= $tolerance
+                || abs(($paid - $fee) - $expected) <= $tolerance;
+        }
+
+        // Fee varies and is often not returned separately: accept overpayment that covers the invoice.
+        return $paid >= ($expected - $tolerance);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function alatpayReportedFee(array $data): ?float
+    {
+        foreach (['fee', 'Fee', 'transactionFee', 'TransactionFee', 'charges', 'Charges'] as $key) {
+            if (isset($data[$key]) && is_numeric($data[$key])) {
+                $fee = (float) $data[$key];
+                if ($fee >= 0) {
+                    return $fee;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function assertAlatpayReference(Payment $payment, array $data): void
+    {
+        $metadata = $data['metadata'] ?? $data['MetaData'] ?? null;
+        if (! is_array($metadata)) {
+            return;
+        }
+
+        $orderId = $this->stringValue($metadata, ['orderId', 'OrderId']);
+        if ($orderId === '') {
+            return;
+        }
+
+        // Only enforce when AlatPay echoed our own WEMA- reference back in metadata.
+        if (str_starts_with($orderId, 'WEMA-') && $orderId !== $payment->reference) {
+            throw new RuntimeException('Payment does not match this transaction.');
         }
     }
 

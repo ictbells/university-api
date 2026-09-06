@@ -213,6 +213,76 @@ class AlatpayPaymentTest extends TestCase
         $this->assertSame('paid', $invoice->fresh()->status);
     }
 
+    public function test_verify_accepts_alatpay_amount_that_includes_gateway_fee(): void
+    {
+        $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
+        $invoice = $this->payableInvoice($user, 7000);
+        Sanctum::actingAs($user);
+
+        $reference = $this->postJson('/api/payments/initialize', [
+            'invoice_id' => $invoice->id,
+            'portal' => 'student',
+        ])->assertOk()->json('reference');
+
+        $this->assertSame(7000.0, (float) Payment::query()->where('reference', $reference)->value('amount'));
+
+        Http::fake([
+            'https://apibox.alatpay.ng/alatpaytransaction/api/v1/transactions/*' => Http::response([
+                'status' => true,
+                'message' => 'Success',
+                'data' => [
+                    'id' => 'tx-alatpay-fee',
+                    'status' => 'completed',
+                    // AlatPay reports invoice amount + a variable gateway fee
+                    'amount' => 7350,
+                    'orderId' => 'BELLSUNIVERSITY-internal',
+                ],
+            ]),
+        ]);
+
+        $this->getJson('/api/payments/verify/'.$reference.'?transactionId=tx-alatpay-fee')
+            ->assertOk()
+            ->assertJsonPath('status', 'successful');
+
+        $payment = Payment::query()->where('reference', $reference)->first();
+        $this->assertSame('successful', $payment->status);
+        $this->assertSame(7000.0, (float) $payment->amount);
+        $this->assertSame('paid', $invoice->fresh()->status);
+        $this->assertEquals(0.0, (float) $invoice->fresh()->balance);
+    }
+
+    public function test_verify_rejects_underpayment_against_invoice_amount(): void
+    {
+        $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
+        $invoice = $this->payableInvoice($user, 7000);
+        Sanctum::actingAs($user);
+
+        $reference = $this->postJson('/api/payments/initialize', [
+            'invoice_id' => $invoice->id,
+            'portal' => 'student',
+        ])->assertOk()->json('reference');
+
+        Http::fake([
+            'https://apibox.alatpay.ng/alatpaytransaction/api/v1/transactions/*' => Http::response([
+                'status' => true,
+                'message' => 'Success',
+                'data' => [
+                    'id' => 'tx-alatpay-underpay',
+                    'status' => 'completed',
+                    'amount' => 6500,
+                    'orderId' => 'BELLSUNIVERSITY-internal',
+                ],
+            ]),
+        ]);
+
+        $this->getJson('/api/payments/verify/'.$reference.'?transactionId=tx-alatpay-underpay')
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Payment amount does not match this transaction.');
+
+        $this->assertSame('pending', Payment::query()->where('reference', $reference)->value('status'));
+        $this->assertSame('unpaid', $invoice->fresh()->status);
+    }
+
     public function test_webhook_fulfills_once(): void
     {
         $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);

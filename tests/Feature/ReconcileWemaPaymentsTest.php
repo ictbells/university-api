@@ -62,6 +62,42 @@ class ReconcileWemaPaymentsTest extends TestCase
         $this->assertSame('paid', $invoice->fresh()->status);
     }
 
+    public function test_reconcile_accepts_alatpay_amount_including_gateway_fee(): void
+    {
+        $user = User::factory()->create(['status' => 'active']);
+        $invoice = $this->pendingInvoice($user, 7000);
+        $payment = Payment::query()->create([
+            'user_id' => $user->id,
+            'invoice_id' => $invoice->id,
+            'method' => 'wema',
+            'amount' => 7000,
+            'status' => 'pending',
+            'reference' => 'WEMA-FEECASE01',
+            'paystack_reference' => 'tx-fee-001',
+            'purpose' => 'application_fee',
+        ]);
+
+        Http::fake([
+            'https://apibox.alatpay.ng/alatpaytransaction/api/v1/transactions/tx-fee-001' => Http::response([
+                'status' => true,
+                'message' => 'Success',
+                'data' => [
+                    'id' => 'tx-fee-001',
+                    'status' => 'completed',
+                    'amount' => 7350,
+                    'orderId' => 'BELLSUNIVERSITY-internal-id',
+                ],
+            ]),
+        ]);
+
+        $this->artisan('payments:reconcile-wema', ['--id' => [$payment->id]])
+            ->assertExitCode(0);
+
+        $this->assertSame('successful', $payment->fresh()->status);
+        $this->assertSame(7000.0, (float) $payment->fresh()->amount);
+        $this->assertSame('paid', $invoice->fresh()->status);
+    }
+
     public function test_reconcile_skips_payment_not_yet_confirmed_by_alatpay(): void
     {
         $user = User::factory()->create(['status' => 'active']);
