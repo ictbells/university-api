@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Payment;
 use App\Support\FeeSchedule;
 use App\Support\InstitutionLogo;
+use App\Support\ReceiptDate;
 use App\Support\ReceiptInstitution;
 use App\Support\ReceiptPayer;
 use Illuminate\Http\Response;
@@ -46,7 +47,7 @@ class ReceiptVerificationController extends Controller
             'payer_id_label' => $verified ? $payer['id_label'] : null,
             'category_label' => $verified ? $this->categoryLabel($payment) : null,
             'amount' => $verified ? (float) $payment->amount : null,
-            'paid_at' => $verified ? (optional($payment->created_at)->format('d M Y, h:i A') ?: '—') : null,
+            'paid_at' => $verified ? ReceiptDate::format($payment->created_at) : null,
         ])->render();
 
         return response($html, $verified ? 200 : 404, [

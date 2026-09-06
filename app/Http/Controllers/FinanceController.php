@@ -29,6 +29,7 @@ use App\Support\InvoiceSettlement;
 use App\Support\ListSessionLevelFilter;
 use App\Support\NairaWords;
 use App\Support\ProgrammeFeeResolver;
+use App\Support\ReceiptDate;
 use App\Support\ReceiptInstitution;
 use App\Support\ReceiptPayer;
 use App\Support\ReceiptQr;
@@ -589,10 +590,10 @@ class FinanceController extends Controller
             'category_label' => 'Campus wallet funding',
             'payment_method' => $method,
             'reference' => $payment->reference ?: '—',
-            'paid_at' => optional($payment->created_at)->format('d M Y, h:i A') ?: '—',
+            'paid_at' => ReceiptDate::format($payment->created_at),
             'amount' => $amount,
             'amount_words' => NairaWords::phrase($amount),
-            'generated_at' => now()->format('d M Y, h:i A'),
+            'generated_at' => ReceiptDate::format(now()),
         ])->render();
 
         $filename = 'receipt-'.$receiptNo.'.html';
@@ -613,8 +614,14 @@ class FinanceController extends Controller
         $invoice->load([
             'items',
             'user.student.program',
+            'user.latestApplication.program',
+            'user.latestApplication.steps',
             'student.program',
+            'student.application.program',
+            'student.application.steps',
+            'student.programmeChanges',
             'application.program',
+            'application.steps',
             'payments' => fn ($q) => $q->where('status', 'successful')->latest(),
         ]);
         if ($payment) {
@@ -651,14 +658,14 @@ class FinanceController extends Controller
             'invoice_number' => $invoice->number,
             'payment_method' => $this->paymentMethodLabel($payment->method ?: 'online'),
             'reference' => $payment->reference ?: '—',
-            'paid_at' => optional($payment->created_at)->format('d M Y, h:i A') ?: '—',
+            'paid_at' => ReceiptDate::format($payment->created_at),
             'amount' => $amount,
             'amount_words' => NairaWords::phrase($amount),
             'items' => $invoice->items->map(fn ($item) => [
                 'description' => $item->description,
                 'amount' => $item->amount,
             ])->all(),
-            'generated_at' => now()->format('d M Y, h:i A'),
+            'generated_at' => ReceiptDate::format(now()),
         ])->render();
 
         $filename = 'receipt-'.$receiptNo.'.html';

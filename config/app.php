@@ -69,7 +69,19 @@ return [
     |
     */
 
-    'timezone' => 'UTC',
+    'timezone' => env('APP_TIMEZONE', 'UTC'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Display Timezone
+    |--------------------------------------------------------------------------
+    |
+    | User-facing documents (receipts, etc.) are shown in this timezone so they
+    | match browser-local timestamps on staff dashboards in Nigeria.
+    |
+    */
+
+    'display_timezone' => env('APP_DISPLAY_TIMEZONE', 'Africa/Lagos'),
 
     /*
     |--------------------------------------------------------------------------

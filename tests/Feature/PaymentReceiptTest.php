@@ -288,6 +288,200 @@ class PaymentReceiptTest extends TestCase
         $this->assertStringContainsString('100 Level', $html);
     }
 
+    public function test_tuition_receipt_shows_course_from_soft_deleted_programme(): void
+    {
+        $user = User::factory()->create(['name' => 'Bola Adebayo', 'status' => 'active']);
+        $campus = \App\Models\Campus::query()->firstOrCreate(['name' => 'Main'], ['is_active' => true]);
+        $faculty = \App\Models\Faculty::query()->firstOrCreate(
+            ['name' => 'College of Engineering'],
+            ['campus_id' => $campus->id, 'is_active' => true],
+        );
+        $department = \App\Models\Department::query()->firstOrCreate(
+            ['name' => 'Electrical Engineering', 'faculty_id' => $faculty->id],
+            ['is_active' => true],
+        );
+        $program = \App\Models\Program::query()->create([
+            'department_id' => $department->id,
+            'name' => 'B.Eng Electrical Engineering',
+            'code' => 'EEE-SOFT',
+            'award_type' => 'B.Eng',
+            'study_level' => 'undergraduate',
+            'entry_modes' => ['utme'],
+            'duration_years' => 5,
+            'is_active' => true,
+        ]);
+        $student = \App\Models\Student::query()->create([
+            'user_id' => $user->id,
+            'program_id' => $program->id,
+            'first_name' => 'Bola',
+            'last_name' => 'Adebayo',
+            'matric_number' => '2025/000333',
+            'current_level' => 100,
+            'status' => 'active',
+        ]);
+        $program->delete();
+
+        $invoice = Invoice::query()->create([
+            'number' => 'INV-SOFT-PROG',
+            'user_id' => $user->id,
+            'student_id' => $student->id,
+            'category' => 'tuition',
+            'amount' => 40000,
+            'full_amount' => 40000,
+            'balance' => 0,
+            'status' => 'paid',
+            'wallet_allowed' => true,
+        ]);
+        $invoice->items()->create(['description' => 'Tuition', 'amount' => 40000]);
+        $invoice->payments()->create([
+            'user_id' => $user->id,
+            'method' => 'wallet',
+            'amount' => 40000,
+            'status' => 'successful',
+            'reference' => 'WALLET-SOFT-PROG',
+            'receipt_no' => 'RCP-SOFTPROG',
+            'purpose' => 'tuition',
+        ]);
+
+        Sanctum::actingAs($user);
+        $html = $this->get('/api/invoices/'.$invoice->id.'/receipt')
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('Course', $html);
+        $this->assertStringContainsString('B.Eng Electrical Engineering', $html);
+    }
+
+    public function test_tuition_receipt_resolves_course_from_user_application_when_student_program_missing(): void
+    {
+        $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
+        $campus = \App\Models\Campus::query()->firstOrCreate(['name' => 'Main'], ['is_active' => true]);
+        $faculty = \App\Models\Faculty::query()->firstOrCreate(
+            ['name' => 'College of Natural Sciences'],
+            ['campus_id' => $campus->id, 'is_active' => true],
+        );
+        $department = \App\Models\Department::query()->firstOrCreate(
+            ['name' => 'Computer Science', 'faculty_id' => $faculty->id],
+            ['is_active' => true],
+        );
+        $program = \App\Models\Program::query()->create([
+            'department_id' => $department->id,
+            'name' => 'B.Sc Computer Science',
+            'code' => 'CSC-FALLBACK',
+            'award_type' => 'B.Sc',
+            'study_level' => 'undergraduate',
+            'entry_modes' => ['utme'],
+            'duration_years' => 4,
+            'is_active' => true,
+        ]);
+        $session = \App\Models\AcademicSession::query()->firstOrCreate(['label' => '2025/2026']);
+        $term = \App\Models\AcademicTerm::query()->firstOrCreate(
+            ['academic_session_id' => $session->id, 'name' => 'First'],
+            ['session_label' => '2025/2026', 'is_current' => true],
+        );
+        $intake = \App\Models\Intake::query()->firstOrCreate(
+            ['entry_mode' => 'utme'],
+            [
+                'academic_term_id' => $term->id,
+                'name' => 'UTME 2025',
+                'is_open' => true,
+                'application_fee_amount' => 5000,
+                'acceptance_fee_amount' => 25000,
+                'opens_on' => now()->subDay()->toDateString(),
+                'closes_on' => now()->addMonth()->toDateString(),
+            ],
+        );
+        \App\Models\Application::query()->create([
+            'user_id' => $user->id,
+            'program_id' => $program->id,
+            'intake_id' => $intake->id,
+            'entry_mode' => 'utme',
+            'stage' => 'enrolled',
+            'application_number' => 'APP/2025/00092',
+        ]);
+        // Student has level/matric but no program_id and no application_id (common after import).
+        $student = \App\Models\Student::query()->create([
+            'user_id' => $user->id,
+            'program_id' => null,
+            'application_id' => null,
+            'first_name' => 'Ada',
+            'last_name' => 'Okoye',
+            'matric_number' => '2024/000001',
+            'current_level' => 100,
+            'status' => 'active',
+        ]);
+        $invoice = Invoice::query()->create([
+            'number' => 'INV-NO-PROG-LINK',
+            'user_id' => $user->id,
+            'student_id' => $student->id,
+            'application_id' => null,
+            'category' => 'tuition',
+            'amount' => 50000,
+            'full_amount' => 100000,
+            'balance' => 0,
+            'status' => 'paid',
+            'wallet_allowed' => true,
+            'installment_percent' => 50,
+        ]);
+        $invoice->items()->create(['description' => 'Tuition (50%)', 'amount' => 50000]);
+        $invoice->payments()->create([
+            'user_id' => $user->id,
+            'method' => 'wallet',
+            'amount' => 50000,
+            'status' => 'successful',
+            'reference' => 'WALLET-NO-PROG',
+            'receipt_no' => 'RCP-NOPROG',
+            'purpose' => 'tuition',
+        ]);
+
+        Sanctum::actingAs($user);
+        $html = $this->get('/api/invoices/'.$invoice->id.'/receipt')
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('Course', $html);
+        $this->assertStringContainsString('B.Sc Computer Science', $html);
+        $this->assertStringContainsString('100 Level', $html);
+    }
+
+    public function test_receipt_date_paid_uses_display_timezone(): void
+    {
+        config(['app.timezone' => 'UTC', 'app.display_timezone' => 'Africa/Lagos']);
+
+        $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
+        $invoice = Invoice::query()->create([
+            'number' => 'INV-TZ-RCP',
+            'user_id' => $user->id,
+            'category' => 'application_fee',
+            'amount' => 5000,
+            'full_amount' => 5000,
+            'balance' => 0,
+            'status' => 'paid',
+            'wallet_allowed' => false,
+        ]);
+        $invoice->items()->create(['description' => 'Application fee', 'amount' => 5000]);
+        $payment = $invoice->payments()->create([
+            'user_id' => $user->id,
+            'method' => 'paystack',
+            'amount' => 5000,
+            'status' => 'successful',
+            'reference' => 'PSK-TZ-1',
+            'receipt_no' => 'RCP-TZ01',
+            'purpose' => 'application_fee',
+            'created_at' => '2026-09-04 10:17:11',
+            'updated_at' => '2026-09-04 10:17:11',
+        ]);
+
+        Sanctum::actingAs($user);
+        $html = $this->get('/api/invoices/'.$invoice->id.'/receipt')
+            ->assertOk()
+            ->getContent();
+
+        // UTC 10:17 → Africa/Lagos (UTC+1) 11:17, matching browser-local payment list.
+        $this->assertStringContainsString('04 Sep 2026, 11:17 AM', $html);
+        $this->assertSame('RCP-TZ01', $payment->receipt_no);
+    }
+
     public function test_tuition_receipt_lists_fee_component_particulars(): void
     {
         $user = User::factory()->create(['name' => 'Bola Adebayo', 'status' => 'active']);

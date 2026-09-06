@@ -24,15 +24,19 @@ class ReceiptPayer
     {
         $invoice->loadMissing([
             'user.student.program',
+            'user.latestApplication.program',
+            'user.latestApplication.steps',
             'student.program',
+            'student.application.program',
+            'student.application.steps',
             'application.program',
             'application.steps',
             'application.user.student.program',
         ]);
 
         $student = self::resolveStudent($invoice, $payment);
-        $application = $invoice->application;
-        $user = $invoice->user ?: $payment?->user;
+        $user = $invoice->user ?: $payment?->user ?: $student?->user;
+        $application = self::resolveApplication($invoice, $student, $user);
         $category = strtolower((string) $invoice->category);
         $showAcademic = $category !== 'application_fee';
 
@@ -84,14 +88,38 @@ class ReceiptPayer
             ?: $payment?->user?->student;
 
         if (! $student && $invoice->user_id) {
-            $student = Student::query()->with('program')->where('user_id', $invoice->user_id)->first();
+            $student = Student::query()
+                ->with(['program', 'application.program', 'application.steps', 'programmeChanges'])
+                ->where('user_id', $invoice->user_id)
+                ->first();
         }
 
-        if ($student && $student->program_id && ! $student->relationLoaded('program')) {
-            $student->load('program');
+        if ($student) {
+            $student->loadMissing(['program', 'application.program', 'application.steps', 'programmeChanges']);
         }
 
         return $student;
+    }
+
+    private static function resolveApplication(Invoice $invoice, ?Student $student, ?User $user): ?Application
+    {
+        $application = $invoice->application
+            ?: $student?->application
+            ?: $user?->latestApplication;
+
+        if (! $application && $user?->id) {
+            $application = Application::query()
+                ->with(['program', 'steps'])
+                ->where('user_id', $user->id)
+                ->latest('id')
+                ->first();
+        }
+
+        if ($application) {
+            $application->loadMissing(['program', 'steps']);
+        }
+
+        return $application;
     }
 
     private static function name(?User $user, ?Student $student, ?Invoice $invoice): string
@@ -133,33 +161,49 @@ class ReceiptPayer
 
     private static function programme(?Student $student, ?Application $application): ?string
     {
-        if ($student?->program_id) {
-            $student->loadMissing('program');
+        if ($student) {
+            $student->loadMissing(['program', 'application.program', 'application.steps']);
         }
-        $fromStudent = trim((string) ($student?->program?->name ?? ''));
-        if ($fromStudent !== '') {
-            return $fromStudent;
-        }
-
-        if (! $application) {
-            return null;
+        if ($application) {
+            $application->loadMissing(['program', 'steps']);
         }
 
-        $application->loadMissing(['program', 'steps']);
-        $fromApplication = trim((string) ($application->program?->name ?? ''));
-        if ($fromApplication !== '') {
-            return $fromApplication;
-        }
+        $latestChangeProgramId = $student?->programmeChanges?->last()?->to_program_id;
 
-        $firstChoiceId = ProgrammeEligibility::firstChoiceId($application);
-        if ($firstChoiceId) {
-            $name = Program::query()->whereKey($firstChoiceId)->value('name');
-            if (is_string($name) && trim($name) !== '') {
-                return trim($name);
+        foreach ([
+            $student?->program_id,
+            $application?->program_id,
+            $student?->application?->program_id,
+            $latestChangeProgramId,
+            $student?->application ? ProgrammeEligibility::firstChoiceId($student->application) : null,
+            $application ? ProgrammeEligibility::firstChoiceId($application) : null,
+        ] as $programId) {
+            $name = self::programmeNameById($programId ? (int) $programId : null);
+            if ($name) {
+                return $name;
             }
         }
 
-        return null;
+        $fromRelation = trim((string) (
+            $student?->program?->name
+            ?: $application?->program?->name
+            ?: $student?->application?->program?->name
+            ?: ''
+        ));
+
+        return $fromRelation !== '' ? $fromRelation : null;
+    }
+
+    private static function programmeNameById(?int $programId): ?string
+    {
+        if (! $programId) {
+            return null;
+        }
+
+        // Soft-deleted programmes must still print on historical receipts.
+        $name = Program::withTrashed()->whereKey($programId)->value('name');
+
+        return is_string($name) && trim($name) !== '' ? trim($name) : null;
     }
 
     private static function level(?Student $student, ?Invoice $invoice, ?Application $application): ?string
