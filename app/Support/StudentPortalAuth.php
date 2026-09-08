@@ -19,6 +19,10 @@ class StudentPortalAuth
         return str_contains($login, '/') || str_starts_with($login, 'BUT');
     }
 
+    /**
+     * Generated refs are APP/{year}/{serial}. Imports may keep a legacy number
+     * such as BELLS-APP-NUM-JUPEB-0119 — those are resolved by DB lookup instead.
+     */
     public static function looksLikeApplicationNumber(string $login): bool
     {
         return str_starts_with($login, 'APP/');
@@ -44,22 +48,21 @@ class StudentPortalAuth
             ]);
         }
 
-        if (self::looksLikeApplicationNumber($key)) {
-            $application = Application::query()
-                ->where('application_number', $key)
-                ->with('user.student')
-                ->first();
-
-            return $application?->user;
-        }
-
-        if (self::looksLikeMatric($key)) {
+        if (self::looksLikeMatric($key) && ! self::looksLikeApplicationNumber($key)) {
             $student = Student::query()
-                ->whereRaw('UPPER(matric_number) = ?', [$key])
+                ->whereRaw('UPPER(REPLACE(COALESCE(matric_number, ""), " ", "")) = ?', [$key])
                 ->with('user')
                 ->first();
 
             return $student?->user;
+        }
+
+        $application = Application::query()
+            ->whereRaw('UPPER(REPLACE(COALESCE(application_number, ""), " ", "")) = ?', [$key])
+            ->with('user.student')
+            ->first();
+        if ($application?->user) {
+            return $application->user;
         }
 
         $user = User::query()->where('jamb_registration', $key)->with('student')->first();
