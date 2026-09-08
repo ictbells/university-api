@@ -6,7 +6,6 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\User;
 use App\Support\FeeSchedule;
-use Illuminate\Support\Str;
 
 class PaymentFulfillmentService
 {
@@ -105,7 +104,7 @@ class PaymentFulfillmentService
         }
         $payment->update([
             'status' => 'successful',
-            'receipt_no' => 'RCP-'.Str::upper(Str::random(8)),
+            'receipt_no' => app(BursaryDocumentSequence::class)->allocate(),
         ]);
 
         if ($payment->invoice_id) {

@@ -87,7 +87,7 @@ Route::get('/transcript-requests/{token}/download', [TranscriptRequestController
 Route::get('/portal-info', [InstitutionController::class, 'portalInfo']);
 Route::get('/receipts/{receipt_no}/verify', [ReceiptVerificationController::class, 'show'])
     ->middleware(['signed', 'throttle:60,1'])
-    ->where('receipt_no', '[A-Za-z0-9\-]+')
+    ->where('receipt_no', '[A-Za-z0-9\-\/]+')
     ->name('receipts.verify');
 Route::get('/admission-guide', [AdmissionGuideController::class, 'publicShow']);
 Route::get('/admission-guide/print', [AdmissionGuideController::class, 'publicPrint']);

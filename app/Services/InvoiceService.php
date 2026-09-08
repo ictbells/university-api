@@ -18,7 +18,6 @@ use App\Support\ProgrammeFeeResolver;
 use App\Support\Studentship;
 use App\Support\TuitionProgress;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -67,13 +66,23 @@ class InvoiceService
         ?int $applicationId = null,
         ?int $studentId = null,
         ?int $feeItemId = null,
+        ?string $number = null,
+        bool $advanceBursarySequence = true,
     ): Invoice {
         $amount = round($amount, 2);
         if ($amount <= 0) {
             throw new InvalidArgumentException('Charge amount must be greater than zero.');
         }
 
-        $number = $this->nextInvoiceNumber();
+        $provided = $number !== null && trim($number) !== '';
+        if ($provided) {
+            $number = trim($number);
+            if ($advanceBursarySequence && app(BursaryDocumentSequence::class)->parse($number)) {
+                app(BursaryDocumentSequence::class)->noteIssued($number);
+            }
+        } else {
+            $number = $this->nextInvoiceNumber();
+        }
         $invoice = Invoice::query()->create([
             'number' => $number,
             'user_id' => $user->id,
@@ -857,33 +866,7 @@ class InvoiceService
 
     private function nextInvoiceNumber(): string
     {
-        $prefix = 'INV-'.now()->format('Ymd').'-';
-
-        return DB::transaction(function () use ($prefix) {
-            // Serialize allocation and include soft-deleted rows so we never recycle a
-            // number that still occupies the unique index.
-            Invoice::withTrashed()->lockForUpdate()->orderByDesc('id')->first();
-
-            $last = Invoice::withTrashed()
-                ->where('number', 'like', $prefix.'%')
-                ->orderByDesc('id')
-                ->value('number');
-
-            $sequence = 1;
-            if (is_string($last) && preg_match('/(\d+)$/', $last, $matches)) {
-                $sequence = (int) $matches[1] + 1;
-            }
-
-            $candidate = $prefix.str_pad((string) $sequence, 5, '0', STR_PAD_LEFT);
-
-            // Extremely rare race across connections: bump until free.
-            while (Invoice::withTrashed()->where('number', $candidate)->exists()) {
-                $sequence++;
-                $candidate = $prefix.str_pad((string) $sequence, 5, '0', STR_PAD_LEFT);
-            }
-
-            return $candidate;
-        });
+        return app(BursaryDocumentSequence::class)->allocate();
     }
 
     private function currentSessionId(): ?int

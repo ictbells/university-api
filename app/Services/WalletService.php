@@ -70,7 +70,7 @@ class WalletService
             'amount' => $payAmount,
             'status' => 'successful',
             'reference' => 'WALLET-'.$invoice->number,
-            'receipt_no' => 'RCP-'.Str::upper(Str::random(6)),
+            'receipt_no' => app(BursaryDocumentSequence::class)->allocate(),
             'purpose' => $invoice->category,
         ]);
 

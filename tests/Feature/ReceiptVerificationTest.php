@@ -49,6 +49,37 @@ class ReceiptVerificationTest extends TestCase
         $this->assertStringContainsString('Application fee', $html);
     }
 
+    public function test_signed_verify_url_supports_but_serial_receipt_numbers(): void
+    {
+        $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
+        $invoice = Invoice::query()->create([
+            'number' => 'BUT/2026/0001',
+            'user_id' => $user->id,
+            'category' => 'application_fee',
+            'amount' => 5000,
+            'full_amount' => 5000,
+            'balance' => 0,
+            'status' => 'paid',
+            'wallet_allowed' => false,
+        ]);
+        $invoice->payments()->create([
+            'user_id' => $user->id,
+            'method' => 'paystack',
+            'amount' => 5000,
+            'status' => 'successful',
+            'reference' => 'PSK-VERIFY-BUT',
+            'receipt_no' => 'BUT/2026/0002',
+            'purpose' => 'application_fee',
+        ]);
+
+        $html = $this->get(ReceiptQr::verifyUrl('BUT/2026/0002'))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('Receipt verified', $html);
+        $this->assertStringContainsString('BUT/2026/0002', $html);
+    }
+
     public function test_unsigned_or_tampered_verify_url_is_forbidden(): void
     {
         $this->get('/api/receipts/RCP-VERIFY1/verify')->assertForbidden();

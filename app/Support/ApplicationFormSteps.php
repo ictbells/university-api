@@ -33,6 +33,23 @@ class ApplicationFormSteps
     public const CREDIT_DECISIONS = ['accept', 'accept_with_conditions', 'reject'];
 
     /**
+     * Persist numeric codes (200/300). Blank values and labels like "200 Level" normalize here.
+     *
+     * @param  list<string>  $allowed
+     */
+    public static function normalizeEntryLevel(mixed $raw, array $allowed, string $fallback): string
+    {
+        $text = trim((string) ($raw ?? ''));
+        if ($text === '') {
+            return $fallback;
+        }
+
+        $digits = trim((string) preg_replace('/\s*Level$/i', '', $text));
+
+        return in_array($digits, $allowed, true) ? $digits : $fallback;
+    }
+
+    /**
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
@@ -141,6 +158,12 @@ class ApplicationFormSteps
      */
     public static function validateDirectEntry(Request $request, array $payload): array
     {
+        $payload['requested_entry_level'] = self::normalizeEntryLevel(
+            $payload['requested_entry_level'] ?? null,
+            self::DE_ENTRY_LEVELS,
+            '200',
+        );
+
         $request->merge(['payload' => $payload]);
         $payload = $request->validate([
             'payload.jamb_de_number' => 'nullable|string|max:20',
@@ -166,6 +189,12 @@ class ApplicationFormSteps
      */
     public static function validateTransferBackground(Request $request, array $payload): array
     {
+        $payload['requested_entry_level'] = self::normalizeEntryLevel(
+            $payload['requested_entry_level'] ?? null,
+            self::TRANSFER_ENTRY_LEVELS,
+            '200',
+        );
+
         $request->merge(['payload' => $payload]);
 
         return $request->validate([

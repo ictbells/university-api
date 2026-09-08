@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.46  
+**Version:** 1.47  
 **Effective date:** September 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -601,6 +601,7 @@ Staff and students open the same HTML **Official Receipt** (Print / Download). T
 | Identity | Prefer **Matric number** for returning / enrolled students; otherwise application number, then JAMB |
 | **Course** and **Level** | Shown on **acceptance** and **tuition** (and similar post-admission fees). Hidden on **application fee** (candidate may not yet have a programme). Course resolves from the student programme, linked application, or first-choice selection — including soft-deleted programmes so historical receipts still print the name |
 | **Particulars** | Each invoice fee line and amount (for example Tuition, BUPF, BUSA) |
+| **Invoice / receipt number** | New system invoices and payments use serial `BUT/{admission year}/{####}` (for example `BUT/2026/0001`), sharing one counter for the year. **Import invoices** and **Import wallet history** keep the spreadsheet / legacy numbers and do not advance that counter. Optional env: `BURSARY_DOC_LAST`, `BURSARY_DOC_YEAR`, `BURSARY_DOC_DIGITS` |
 | **Date paid** | Shown in **Africa/Lagos** so it matches the Payments list timestamp in Nigeria (server storage remains UTC) |
 
 #### Programme fees (25% matrix)
@@ -805,6 +806,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.44 | Aug 2026 | Platform team | Cross-college change of programme CGPA keeps only old-programme levels below the new level |
 | 1.45 | Sep 2026 | Platform team | Applicant import: phone and programme optional; blank old_application_number generates APP/{year}/{#####}; pending invoices match that number or JAMB. Invoice import screen: Posted / Pending / Accounts waiting / N row(s) per key. Candidate list no longer blocks signup or submit. Credentials email requires record update before submit. |
 | 1.46 | Sep 2026 | Platform team | Official Receipt: title and Bursar sign-off; Course/Level on acceptance and tuition (not application fee); Matric preferred; invoice amount only; Particulars; Date paid in Africa/Lagos to match Payments list |
+| 1.47 | Sep 2026 | Platform team | New invoice/receipt numbers use shared serial BUT/{admission year}/{####}; import invoices/wallet keep old numbers |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

@@ -431,6 +431,7 @@ class InvoiceImportService
 
         $application = $application ?? $student?->application;
         $description = $this->description($payload);
+        $importNumber = $number !== '' ? $number : $this->nextLegacyNumber((string) ($payload['session_label'] ?? ''));
         $invoice = $this->invoices->createForCharge(
             $user,
             (string) $payload['category'],
@@ -438,10 +439,11 @@ class InvoiceImportService
             $description,
             $application?->id ?? $student?->application_id,
             $student?->id,
+            null,
+            $importNumber,
+            false, // keep old/legacy numbers; do not advance BUT/{year}/{####}
         );
-        $number = $number !== '' ? $number : $this->nextLegacyNumber((string) ($payload['session_label'] ?? ''));
         $invoice->update([
-            'number' => $number,
             'installment_percent' => $payload['installment_percent'] ?? null,
             'full_amount' => $payload['full_amount'] ?? $payload['amount'],
             'wallet_allowed' => FeeSchedule::walletAllowed((string) $payload['category']),

@@ -27,4 +27,13 @@ return [
 
     'matric_digits' => (int) env('MATRIC_DIGITS', 6),
 
+    /*
+    | Shared serial for invoice numbers and payment receipt numbers.
+    | Format: BUT/{admission year}/{####} e.g. BUT/2026/0001
+    */
+    'bursary_doc_prefix' => env('BURSARY_DOC_PREFIX', 'BUT'),
+    'bursary_doc_last' => env('BURSARY_DOC_LAST', ''),
+    'bursary_doc_year' => env('BURSARY_DOC_YEAR', ''),
+    'bursary_doc_digits' => (int) env('BURSARY_DOC_DIGITS', 4),
+
 ];
