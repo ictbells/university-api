@@ -176,6 +176,8 @@ class OfficeApprovalCatalog
             'results.import' => ['nav_key' => 'results-import', 'label' => 'Upload score', 'mutation' => self::MUTATION_CREATE],
             'results.update_grading_scale' => ['nav_key' => 'results-grading-scale', 'label' => 'Update grading scale', 'mutation' => self::MUTATION_UPDATE],
             'settings.update' => ['nav_key' => 'application-settings', 'label' => 'Update application settings', 'mutation' => self::MUTATION_UPDATE],
+            'settings.upload_registrar_signature' => ['nav_key' => 'application-settings', 'label' => 'Upload registrar signature', 'mutation' => self::MUTATION_UPDATE],
+            'settings.delete_registrar_signature' => ['nav_key' => 'application-settings', 'label' => 'Remove registrar signature', 'mutation' => self::MUTATION_DELETE],
             'institution.update_settings' => ['nav_key' => 'application-settings', 'label' => 'Update institution settings', 'mutation' => self::MUTATION_UPDATE],
             'reports.store' => ['nav_key' => 'reports', 'label' => 'Save report', 'mutation' => self::MUTATION_CREATE],
             'reports.update' => ['nav_key' => 'reports', 'label' => 'Update saved report', 'mutation' => self::MUTATION_UPDATE],

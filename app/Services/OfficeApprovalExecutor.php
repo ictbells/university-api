@@ -304,6 +304,8 @@ class OfficeApprovalExecutor
             'results.import' => [\App\Http\Controllers\ResultsController::class, 'import', null],
             'results.update_grading_scale' => [\App\Http\Controllers\ResultsController::class, 'updateGradingScale', ['key' => 'grading_scale_id', 'class' => GradingScale::class]],
             'settings.update' => [\App\Http\Controllers\SecuritySettingsController::class, 'update', null],
+            'settings.upload_registrar_signature' => [\App\Http\Controllers\SecuritySettingsController::class, 'uploadRegistrarSignature', null],
+            'settings.delete_registrar_signature' => [\App\Http\Controllers\SecuritySettingsController::class, 'destroyRegistrarSignature', null],
             'institution.update_settings' => [\App\Http\Controllers\InstitutionController::class, 'updateSettings', null],
             'reports.store' => [\App\Http\Controllers\ReportController::class, 'storeSaved', null],
             'reports.update' => [\App\Http\Controllers\ReportController::class, 'updateSaved', ['key' => 'saved_report_id', 'class' => SavedReport::class]],

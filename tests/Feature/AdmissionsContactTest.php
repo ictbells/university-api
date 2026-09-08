@@ -7,6 +7,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Support\AdmissionsContactSettings;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -93,6 +94,39 @@ class AdmissionsContactTest extends TestCase
             ->assertOk()
             ->assertJsonPath('registrar_name', 'Lamidi S. Tafa (Mr.)')
             ->assertJsonPath('registrar_title', 'Registrar');
+    }
+
+    public function test_staff_can_upload_and_remove_registrar_signature(): void
+    {
+        Sanctum::actingAs($this->staffUser(['settings.manage']));
+
+        $this->getJson('/api/security-settings')
+            ->assertOk()
+            ->assertJsonPath('registrar_has_signature', false);
+
+        $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
+        $path = sys_get_temp_dir().'/registrar-'.uniqid().'.png';
+        file_put_contents($path, $png);
+        $file = new UploadedFile($path, 'registrar.png', 'image/png', null, true);
+
+        $this->post('/api/security-settings/registrar-signature', [
+            'file' => $file,
+        ], ['Accept' => 'application/json'])
+            ->assertOk()
+            ->assertJsonPath('registrar_has_signature', true);
+
+        $this->getJson('/api/security-settings')
+            ->assertOk()
+            ->assertJsonPath('registrar_has_signature', true);
+        $this->assertStringStartsWith(
+            'data:image',
+            (string) $this->getJson('/api/security-settings')->json('registrar_signature_data_uri'),
+        );
+
+        $this->deleteJson('/api/security-settings/registrar-signature')
+            ->assertOk()
+            ->assertJsonPath('registrar_has_signature', false)
+            ->assertJsonPath('registrar_signature_data_uri', null);
     }
 
     /**

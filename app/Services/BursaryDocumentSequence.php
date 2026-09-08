@@ -6,13 +6,14 @@ use App\Models\AcademicSession;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\Setting;
-use App\Support\DotenvWriter;
 use App\Support\TuitionProgress;
 use Illuminate\Support\Facades\DB;
 
 /**
  * Shared serial for invoice numbers and payment receipt numbers:
  * BUT/{admission year}/{####} e.g. BUT/2026/0001
+ *
+ * Counter lives in settings (bursary_doc_last). Collisions bump via taken().
  */
 class BursaryDocumentSequence
 {
@@ -142,11 +143,6 @@ class BursaryDocumentSequence
             }
         }
 
-        $dbMax = $this->maxSerialInDatabase($year);
-        if ($dbMax > $best) {
-            return $this->format($year, $dbMax);
-        }
-
         return $bestValue;
     }
 
@@ -155,33 +151,10 @@ class BursaryDocumentSequence
      */
     private function knownValues(): array
     {
-        $values = [
+        return array_values(array_filter([
             (string) Setting::query()->where('key', self::SETTING_KEY)->value('value'),
             (string) config('sis.bursary_doc_last'),
-        ];
-        if (! $this->runningTests()) {
-            $values[] = (string) ($_ENV['BURSARY_DOC_LAST'] ?? getenv('BURSARY_DOC_LAST') ?: '');
-        }
-
-        return array_values(array_filter($values));
-    }
-
-    private function maxSerialInDatabase(int $year): int
-    {
-        $like = $this->prefix().'/'.$year.'/%';
-        $max = 0;
-
-        foreach (
-            Invoice::withTrashed()->where('number', 'like', $like)->pluck('number')
-                ->merge(Payment::query()->where('receipt_no', 'like', $like)->pluck('receipt_no')) as $value
-        ) {
-            $parsed = $this->parse((string) $value);
-            if ($parsed && $parsed['year'] === $year) {
-                $max = max($max, $parsed['serial']);
-            }
-        }
-
-        return $max;
+        ]));
     }
 
     private function taken(string $number): bool
@@ -194,15 +167,5 @@ class BursaryDocumentSequence
     {
         Setting::setValue(self::SETTING_KEY, $number);
         config(['sis.bursary_doc_last' => $number]);
-        if (! $this->runningTests()) {
-            DotenvWriter::set('BURSARY_DOC_LAST', $number);
-        }
-    }
-
-    private function runningTests(): bool
-    {
-        return app()->environment('testing')
-            || app()->runningUnitTests()
-            || defined('PHPUNIT_COMPOSER_INSTALL');
     }
 }

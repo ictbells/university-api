@@ -178,7 +178,7 @@ class StudentImportTest extends TestCase
         $this->assertTrue(RegistrationCriteria::studentsQuery()->whereKey($student->id)->exists());
         $this->assertEqualsWithDelta(50000, (float) $student->wallet->fresh()->balance, 0.01);
 
-        Mail::assertSent(ApplicationCredentialsMail::class, function (ApplicationCredentialsMail $mail) {
+        Mail::assertQueued(ApplicationCredentialsMail::class, function (ApplicationCredentialsMail $mail) {
             [$label, $value] = $mail->signInIdentity();
 
             return $mail->loginId === 'BUT/2019/M/0001'

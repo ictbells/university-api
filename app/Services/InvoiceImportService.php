@@ -543,13 +543,13 @@ class InvoiceImportService
 
         if ($matric !== '') {
             $student = Student::query()
-                ->whereRaw('UPPER(REPLACE(COALESCE(matric_number, ""), " ", "")) = ?', [$matric])
+                ->where('matric_number', $matric)
                 ->first();
         }
 
         if ($applicationNumber !== '') {
             $application = Application::query()
-                ->whereRaw('UPPER(REPLACE(COALESCE(application_number, ""), " ", "")) = ?', [$applicationNumber])
+                ->where('application_number', $applicationNumber)
                 ->first();
             if ($application && ! $student) {
                 $student = $application->student
@@ -561,12 +561,15 @@ class InvoiceImportService
             $user = User::query()->where('jamb_registration', $jamb)->first();
             if (! $application) {
                 $application = Application::query()
-                    ->whereRaw('UPPER(REPLACE(COALESCE(jamb_registration, ""), " ", "")) = ?', [$jamb])
+                    ->where('jamb_registration', $jamb)
                     ->latest('id')
                     ->first();
                 if (! $application && $user) {
                     $application = $user->latestApplication;
                 }
+            }
+            if (! $user) {
+                $user = $application?->user;
             }
             if (! $student) {
                 $student = $user?->student ?? $application?->student;

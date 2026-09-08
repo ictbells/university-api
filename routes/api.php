@@ -57,9 +57,12 @@ Route::get('/sanctum/csrf-cookie', [CsrfCookieController::class, 'show'])
 
 Route::post('/nin/preview', [AuthController::class, 'previewNin']);
 Route::post('/register', [AuthController::class, 'register']);
-Route::post('/login', [AuthController::class, 'login']);
-Route::post('/forgot-password', [AuthController::class, 'forgot']);
-Route::post('/reset-password', [AuthController::class, 'reset']);
+Route::post('/login', [AuthController::class, 'login'])
+    ->middleware('throttle:10,1');
+Route::post('/forgot-password', [AuthController::class, 'forgot'])
+    ->middleware('throttle:5,1');
+Route::post('/reset-password', [AuthController::class, 'reset'])
+    ->middleware('throttle:5,1');
 Route::post('/two-factor/setup', [TwoFactorController::class, 'setup']);
 Route::post('/two-factor/confirm', [TwoFactorController::class, 'confirm']);
 Route::post('/two-factor/verify', [TwoFactorController::class, 'verify']);
@@ -272,6 +275,8 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::middleware('permission:settings.manage')->group(function () {
         Route::get('/security-settings', [SecuritySettingsController::class, 'show']);
         Route::put('/security-settings', [SecuritySettingsController::class, 'update']);
+        Route::post('/security-settings/registrar-signature', [SecuritySettingsController::class, 'uploadRegistrarSignature']);
+        Route::delete('/security-settings/registrar-signature', [SecuritySettingsController::class, 'destroyRegistrarSignature']);
     });
 
     Route::middleware('permission:resources.view')->group(function () {

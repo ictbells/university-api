@@ -20,6 +20,7 @@ use App\Support\ImportLookupSheets;
 use App\Support\NinCipher;
 use App\Support\PhoneNumber;
 use App\Support\SpreadsheetImport;
+use App\Support\StudentPortalAuth;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
@@ -194,13 +195,13 @@ class ApplicantImportService
         return $count;
     }
 
-    public function shouldQueue(bool $verifyNin, int $rowCount): bool
+    public function shouldQueue(bool $verifyNin, int $rowCount, bool $sendCredentials = false): bool
     {
         if (config('queue.default') === 'sync') {
             return false;
         }
 
-        return $verifyNin || $rowCount >= self::QUEUE_ROW_THRESHOLD;
+        return $verifyNin || $sendCredentials || $rowCount >= self::QUEUE_ROW_THRESHOLD;
     }
 
     public function storeUpload(UploadedFile $file): string
@@ -259,8 +260,8 @@ class ApplicantImportService
 
         $nin = $this->optionalNin($data);
 
-        $jamb = strtoupper(str_replace(' ', '', (string) ($data['jamb_registration'] ?? '')));
-        $oldNumber = strtoupper(trim((string) ($data['old_application_number'] ?? '')));
+        $jamb = StudentPortalAuth::normalizeLogin((string) ($data['jamb_registration'] ?? ''));
+        $oldNumber = StudentPortalAuth::normalizeLogin((string) ($data['old_application_number'] ?? ''));
 
         $this->assertNotDuplicate($email, $nin, $jamb, $oldNumber, $intake->id);
 

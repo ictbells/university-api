@@ -32,6 +32,8 @@ class SecuritySettings
             ...StaffSupportContactSettings::all(),
             'studentship_years_after_graduation' => Studentship::yearsAfterGraduation(),
             ...TranscriptRequestSettings::all(),
+            'registrar_has_signature' => RegistrarSignature::exists(),
+            'registrar_signature_data_uri' => RegistrarSignature::dataUri(),
             ...PgResearchWordLimits::all(),
             ...PaymentGatewaySettings::all(),
         ];

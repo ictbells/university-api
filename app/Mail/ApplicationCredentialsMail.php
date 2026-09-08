@@ -6,12 +6,13 @@ use App\Models\Application;
 use App\Support\AdmissionEntryRules;
 use App\Support\StudentPortalAuth;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
-class ApplicationCredentialsMail extends Mailable
+class ApplicationCredentialsMail extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels;
 

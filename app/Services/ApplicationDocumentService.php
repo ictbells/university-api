@@ -10,6 +10,8 @@ use App\Support\AdmissionEntryRules;
 use App\Support\ApplicantPassport;
 use App\Support\InstitutionLogo;
 use App\Support\NairaWords;
+use App\Support\RegistrarSignature;
+use App\Support\TranscriptRequestSettings;
 use Illuminate\Support\Str;
 
 class ApplicationDocumentService
@@ -124,20 +126,35 @@ class ApplicationDocumentService
             : 'UNDERGRADUATE DEGREE PROGRAMME';
 
         $programmeKind = $application->program?->study_level === 'postgraduate'
-            ? 'a Postgraduate Degree Programme'
-            : 'a Bachelor Degree Programme';
+            ? 'Postgraduate Degree Programme'
+            : 'Bachelor Degree Programme';
 
-        return view('documents.admission-letter', [
+        $registrar = TranscriptRequestSettings::all();
+        $view = (string) $application->entry_mode === 'jupeb'
+            ? 'documents.admission-letter-jupeb'
+            : 'documents.admission-letter';
+
+        return view($view, [
             'institution' => $this->institution(),
+            'institution_with_city' => $this->institutionNameWithOta(),
+            'letterhead_name' => $this->letterheadName(),
             'logo_data_uri' => InstitutionLogo::dataUri(),
+            'signature_data_uri' => RegistrarSignature::dataUri(),
+            'registrar_name' => $registrar['registrar_name'] !== ''
+                ? $registrar['registrar_name']
+                : 'Lamidi S. Tafa (Mr.)',
+            'registrar_title' => $registrar['registrar_title'],
             'application' => $application,
             'full_name' => Str::upper($fullName),
-            'salutation_name' => Str::upper((string) $firstName),
+            'salutation_name' => Str::title(Str::lower((string) $firstName)),
             'address' => $contact['address'] ?? $biodata['address'] ?? null,
             'college' => $application->program?->department?->faculty?->name ?: 'College',
+            'department' => $application->program?->department?->name,
             'programme' => $application->program?->name ?: 'your chosen programme',
+            'programme_label' => $this->jupebProgrammeLabel($application),
             'programme_kind' => $programmeKind,
             'session' => $session,
+            'jupeb_exam_year' => $this->sessionEndYear((string) $session),
             'study_level' => $studyLevel,
             'offer_reference' => $this->formatOfferReference($application),
             'letter_date' => $issuedAt->format('jS F, Y'),
@@ -146,7 +163,7 @@ class ApplicationDocumentService
             'show_jamb_documents' => in_array((string) $application->entry_mode, AdmissionEntryRules::JAMB_ENTRY_MODES, true),
             'portal_url' => (string) Setting::getValue(
                 'application_portal_url',
-                'https://apply.bellsuniversityportal.com'
+                'https://student.bellsuniversity.edu.ng'
             ),
             'fees_url' => (string) Setting::getValue(
                 'school_fees_url',
@@ -176,11 +193,83 @@ class ApplicationDocumentService
 
     public function formatOfferReference(Application $application): string
     {
-        $application->loadMissing(['user', 'intake.term']);
-        $year = $this->offerReferenceYear($application);
+        $application->loadMissing(['user', 'intake.term', 'program.department.faculty']);
+        if ((string) $application->entry_mode === 'jupeb') {
+            $year = $this->sessionEndYear((string) ($application->intake?->term?->session_label ?? ''));
+            $serial = $this->jupebOfferSerial($application);
+
+            return 'BUT/AD/JFS/'.$year.'/JU/'.$serial;
+        }
+
+        $code = $this->offerCollegeCode($application);
+        $year = substr($this->offerReferenceYear($application), -2);
         $suffix = $this->offerReferenceSuffix($application);
 
-        return 'BUT/AD/'.$year.'/'.$suffix;
+        return 'BUT/AD/'.$code.'/'.$year.'/'.$suffix;
+    }
+
+    private function offerCollegeCode(Application $application): string
+    {
+        $code = strtoupper((string) preg_replace(
+            '/[^A-Za-z0-9]/',
+            '',
+            (string) ($application->program?->department?->faculty?->code ?? ''),
+        ));
+        if ($code !== '') {
+            return $code;
+        }
+
+        return $application->program?->study_level === 'postgraduate' ? 'PG' : 'UG';
+    }
+
+    private function jupebOfferSerial(Application $application): string
+    {
+        $source = (string) ($application->application_number ?: $application->id);
+        if (preg_match('/(\d+)\s*$/', $source, $matches)) {
+            return str_pad($matches[1], 4, '0', STR_PAD_LEFT);
+        }
+
+        return str_pad((string) $application->id, 4, '0', STR_PAD_LEFT);
+    }
+
+    private function jupebProgrammeLabel(Application $application): string
+    {
+        $name = trim((string) ($application->program?->name ?: 'JUPEB'));
+        $name = trim((string) preg_replace('/\s+foundation(\s+programme)?$/i', '', $name));
+
+        return $name !== '' ? $name : 'JUPEB';
+    }
+
+    private function letterheadName(): string
+    {
+        return strtoupper($this->institutionNameWithOta());
+    }
+
+    private function institutionNameWithOta(): string
+    {
+        $name = trim((string) Setting::getValue('university_name', 'Bells University of Technology'));
+        if ($name === '') {
+            $name = 'Bells University of Technology';
+        }
+        if (! str_contains(strtoupper($name), 'OTA')) {
+            $name .= ', Ota';
+        }
+
+        return $name;
+    }
+
+    private function sessionEndYear(string $session): string
+    {
+        if (preg_match('/(\d{4})\s*\/\s*(\d{2,4})/', $session, $matches)) {
+            $end = $matches[2];
+
+            return strlen($end) === 2 ? substr($matches[1], 0, 2).$end : $end;
+        }
+        if (preg_match('/(\d{4})/', $session, $matches)) {
+            return (string) ((int) $matches[1] + 1);
+        }
+
+        return now()->addYear()->format('Y');
     }
 
     private function offerReferenceYear(Application $application): string

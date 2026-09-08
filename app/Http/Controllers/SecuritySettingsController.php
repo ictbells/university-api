@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\RegistrarSignature;
 use App\Support\SecuritySettings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,6 +14,42 @@ class SecuritySettingsController extends Controller
     public function show(): JsonResponse
     {
         return response()->json(SecuritySettings::all());
+    }
+
+    public function uploadRegistrarSignature(Request $request): JsonResponse
+    {
+        $request->validate([
+            'file' => 'required|image|mimes:png,jpg,jpeg,webp|max:2048',
+        ]);
+
+        return $this->officeGate(
+            'settings.upload_registrar_signature',
+            null,
+            $this->persistApprovalUpload($request),
+            'Upload registrar signature',
+            function () use ($request) {
+                $file = $request->file('file');
+                abort_unless($file, 422, 'Choose a signature image to upload.');
+                RegistrarSignature::store($file);
+
+                return response()->json(SecuritySettings::all());
+            },
+        );
+    }
+
+    public function destroyRegistrarSignature(): JsonResponse
+    {
+        return $this->officeGate(
+            'settings.delete_registrar_signature',
+            null,
+            [],
+            'Remove registrar signature',
+            function () {
+                RegistrarSignature::delete();
+
+                return response()->json(SecuritySettings::all());
+            },
+        );
     }
 
     public function update(Request $request): JsonResponse

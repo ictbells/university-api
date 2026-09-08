@@ -174,7 +174,7 @@ class ApplicantImportTest extends TestCase
         $this->assertTrue($application->user->roles()->where('slug', 'applicant')->exists());
 
         $plain = null;
-        Mail::assertSent(ApplicationCredentialsMail::class, function (ApplicationCredentialsMail $mail) use (&$plain) {
+        Mail::assertQueued(ApplicationCredentialsMail::class, function (ApplicationCredentialsMail $mail) use (&$plain) {
             $plain = $mail->plainPassword;
             [$label, $value] = $mail->signInIdentity();
 
@@ -489,6 +489,7 @@ class ApplicantImportTest extends TestCase
             ->assertJsonPath('data.emailed', 0);
 
         Mail::assertNothingSent();
+        Mail::assertNothingQueued();
         $this->postJson('/api/login', [
             'portal' => 'student',
             'login' => '12345678CD',

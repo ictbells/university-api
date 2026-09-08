@@ -5,8 +5,12 @@ namespace Tests\Feature;
 use App\Models\AcademicSession;
 use App\Models\AcademicTerm;
 use App\Models\Application;
+use App\Models\Campus;
+use App\Models\Department;
+use App\Models\Faculty;
 use App\Models\Intake;
 use App\Models\Invoice;
+use App\Models\Program;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -243,17 +247,72 @@ class OfferAcceptancePortalTest extends TestCase
             ->assertOk()
             ->getContent();
 
-        $this->assertStringContainsString('OFFER OF ADMISSION FOR THE 2026/2027 ACADEMIC SESSION', $html);
+        $this->assertStringContainsString('ADMISSION FOR THE 2026/2027 ACADEMIC SESSION', $html);
+        $this->assertStringContainsString('UNDERGRADUATE DEGREE PROGRAMME', $html);
         $this->assertStringContainsString('With reference to your application for admission', $html);
         $this->assertStringContainsString('having fulfilled the admission requirements', $html);
-        $this->assertStringContainsString('https://apply.bellsuniversityportal.com', $html);
-        $this->assertStringContainsString('N100,000', $html);
+        $this->assertStringContainsString('https://student.bellsuniversity.edu.ng', $html);
+        $this->assertStringContainsString('₦100,000.00', $html);
         $this->assertStringContainsString('One Hundred Thousand Naira', $html);
+        $this->assertStringContainsString('print your receipt', $html);
         $this->assertStringContainsString('Pay-As-You-Eat (PAYE)', $html);
         $this->assertStringContainsString('Student Information Handbook', $html);
         $this->assertStringContainsString('Admission letter as issued by JAMB', $html);
         $this->assertStringContainsString('Only the best is good for Bells', $html);
-        $this->assertStringContainsString('BUT/AD/2026/20269876543CD', $html);
+        $this->assertStringContainsString('Ref. No.: BUT/AD/UG/26/20269876543CD', $html);
+    }
+
+    public function test_jupeb_admission_letter_uses_foundation_wording(): void
+    {
+        $user = $this->jupebApplicantWithOffer();
+        Sanctum::actingAs($user);
+        $application = $user->latestApplication;
+
+        $html = $this->get("/api/applications/{$application->id}/offer-letter")
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('OFFER OF PROVISIONAL ADMISSION INTO THE 2026/2027 FOUNDATION PROGRAMME', $html);
+        $this->assertStringContainsString('JUPEB SCIENCE', $html);
+        $this->assertStringContainsString('Foundation Programme', $html);
+        $this->assertStringContainsString('Joint Universities Preliminary Examinations Board (JUPEB)', $html);
+        $this->assertStringContainsString('August 2027', $html);
+        $this->assertStringContainsString('2026/2027 Direct Entry', $html);
+        $this->assertStringContainsString('one week from the receipt of this letter', $html);
+        $this->assertStringContainsString('N100,000', $html);
+        $this->assertStringContainsString('One Hundred Thousand Naira', $html);
+        $this->assertStringContainsString('Pay-As-You-Eat (PAYE)', $html);
+        $this->assertStringContainsString('mandatory medical screening', $html);
+        $this->assertStringContainsString('Student Information Handbook', $html);
+        $this->assertStringContainsString('Only the best is good for Bells', $html);
+        $this->assertStringContainsString('Lamidi S. Tafa (Mr.)', $html);
+        $this->assertStringContainsString('BUT/AD/JFS/2027/JU/0100', $html);
+        $this->assertStringNotContainsString('OFFER OF ADMISSION FOR THE 2026/2027 ACADEMIC SESSION', $html);
+        $this->assertStringNotContainsString('Admission letter as issued by JAMB', $html);
+    }
+
+    public function test_jupeb_admission_letter_prints_uploaded_registrar_signature(): void
+    {
+        $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
+        $path = sys_get_temp_dir().'/registrar-'.uniqid().'.png';
+        file_put_contents($path, $png);
+        \App\Support\RegistrarSignature::store(new \Illuminate\Http\UploadedFile(
+            $path,
+            'registrar.png',
+            'image/png',
+            null,
+            true,
+        ));
+
+        $user = $this->jupebApplicantWithOffer();
+        Sanctum::actingAs($user);
+
+        $html = $this->get("/api/applications/{$user->latestApplication->id}/offer-letter")
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('data:image/png;base64,', $html);
+        $this->assertStringContainsString('Registrar signature', $html);
     }
 
     private function applicantWithOffer(string $stage, float $intakeAmount = 7000): User
@@ -290,6 +349,63 @@ class OfferAcceptancePortalTest extends TestCase
             'jamb_registration' => '20269876543CD',
             'stage' => $stage,
             'offer_reference' => 'OFF/2026/0001',
+        ]);
+
+        return $user->fresh(['latestApplication']);
+    }
+
+    private function jupebApplicantWithOffer(): User
+    {
+        $role = Role::query()->firstOrCreate(
+            ['slug' => 'applicant'],
+            ['name' => 'Applicant', 'is_system' => true, 'is_active' => true],
+        );
+        $user = User::factory()->create(['name' => 'Aina Abdul-Ganiu Adewale']);
+        $user->roles()->attach($role->id);
+
+        $campus = Campus::query()->create(['name' => 'Main', 'is_active' => true]);
+        $faculty = Faculty::query()->create([
+            'campus_id' => $campus->id,
+            'name' => 'College of Natural Sciences',
+            'is_jupeb_centre' => true,
+        ]);
+        $department = Department::query()->create(['faculty_id' => $faculty->id, 'name' => 'Biological Sciences']);
+        $program = Program::query()->create([
+            'department_id' => $department->id,
+            'name' => 'JUPEB SCIENCE',
+            'code' => 'JUPEB-SCI',
+            'award_type' => 'JUPEB',
+            'study_level' => 'jupeb',
+            'entry_modes' => ['jupeb'],
+            'duration_years' => 1,
+            'is_active' => true,
+        ]);
+        $session = AcademicSession::query()->firstOrCreate(['label' => '2026/2027']);
+        $term = AcademicTerm::query()->firstOrCreate(
+            ['academic_session_id' => $session->id, 'name' => 'First'],
+            ['session_label' => '2026/2027', 'is_current' => true],
+        );
+        if ($term->session_label !== '2026/2027') {
+            $term->update(['session_label' => '2026/2027']);
+        }
+        $intake = Intake::query()->create([
+            'academic_term_id' => $term->id,
+            'name' => 'JUPEB 2026',
+            'entry_mode' => 'jupeb',
+            'is_open' => true,
+            'application_fee_amount' => 5000,
+            'acceptance_fee_amount' => 100000,
+            'opens_on' => now()->subDay()->toDateString(),
+            'closes_on' => now()->addMonth()->toDateString(),
+        ]);
+        Application::query()->create([
+            'application_number' => 'APP/2026/0100',
+            'user_id' => $user->id,
+            'intake_id' => $intake->id,
+            'program_id' => $program->id,
+            'entry_mode' => 'jupeb',
+            'stage' => 'offer_issued',
+            'offer_reference' => 'BUT/AD/JFS/2027/JU/0100',
         ]);
 
         return $user->fresh(['latestApplication']);

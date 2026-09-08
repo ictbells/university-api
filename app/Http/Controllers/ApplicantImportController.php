@@ -85,7 +85,7 @@ class ApplicantImportController extends Controller
                 'send_credentials' => $sendCredentials,
             ];
 
-            if ($this->importer->shouldQueue($verifyNin, $rowCount)) {
+            if ($this->importer->shouldQueue($verifyNin, $rowCount, $sendCredentials)) {
                 $path = $this->importer->storeUpload($file);
                 $this->importer->cacheResult($importId, [
                     'status' => 'queued',

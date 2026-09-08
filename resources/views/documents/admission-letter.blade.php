@@ -53,26 +53,61 @@
       font-weight: 600;
       text-transform: uppercase;
     }
-    .meta { margin: 0 0 16px; }
-    .meta p { margin: 0 0 4px; }
-    .recipient { margin: 18px 0 14px; }
-    .recipient .name { font-weight: 700; text-transform: uppercase; margin: 0 0 4px; }
-    .recipient .addr { margin: 0; white-space: pre-line; }
+    .meta {
+      display: table;
+      width: 100%;
+      margin: 0 0 16px;
+    }
+    .meta-ref, .meta-date { display: table-cell; vertical-align: top; }
+    .meta-ref { font-weight: 700; }
+    .meta-date { text-align: right; }
+    .recipient { margin: 0 0 12px; }
+    .recipient .name { font-weight: 700; text-transform: uppercase; margin: 0; }
+    .salutation { margin: 0 0 16px; }
     .subject {
       text-align: center;
       font-weight: 700;
       text-transform: uppercase;
-      text-decoration: underline;
-      margin: 18px 0;
+      margin: 0 0 4px;
       font-size: 13px;
     }
+    .subject-level {
+      text-align: center;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin: 0 0 16px;
+      font-size: 13px;
+    }
+    .subject u, .subject-level u {
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    a { color: #0000ee; text-decoration: underline; }
     p { margin: 0 0 12px; text-align: justify; }
-    ol { margin: 8px 0 12px 1.25rem; padding: 0; }
-    ol > li { margin: 0 0 12px; text-align: justify; }
-    .notes { margin: 8px 0 0 1.1rem; padding: 0; }
-    .notes li { margin: 0 0 6px; text-align: justify; }
+    ol.clauses { margin: 0 0 12px; padding-left: 1.35rem; }
+    ol.clauses > li { margin: 0 0 12px; text-align: justify; }
+    ol.sub {
+      list-style: lower-alpha;
+      margin: 8px 0 0;
+      padding-left: 1.35rem;
+    }
+    ol.sub li { margin: 0 0 6px; text-align: justify; }
     .closing { margin-top: 22px; }
-    .motto { font-style: italic; }
+    .motto {
+      text-align: center;
+      font-weight: 700;
+      font-style: italic;
+    }
+    .signatory { margin-top: 22px; }
+    .signatory img {
+      display: block;
+      max-height: 64px;
+      max-width: 180px;
+      margin: 0 0 4px;
+      object-fit: contain;
+    }
+    .sign-space { height: 48px; }
+    .sign-name, .sign-title { font-weight: 700; margin: 0; }
     .footer {
       margin-top: 28px;
       font-size: 11px;
@@ -108,67 +143,66 @@
     </div>
 
     <div class="meta">
-      <p><strong>{{ $offer_reference }}</strong></p>
-      <p>{{ $letter_date }}</p>
+      <div class="meta-ref">Ref. No.: {{ $offer_reference }}</div>
+      <div class="meta-date">{{ $letter_date }}</div>
     </div>
 
     <div class="recipient">
       <p class="name">{{ $full_name }}</p>
-      @if (!empty($address))
-        <p class="addr">{{ $address }}</p>
-      @endif
     </div>
 
-    <p>Dear {{ $salutation_name }},</p>
+    <p class="salutation">Dear {{ $salutation_name }},</p>
 
-    <p class="subject">
-      OFFER OF ADMISSION FOR THE {{ $session }} ACADEMIC SESSION
-    </p>
+    <p class="subject"><u>ADMISSION FOR THE {{ $session }} ACADEMIC SESSION</u></p>
+    <p class="subject-level"><u>{{ $study_level }}</u></p>
 
-    <ol>
+    <ol class="clauses">
       <li>
         With reference to your application for admission into {{ $institution['name'] }}, Ota, for the
-        {{ $session }} Academic Session, I am pleased to inform you that you have been offered admission into the
-        <strong>{{ strtoupper($college) }}</strong> for {{ $programme_kind }} in
-        <strong>{{ $programme }}</strong>, having fulfilled the admission requirements.
+        {{ $session }} Academic Session, I am pleased to inform you that you have been offered
+        <strong>admission</strong> into the
+        <strong>{{ strtoupper($college) }}</strong> for a <strong>{{ $programme_kind }}</strong> in
+        <strong>{{ $programme }}</strong>, <strong>having fulfilled the admission requirements.</strong>
       </li>
       <li>
         Please visit the application portal at
-        <strong>{{ $portal_url }}</strong>
+        <a href="{{ $portal_url }}">{{ $portal_url }}</a>
         to pay the non-refundable acceptance fee of
-        <strong>N{{ number_format($acceptance_amount, 0) }}</strong>
-        ({{ $acceptance_amount_words }}) only within two weeks from the date of this letter and print your receipt
+        <strong>₦{{ number_format($acceptance_amount, 2) }}</strong>
+        ({{ $acceptance_amount_words }}) only within two weeks from the date of this letter and
+        <strong>print your receipt</strong>
         to avoid forfeiture of the admission offered to you.
       </li>
       <li>
         Please also note the following carefully:
-        <ul class="notes">
-          <li>Be informed that fees paid are not refundable after acceptance of offer of admission or upon voluntary withdrawal from the Programme;</li>
-          <li>All payments to {{ $institution['name'] }} are to be made online through the University’s portal only;</li>
+        <ol class="sub">
+          <li><strong>Fees paid are not refundable</strong> after acceptance of offer of admission or upon voluntary withdrawal from the Programme;</li>
+          <li>All <strong> payments to {{ $institution['name'] }} are to be made online through the University’s portal only</strong>;</li>
           <li>
-            Visit <strong>{{ $fees_url }}</strong> for the approved schedule of fees for the various Programmes;
+            Visit <a href="{{ $fees_url }}">{{ $fees_url }}</a> for the approved schedule of fees for the various Programmes;
           </li>
-          <li>A compulsory medical screening, which includes drug test, would be carried out on all fresh students at the University Health Centre on resumption;</li>
-          <li>There will be a compulsory one-week orientation programme on resumption;</li>
+          <li><strong>A compulsory medical screening, which includes drug test, would be carried out on all fresh students at the University Health Centre on resumption</strong>;</li>
+          <li>There will be a <strong>compulsory one week orientation programme</strong> on resumption;</li>
           <li>Students will be responsible for their feeding. However, the University has provided Cafeteria Services where food will be available on Pay-As-You-Eat (PAYE) basis;</li>
           <li>Further relevant information about your studentship is available in the Student Information Handbook, which will be supplied to you after due clearance. You are expected to familiarize yourself with the provisions of the Handbook; and</li>
           <li>
             The University pays particular interest in the dressing of students. Visit our website
-            <strong>{{ $dress_code_url }}</strong>
-            for details on dress codes as non-compliance will attract stiff penalty. For the avoidance of doubt indecent and improper dressing, including growing of long hair and beard are not allowed for men.
+            <a href="{{ $dress_code_url }}">{{ $dress_code_url }}</a>
+            for details on dress codes as non-compliance will attract stiff penalty. For the avoidance of doubt
+            <strong>indecent and improper dressing</strong>, including growing of long hair and beard are not allowed for men.
           </li>
-        </ul>
+        </ol>
       </li>
       <li>
         Kindly ensure that copies of the following documents are duly submitted for clearance:
-        <ul class="notes">
+        <ol class="sub">
           <li>Birth Certificate or Sworn Affidavit of Declaration of Age;</li>
           @if (!empty($show_jamb_documents))
             <li>Admission letter as issued by JAMB (Institution Copy);</li>
             <li>Unified Tertiary Matriculation Examination Result Slip; and</li>
           @endif
           <li>The Ordinary Level Results of SSCE, GCE, NECO/Equivalents.</li>
-        </ul>
+        </ol>
       </li>
     </ol>
 
@@ -180,7 +214,19 @@
       <p class="motto">‘Only the best is good for Bells’</p>
     </div>
 
-    <p class="footer">Generated electronically on {{ $generated_at }} · {{ $institution['name'] }}</p>
+    <div class="signatory">
+      @if (!empty($signature_data_uri))
+        <img src="{{ $signature_data_uri }}" alt="Registrar signature">
+      @else
+        <div class="sign-space"></div>
+      @endif
+      @if (!empty($registrar_name))
+        <p class="sign-name">{{ $registrar_name }}</p>
+      @endif
+      <p class="sign-title">{{ $registrar_title }}</p>
+    </div>
+
+    <!-- <p class="footer">Generated electronically on {{ $generated_at }} · {{ $institution['name'] }}</p> -->
   </div>
 </body>
 </html>

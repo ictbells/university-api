@@ -53,12 +53,15 @@ class FeeArrearsService
             ->where('academic_session_id', $session->id)
             ->where('level_code', $levelCode)
             ->whereIn('status', ['unpaid', 'partial'])
+            ->withExists([
+                'payments as has_successful_payment' => fn ($q) => $q->where('status', 'successful'),
+            ])
             ->orderBy('id')
             ->get();
 
         $kept = null;
         foreach ($open as $invoice) {
-            $hasPayment = $invoice->payments()->where('status', 'successful')->exists();
+            $hasPayment = (bool) $invoice->has_successful_payment;
             $matches = $expected > 0.009 && abs((float) $invoice->amount - $expected) <= 0.009;
             if ($hasPayment) {
                 $kept ??= $invoice;

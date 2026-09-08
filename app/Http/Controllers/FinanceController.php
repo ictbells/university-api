@@ -388,9 +388,6 @@ class FinanceController extends Controller
         if ($application = $request->user()?->latestApplication) {
             $this->invoices->ensureAcceptanceInvoiceIfOffered($application);
         }
-        if ($student = $request->user()?->student) {
-            $this->arrears->ensureForStudent($student);
-        }
 
         $perPage = min(50, max(10, (int) $request->input('per_page', 25)));
 
@@ -484,10 +481,6 @@ class FinanceController extends Controller
 
     public function history(Request $request)
     {
-        if ($student = $request->user()?->student) {
-            $this->arrears->ensureForStudent($student);
-        }
-
         $userId = $request->user()->id;
 
         $invoices = Invoice::query()
@@ -992,8 +985,8 @@ class FinanceController extends Controller
         $student = Student::query()
             ->with(['user', 'program'])
             ->where(function ($builder) use ($key) {
-                $builder->whereRaw('UPPER(REPLACE(COALESCE(matric_number, ""), " ", "")) = ?', [$key])
-                    ->orWhereRaw('UPPER(REPLACE(COALESCE(student_number, ""), " ", "")) = ?', [$key]);
+                $builder->where('matric_number', $key)
+                    ->orWhere('student_number', $key);
             })
             ->first();
         abort_unless($student, 422, 'No student was found with that matric number.');

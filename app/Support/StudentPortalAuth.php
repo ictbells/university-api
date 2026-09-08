@@ -9,6 +9,9 @@ use Illuminate\Validation\ValidationException;
 
 class StudentPortalAuth
 {
+    /**
+     * Canonical form for application numbers, JAMB, and matric used at write and login.
+     */
     public static function normalizeLogin(string $login): string
     {
         return strtoupper(preg_replace('/\s+/u', '', trim($login)) ?? '');
@@ -50,7 +53,10 @@ class StudentPortalAuth
 
         if (self::looksLikeMatric($key) && ! self::looksLikeApplicationNumber($key)) {
             $student = Student::query()
-                ->whereRaw('UPPER(REPLACE(COALESCE(matric_number, ""), " ", "")) = ?', [$key])
+                ->where(function ($query) use ($key) {
+                    $query->where('matric_number', $key)
+                        ->orWhere('student_number', $key);
+                })
                 ->with('user')
                 ->first();
 
@@ -58,7 +64,7 @@ class StudentPortalAuth
         }
 
         $application = Application::query()
-            ->whereRaw('UPPER(REPLACE(COALESCE(application_number, ""), " ", "")) = ?', [$key])
+            ->where('application_number', $key)
             ->with('user.student')
             ->first();
         if ($application?->user) {
