@@ -17,6 +17,7 @@ use App\Support\NinCipher;
 use App\Support\PhoneNumber;
 use App\Support\SpreadsheetImport;
 use App\Support\StudentImportColumns;
+use App\Support\StudentPortalAuth;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
