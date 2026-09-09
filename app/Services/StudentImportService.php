@@ -218,9 +218,9 @@ class StudentImportService
 
         $nin = $this->optionalNin($data);
 
-        $jamb = strtoupper(str_replace(' ', '', (string) ($data['jamb_registration'] ?? '')));
-        $oldNumber = strtoupper(trim((string) ($data['old_application_number'] ?? '')));
-        $matric = strtoupper(str_replace(' ', '', (string) $data['matric_number']));
+        $jamb = StudentPortalAuth::normalizeLogin((string) ($data['jamb_registration'] ?? ''));
+        $oldNumber = StudentPortalAuth::normalizeLogin((string) ($data['old_application_number'] ?? ''));
+        $matric = StudentPortalAuth::normalizeLogin((string) $data['matric_number']);
         if ($matric === '') {
             throw new RuntimeException('matric_number is required.');
         }

@@ -42,6 +42,7 @@ use App\Http\Controllers\SecuritySettingsController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\StudentImportController;
 use App\Http\Controllers\TranscriptRequestController;
+use App\Http\Controllers\PublicPayController;
 use App\Http\Controllers\TwoFactorController;
 use App\Http\Controllers\UnitLimitController;
 use App\Http\Controllers\UserController;
@@ -85,6 +86,21 @@ Route::post('/transcript-requests/{token}/pay', [TranscriptRequestController::cl
 Route::get('/transcript-requests/{token}/verify/{reference}', [TranscriptRequestController::class, 'verify'])
     ->where('token', '[A-Za-z0-9]+');
 Route::get('/transcript-requests/{token}/download', [TranscriptRequestController::class, 'download'])
+    ->where('token', '[A-Za-z0-9]+');
+
+Route::get('/public-pay/meta', [PublicPayController::class, 'meta']);
+Route::post('/public-pay/lookup', [PublicPayController::class, 'lookup'])
+    ->middleware('throttle:20,1');
+Route::post('/public-pay', [PublicPayController::class, 'store'])
+    ->middleware('throttle:10,1');
+Route::get('/public-pay/{token}', [PublicPayController::class, 'show'])
+    ->where('token', '[A-Za-z0-9]+');
+Route::post('/public-pay/{token}/pay', [PublicPayController::class, 'pay'])
+    ->where('token', '[A-Za-z0-9]+')
+    ->middleware('throttle:10,1');
+Route::get('/public-pay/{token}/verify/{reference}', [PublicPayController::class, 'verify'])
+    ->where('token', '[A-Za-z0-9]+');
+Route::get('/public-pay/{token}/download', [PublicPayController::class, 'download'])
     ->where('token', '[A-Za-z0-9]+');
 
 Route::get('/portal-info', [InstitutionController::class, 'portalInfo']);
@@ -599,6 +615,26 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         ->middleware('permission:transcripts.process');
     Route::post('/staff/transcript-requests/{transcriptRequest}/reject', [TranscriptRequestController::class, 'reject'])
         ->middleware('permission:transcripts.process');
+
+    Route::get('/staff/public-pay/offers', [PublicPayController::class, 'indexOffers']);
+    Route::post('/staff/public-pay/offers', [PublicPayController::class, 'storeOffer'])
+        ->middleware('permission:public_pay.offers');
+    Route::put('/staff/public-pay/offers/{publicPayOffer}', [PublicPayController::class, 'updateOffer'])
+        ->middleware('permission:public_pay.offers');
+    Route::delete('/staff/public-pay/offers/{publicPayOffer}', [PublicPayController::class, 'destroyOffer'])
+        ->middleware('permission:public_pay.offers');
+    Route::get('/staff/public-pay/requests', [PublicPayController::class, 'index'])
+        ->middleware('permission:public_pay.view');
+    Route::get('/staff/public-pay/requests/{publicPayRequest}', [PublicPayController::class, 'staffShow'])
+        ->middleware('permission:public_pay.view');
+    Route::get('/staff/public-pay/requests/{publicPayRequest}/download', [PublicPayController::class, 'staffDownload'])
+        ->middleware('permission:public_pay.view');
+    Route::post('/staff/public-pay/requests/{publicPayRequest}/start', [PublicPayController::class, 'start'])
+        ->middleware('permission:public_pay.process');
+    Route::post('/staff/public-pay/requests/{publicPayRequest}/ready', [PublicPayController::class, 'ready'])
+        ->middleware('permission:public_pay.process');
+    Route::post('/staff/public-pay/requests/{publicPayRequest}/reject', [PublicPayController::class, 'reject'])
+        ->middleware('permission:public_pay.process');
 
     Route::get('/staff/admission-guide', [AdmissionGuideController::class, 'show'])->middleware('permission:admissions.guide');
     Route::put('/staff/admission-guide', [AdmissionGuideController::class, 'update'])->middleware('permission:admissions.guide');

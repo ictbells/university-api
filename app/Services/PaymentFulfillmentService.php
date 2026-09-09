@@ -22,8 +22,11 @@ class PaymentFulfillmentService
         if (! $invoice->isPayable()) {
             abort(422, 'This invoice cannot be paid.');
         }
-        if (! FeeSchedule::onlinePaymentAllowed($invoice->category)) {
-            abort(422, 'This invoice must be paid from the campus wallet. Only application, acceptance, and transcript fees can be paid online.');
+        if (
+            ! FeeSchedule::onlinePaymentAllowed($invoice->category)
+            && ! PublicPayRequestService::invoiceIsPublicPay($invoice)
+        ) {
+            abort(422, 'This invoice must be paid from the campus wallet. Only application, acceptance, transcript, and public request fees can be paid online.');
         }
     }
 

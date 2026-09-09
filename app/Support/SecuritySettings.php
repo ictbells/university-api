@@ -32,6 +32,7 @@ class SecuritySettings
             ...StaffSupportContactSettings::all(),
             'studentship_years_after_graduation' => Studentship::yearsAfterGraduation(),
             ...TranscriptRequestSettings::all(),
+            ...PublicPaySettings::all(),
             'registrar_has_signature' => RegistrarSignature::exists(),
             'registrar_signature_data_uri' => RegistrarSignature::dataUri(),
             ...PgResearchWordLimits::all(),
@@ -94,6 +95,12 @@ class SecuritySettings
             || array_key_exists('registrar_title', $data)
         ) {
             TranscriptRequestSettings::update($data);
+        }
+        if (
+            array_key_exists('public_pay_enabled', $data)
+            || array_key_exists('public_pay_collect_instructions', $data)
+        ) {
+            PublicPaySettings::update($data);
         }
         if (
             array_key_exists('pg_research_interest_min_words', $data)

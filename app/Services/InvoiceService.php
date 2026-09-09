@@ -861,6 +861,10 @@ class InvoiceService
             app(TranscriptRequestService::class)->markPaid($invoice);
         }
 
+        if ($invoice->status === 'paid' && PublicPayRequestService::invoiceIsPublicPay($invoice)) {
+            app(PublicPayRequestService::class)->markPaid($invoice);
+        }
+
         return $invoice->fresh();
     }
 

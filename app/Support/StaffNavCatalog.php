@@ -58,6 +58,8 @@ class StaffNavCatalog
             ['key' => 'transcript-undergraduate', 'section' => 'Services', 'label' => 'Undergraduate transcripts', 'perm' => 'transcripts.view'],
             ['key' => 'transcript-jupeb', 'section' => 'Services', 'label' => 'JUPEB transcripts', 'perm' => 'transcripts.view'],
             ['key' => 'transcript-postgraduate', 'section' => 'Services', 'label' => 'Postgraduate transcripts', 'perm' => 'transcripts.view'],
+            ['key' => 'public-pay-requests', 'section' => 'Services', 'label' => 'Public request inbox', 'perm' => 'public_pay.view'],
+            ['key' => 'public-pay-offers', 'section' => 'Services', 'label' => 'Public pay offerings', 'perm' => 'public_pay.offers'],
             ['key' => 'users', 'section' => 'Administration', 'label' => 'Users', 'perm' => 'users.manage'],
             ['key' => 'roles', 'section' => 'Administration', 'label' => 'Roles', 'perm' => 'roles.manage'],
             ['key' => 'permissions', 'section' => 'Administration', 'label' => 'Permissions', 'perm' => 'roles.manage'],

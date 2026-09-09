@@ -24,7 +24,8 @@ class StudentPortalAuth
 
     /**
      * Generated refs are APP/{year}/{serial}. Imports may keep a legacy number
-     * such as BELLS-APP-NUM-JUPEB-0119 — those are resolved by DB lookup instead.
+     * such as BELLS-APP-NUM-JUPEB-0119 or BELLSTECH/2026/T/00002 — those are
+     * resolved by application_number DB lookup (see resolveUser fall-through).
      */
     public static function looksLikeApplicationNumber(string $login): bool
     {
@@ -60,7 +61,11 @@ class StudentPortalAuth
                 ->with('user')
                 ->first();
 
-            return $student?->user;
+            if ($student?->user) {
+                return $student->user;
+            }
+            // Slash forms can also be legacy application numbers (e.g. BELLSTECH/2026/T/00002).
+            // Fall through to application_number lookup when no matric match exists.
         }
 
         $application = Application::query()
@@ -68,6 +73,12 @@ class StudentPortalAuth
             ->with('user.student')
             ->first();
         if ($application?->user) {
+            if (filled($application->user->student?->matric_number)) {
+                throw ValidationException::withMessages([
+                    'login' => 'You have been matriculated. Please sign in with your matric number instead of your application number.',
+                ]);
+            }
+
             return $application->user;
         }
 
@@ -76,7 +87,7 @@ class StudentPortalAuth
             return null;
         }
 
-        if ($user->student?->matric_number) {
+        if (filled($user->student?->matric_number)) {
             throw ValidationException::withMessages([
                 'login' => 'You have been matriculated. Please sign in with your matric number instead of your JAMB registration number.',
             ]);
