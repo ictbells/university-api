@@ -145,6 +145,8 @@ class ApplicationDocumentService
                 : 'Lamidi S. Tafa (Mr.)',
             'registrar_title' => $registrar['registrar_title'],
             'application' => $application,
+            'entry_mode' => (string) $application->entry_mode,
+            'is_direct_entry' => (string) $application->entry_mode === 'de',
             'full_name' => Str::upper($fullName),
             'salutation_name' => Str::title(Str::lower((string) $firstName)),
             'address' => $contact['address'] ?? $biodata['address'] ?? null,
@@ -290,8 +292,15 @@ class ApplicationDocumentService
         }
 
         $value = strtoupper(preg_replace('/\s+/', '', (string) ($jamb ?: $application->application_number ?: $application->id)) ?? '');
+        if ($value === '') {
+            $value = (string) $application->id;
+        }
 
-        return $value !== '' ? $value : (string) $application->id;
+        if ((string) $application->entry_mode === 'de' && ! str_ends_with($value, 'DE')) {
+            $value .= 'DE';
+        }
+
+        return $value;
     }
 
     /**

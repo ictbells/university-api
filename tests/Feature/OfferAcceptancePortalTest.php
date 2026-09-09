@@ -259,6 +259,8 @@ class OfferAcceptancePortalTest extends TestCase
         $this->assertStringContainsString('Student Information Handbook', $html);
         $this->assertStringContainsString('Admission letter as issued by JAMB', $html);
         $this->assertStringContainsString('Only the best is good for Bells', $html);
+        $this->assertStringContainsString('letter-footer', $html);
+        $this->assertStringContainsString('class="watermark"', $html);
         $this->assertStringContainsString('Ref. No.: BUT/AD/UG/26/20269876543CD', $html);
     }
 
@@ -285,6 +287,9 @@ class OfferAcceptancePortalTest extends TestCase
         $this->assertStringContainsString('mandatory medical screening', $html);
         $this->assertStringContainsString('Student Information Handbook', $html);
         $this->assertStringContainsString('Only the best is good for Bells', $html);
+        $this->assertStringContainsString('letter-footer', $html);
+        $this->assertStringContainsString('class="watermark"', $html);
+        $this->assertStringContainsString('letterhead-logo', $html);
         $this->assertStringContainsString('Lamidi S. Tafa (Mr.)', $html);
         $this->assertStringContainsString('BUT/AD/JFS/2027/JU/0100', $html);
         $this->assertStringNotContainsString('OFFER OF ADMISSION FOR THE 2026/2027 ACADEMIC SESSION', $html);
