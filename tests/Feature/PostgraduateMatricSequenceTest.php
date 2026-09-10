@@ -58,7 +58,33 @@ class PostgraduateMatricSequenceTest extends TestCase
         $this->assertSame('2026/000006', Setting::getValue(MatricSequence::PG_SETTING_KEY));
     }
 
-    private function application(string $entryMode, string $studyLevel): Application
+    public function test_undergraduate_entry_mode_uses_matric_last_not_pg_even_if_program_tagged_pg(): void
+    {
+        config([
+            'sis.matric_last' => '2026/000200',
+            'sis.pg_matric_last' => '2026/000050',
+            'sis.matric_year' => '2026',
+            'sis.pg_matric_year' => '2026',
+            'sis.matric_digits' => 6,
+        ]);
+
+        $sequence = app(MatricSequence::class);
+        // Application is UTME/DE but linked to a PG-only programme (data mismatch).
+        $utme = $this->application('utme', 'postgraduate', ['pg']);
+        $de = $this->application('de', 'postgraduate', ['pg']);
+
+        $this->assertSame(MatricSequence::TRACK_UNDERGRADUATE, $sequence->trackFor($utme));
+        $this->assertSame(MatricSequence::TRACK_UNDERGRADUATE, $sequence->trackFor($de));
+        $this->assertSame('2026/000201', $sequence->allocate($utme));
+        $this->assertSame('2026/000202', $sequence->allocate($de));
+        $this->assertSame('2026/000202', Setting::getValue(MatricSequence::SETTING_KEY));
+        $this->assertSame('2026/000050', (string) config('sis.pg_matric_last'));
+    }
+
+    /**
+     * @param  list<string>|null  $entryModes
+     */
+    private function application(string $entryMode, string $studyLevel, ?array $entryModes = null): Application
     {
         $campus = Campus::query()->firstOrCreate(['name' => 'Main'], ['is_active' => true]);
         $faculty = Faculty::query()->firstOrCreate(
@@ -75,7 +101,7 @@ class PostgraduateMatricSequenceTest extends TestCase
             'code' => strtoupper($entryMode).'-'.uniqid(),
             'award_type' => $entryMode === 'pg' ? 'M.Sc' : 'B.Sc',
             'study_level' => $studyLevel,
-            'entry_modes' => [$entryMode],
+            'entry_modes' => $entryModes ?? [$entryMode],
             'duration_years' => $entryMode === 'pg' ? 2 : 4,
             'is_active' => true,
         ]);

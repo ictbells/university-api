@@ -529,6 +529,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::get('/finance/student-roster/export', [FinanceController::class, 'exportStudentRoster']);
         Route::post('/invoices/{invoice}/disable', [FinanceController::class, 'disableInvoice']);
         Route::post('/invoices/{invoice}/enable', [FinanceController::class, 'enableInvoice']);
+        Route::post('/invoices/{invoice}/requery', [FinanceController::class, 'requeryInvoice']);
         Route::get('/rebate-types', [RebateController::class, 'types']);
         Route::post('/rebate-types', [RebateController::class, 'storeType']);
         Route::patch('/rebate-types/{rebateType}', [RebateController::class, 'updateType']);

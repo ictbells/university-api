@@ -55,7 +55,32 @@ class InvoiceNumberAllocationTest extends TestCase
             'purpose' => 'sundry',
         ]);
         $fulfilled = app(PaymentFulfillmentService::class)->fulfill($payment, 'Test');
-        $this->assertSame('BUT/2026/0003', $fulfilled->receipt_no);
+        $this->assertSame('BUT/2026/0002', $fulfilled->receipt_no);
+        $this->assertSame($second->number, $fulfilled->receipt_no);
+    }
+
+    public function test_wallet_topup_receipt_still_allocates_bursary_serial(): void
+    {
+        config([
+            'sis.bursary_doc_prefix' => 'BUT',
+            'sis.bursary_doc_year' => 2026,
+            'sis.bursary_doc_digits' => 4,
+            'sis.bursary_doc_last' => '',
+        ]);
+
+        $user = User::factory()->create(['status' => 'active']);
+        $payment = Payment::query()->create([
+            'invoice_id' => null,
+            'user_id' => $user->id,
+            'method' => 'paystack',
+            'amount' => 5000,
+            'status' => 'pending',
+            'reference' => 'PSK-TOPUP-1',
+            'purpose' => 'wallet_topup',
+        ]);
+
+        $fulfilled = app(PaymentFulfillmentService::class)->fulfill($payment, 'Test');
+        $this->assertSame('BUT/2026/0001', $fulfilled->receipt_no);
     }
 
     public function test_note_issued_advances_shared_sequence(): void

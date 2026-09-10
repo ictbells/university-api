@@ -83,8 +83,16 @@ class MatricSequence
 
     public function trackFor(?Application $application = null): string
     {
-        if ($application && strtolower((string) $application->entry_mode) === 'pg') {
-            return self::TRACK_POSTGRADUATE;
+        if ($application) {
+            $mode = strtolower(trim((string) $application->entry_mode));
+            // Entry mode is authoritative: only PG applications use PG_MATRIC_*.
+            // UTME / DE / transfer / JUPEB must not follow a mis-tagged programme study_level.
+            if ($mode === 'pg') {
+                return self::TRACK_POSTGRADUATE;
+            }
+            if ($mode !== '') {
+                return self::TRACK_UNDERGRADUATE;
+            }
         }
 
         if ($application?->program_id) {

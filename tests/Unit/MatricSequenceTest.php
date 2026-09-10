@@ -20,15 +20,18 @@ class MatricSequenceTest extends TestCase
     public function test_dotenv_writer_updates_or_appends_matric_last(): void
     {
         $path = sys_get_temp_dir().'/bells-matric-'.uniqid().'.env';
-        file_put_contents($path, "APP_KEY=test\nMATRIC_LAST=2026/000010\n");
+        file_put_contents($path, "APP_KEY=test\nMATRIC_LAST=2026/000010\nPG_MATRIC_LAST=2026/000050\nMATRIC_YEAR=\nPG_MATRIC_YEAR=2026\n");
 
         $this->assertTrue(DotenvWriter::set('MATRIC_LAST', '2026/000011', $path));
         $contents = str_replace("\r", '', (string) file_get_contents($path));
         $this->assertStringContainsString('MATRIC_LAST=2026/000011', $contents);
         $this->assertStringNotContainsString('MATRIC_LAST=2026/000010', $contents);
+        $this->assertStringContainsString('PG_MATRIC_LAST=2026/000050', $contents);
 
         $this->assertTrue(DotenvWriter::set('MATRIC_YEAR', '2026', $path));
-        $this->assertStringContainsString('MATRIC_YEAR=2026', str_replace("\r", '', (string) file_get_contents($path)));
+        $contents = str_replace("\r", '', (string) file_get_contents($path));
+        $this->assertStringContainsString('MATRIC_YEAR=2026', $contents);
+        $this->assertStringContainsString('PG_MATRIC_YEAR=2026', $contents);
 
         unlink($path);
     }

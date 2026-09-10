@@ -7,6 +7,7 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\User;
 use App\Support\PaymentGatewaySettings;
+use RuntimeException;
 
 class PaymentGatewayManager
 {
@@ -58,6 +59,54 @@ class PaymentGatewayManager
         $payment = $this->findPayment($reference, $transactionId);
 
         return $this->driverFor($payment)->verify($reference, $transactionId);
+    }
+
+    /**
+     * Re-check pending online payment(s) for a payable invoice against the gateway.
+     */
+    public function requeryInvoice(Invoice $invoice): Payment
+    {
+        if (! $invoice->isPayable()) {
+            throw new RuntimeException('This invoice is not awaiting payment.');
+        }
+
+        $payments = Payment::query()
+            ->where('invoice_id', $invoice->id)
+            ->where('status', 'pending')
+            ->whereIn('method', [
+                PaymentGatewaySettings::WEMA,
+                PaymentGatewaySettings::PAYSTACK,
+                PaymentGatewaySettings::PAYGATE,
+            ])
+            ->latest('id')
+            ->get();
+
+        if ($payments->isEmpty()) {
+            throw new RuntimeException('No pending online payment found for this invoice.');
+        }
+
+        $lastMessage = 'Payment is still pending with the gateway.';
+
+        foreach ($payments as $payment) {
+            $txId = trim((string) $payment->paystack_reference);
+            if ($txId === '' || preg_match('/^(WEMA|PSK|UPG)-/i', $txId) === 1) {
+                $txId = '';
+            }
+
+            try {
+                $result = $this->driverFor($payment)->verify(
+                    (string) $payment->reference,
+                    $txId !== '' ? $txId : null,
+                );
+                if ($result->status === 'successful') {
+                    return $result->load('invoice');
+                }
+            } catch (RuntimeException $e) {
+                $lastMessage = $e->getMessage();
+            }
+        }
+
+        throw new RuntimeException($lastMessage);
     }
 
     private function findPayment(string $reference, ?string $transactionId = null): Payment

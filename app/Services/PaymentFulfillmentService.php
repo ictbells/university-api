@@ -105,9 +105,11 @@ class PaymentFulfillmentService
         if ($payment->status === 'successful') {
             return $payment;
         }
+
+        $payment->loadMissing('invoice');
         $payment->update([
             'status' => 'successful',
-            'receipt_no' => app(BursaryDocumentSequence::class)->allocate(),
+            'receipt_no' => $this->receiptNumberFor($payment),
         ]);
 
         if ($payment->invoice_id) {
@@ -146,5 +148,19 @@ class PaymentFulfillmentService
             ->whereKeyNot($payment->id)
             ->where('status', 'pending')
             ->update(['status' => 'abandoned']);
+    }
+
+    /**
+     * Official bursary doc is the invoice number end-to-end.
+     * Only allocate a new BUT serial when there is no invoice (e.g. wallet top-up).
+     */
+    private function receiptNumberFor(Payment $payment): string
+    {
+        $invoiceNumber = trim((string) ($payment->invoice?->number ?? ''));
+        if ($invoiceNumber !== '') {
+            return $invoiceNumber;
+        }
+
+        return app(BursaryDocumentSequence::class)->allocate();
     }
 }

@@ -21,7 +21,7 @@ class DotenvWriter
         }
 
         $line = $key.'='.self::encode($value);
-        $pattern = '/^'.preg_quote($key, '/').'\s*=.*$/m';
+        $pattern = '/^(?:export\s+)?'.preg_quote($key, '/').'(?:=|\s*=).*$/m';
         if (preg_match($pattern, $contents)) {
             $contents = preg_replace($pattern, $line, $contents, 1) ?? $contents;
         } else {

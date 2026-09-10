@@ -489,7 +489,7 @@ class InvoiceImportService
             'amount' => $paid,
             'status' => 'successful',
             'reference' => $reference !== '' ? $reference : 'LEG-'.Str::upper(Str::random(10)),
-            'receipt_no' => 'RCP-'.Str::upper(Str::random(6)),
+            'receipt_no' => $invoice->number,
             'purpose' => $invoice->category,
         ]);
         if (! empty($payload['payment_date'])) {

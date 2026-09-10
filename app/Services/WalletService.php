@@ -70,7 +70,7 @@ class WalletService
             'amount' => $payAmount,
             'status' => 'successful',
             'reference' => 'WALLET-'.$invoice->number,
-            'receipt_no' => app(BursaryDocumentSequence::class)->allocate(),
+            'receipt_no' => $invoice->number,
             'purpose' => $invoice->category,
         ]);
 

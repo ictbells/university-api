@@ -33,6 +33,14 @@ class PaymentController extends Controller
             $query->where('user_id', $request->user()->id);
         }
 
+        $status = strtolower(trim((string) $request->input('status', '')));
+        if ($status === 'success') {
+            $status = 'successful';
+        }
+        if (in_array($status, ['pending', 'successful', 'failed', 'abandoned'], true)) {
+            $query->where('status', $status);
+        }
+
         return $query->paginate($perPage);
     }
 

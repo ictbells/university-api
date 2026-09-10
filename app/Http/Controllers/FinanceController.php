@@ -20,6 +20,7 @@ use App\Services\AuditWriter;
 use App\Services\FeeArrearsService;
 use App\Services\InvoiceExportService;
 use App\Services\InvoiceService;
+use App\Services\PaymentGatewayManager;
 use App\Services\StudentFinanceExportService;
 use App\Services\UniversityFinanceStatementService;
 use App\Support\AdmissionEntryRules;
@@ -59,6 +60,7 @@ class FinanceController extends Controller
         private UniversityFinanceStatementService $universityStatement,
         private FeeArrearsService $arrears,
         private AuditWriter $audit,
+        private PaymentGatewayManager $gateways,
     ) {}
 
     public function fees(Request $request)
@@ -477,6 +479,29 @@ class FinanceController extends Controller
 
             return $invoice;
         });
+    }
+
+    public function requeryInvoice(Request $request, Invoice $invoice)
+    {
+        abort_unless($request->user()->hasPermission('finance.invoices.manage'), 403);
+
+        try {
+            $payment = $this->gateways->requeryInvoice($invoice);
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        $this->audit->record(
+            'payment.requery',
+            'Requeried payment '.$payment->reference.' for invoice '.$invoice->number,
+            'payments',
+            'invoice',
+            $invoice->id,
+            null,
+            $payment->fresh(),
+        );
+
+        return $payment->load('invoice');
     }
 
     public function history(Request $request)

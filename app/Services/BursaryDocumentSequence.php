@@ -10,8 +10,11 @@ use App\Support\TuitionProgress;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Shared serial for invoice numbers and payment receipt numbers:
+ * Serial for official bursary document numbers (invoice numbers):
  * BUT/{admission year}/{####} e.g. BUT/2026/0001
+ *
+ * Invoice-linked payments reuse the invoice number as receipt_no.
+ * Only invoice-less payments (e.g. wallet top-up) allocate a receipt serial here.
  *
  * Counter lives in settings (bursary_doc_last). Collisions bump via taken().
  */
