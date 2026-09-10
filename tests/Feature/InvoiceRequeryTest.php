@@ -79,6 +79,76 @@ class InvoiceRequeryTest extends TestCase
         $this->assertSame('successful', Payment::query()->where('reference', 'WEMA-REQUERY001')->value('status'));
     }
 
+    public function test_requery_finds_completed_alatpay_transaction_by_order_reference(): void
+    {
+        $staff = $this->financeStaff();
+        $payer = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
+        $invoice = Invoice::query()->create([
+            'number' => 'BUT/2026/REQUERY3',
+            'user_id' => $payer->id,
+            'category' => 'acceptance_fee',
+            'amount' => 100000,
+            'full_amount' => 100000,
+            'balance' => 100000,
+            'status' => 'unpaid',
+            'wallet_allowed' => false,
+        ]);
+        Payment::query()->create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $payer->id,
+            'method' => 'wema',
+            'amount' => 100000,
+            'status' => 'pending',
+            'reference' => 'WEMA-MC97CMEL3UBZ',
+            'paystack_reference' => 'WEMA-MC97CMEL3UBZ',
+            'purpose' => 'acceptance_fee',
+            'created_at' => now()->subHour(),
+        ]);
+
+        Http::fake(function (\Illuminate\Http\Client\Request $request) {
+            $url = $request->url();
+            if (str_contains($url, '/transactions/tx-from-list-001')) {
+                return Http::response([
+                    'status' => true,
+                    'message' => 'Success',
+                    'data' => [
+                        'id' => 'tx-from-list-001',
+                        'status' => 'completed',
+                        'amount' => 100000,
+                        'orderId' => 'BELLSUNIVERSITY-internal',
+                        'metadata' => ['orderId' => 'WEMA-MC97CMEL3UBZ'],
+                    ],
+                ]);
+            }
+            if (str_contains($url, '/alatpaytransaction/api/v1/transactions')) {
+                return Http::response([
+                    'status' => true,
+                    'message' => 'Success',
+                    'data' => [
+                        [
+                            'id' => 'tx-from-list-001',
+                            'status' => 'completed',
+                            'amount' => 100000,
+                            'orderId' => 'BELLSUNIVERSITY-internal',
+                            'metadata' => ['orderId' => 'WEMA-MC97CMEL3UBZ'],
+                        ],
+                    ],
+                    'pagination' => ['currentPage' => 1, 'totalPages' => 1],
+                ]);
+            }
+
+            return Http::response(['status' => false, 'message' => 'Unexpected URL: '.$url], 500);
+        });
+
+        Sanctum::actingAs($staff);
+        $this->postJson('/api/invoices/'.$invoice->id.'/requery')
+            ->assertOk()
+            ->assertJsonPath('status', 'successful');
+
+        $this->assertSame('paid', $invoice->fresh()->status);
+        $this->assertSame('tx-from-list-001', Payment::query()->where('reference', 'WEMA-MC97CMEL3UBZ')->value('paystack_reference'));
+    }
+
     public function test_requery_without_pending_payment_returns_422(): void
     {
         $staff = $this->financeStaff();

@@ -27,6 +27,7 @@ class ProductionCheckTest extends TestCase
             'services.wema.public' => 'pk_wema_live',
             'services.wema.secret' => 'sk_wema_live',
             'services.wema.business_id' => 'biz-wema-live',
+            'services.wema.webhook_secret' => 'whsec_wema_live',
             'services.prembly.allow_demo' => false,
             'services.prembly.key' => 'live_sk_example',
             'services.prembly.app_id' => 'live_pk_example',
@@ -128,6 +129,21 @@ class ProductionCheckTest extends TestCase
         $this->artisan('production:check', ['--force' => true])
             ->expectsOutputToContain('Production check passed.')
             ->assertSuccessful();
+    }
+
+    public function test_requires_wema_webhook_secret_when_wema_is_active(): void
+    {
+        config($this->passingConfig());
+        PaymentGatewaySettings::update(['payment_gateway' => 'wema']);
+        config([
+            'services.paystack.secret' => null,
+            'services.paystack.public' => null,
+            'services.wema.webhook_secret' => '',
+        ]);
+
+        $this->artisan('production:check', ['--force' => true])
+            ->expectsOutputToContain('WEMA_ALATPAY_WEBHOOK_SECRET must be set so Wema webhooks can be authenticated.')
+            ->assertFailed();
     }
 
     public function test_fails_when_super_admin_env_is_missing(): void

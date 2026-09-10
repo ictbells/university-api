@@ -46,8 +46,6 @@ class ReconcileWemaPayments extends Command
         $query = Payment::query()
             ->where('method', 'wema')
             ->where('status', 'pending')
-            ->whereNotNull('paystack_reference')
-            ->where('paystack_reference', 'not like', 'WEMA-%') // exclude rows without a real txId
             ->orderBy('created_at');
 
         if ($ids !== []) {
@@ -107,7 +105,7 @@ class ReconcileWemaPayments extends Command
             }
 
             try {
-                $result = $alatpay->verify($ref, $txId);
+                $result = $alatpay->verify($ref, str_starts_with($txId, 'WEMA-') ? null : ($txId !== '' ? $txId : null));
 
                 if ($result->status === 'successful') {
                     $this->info('  ✓ fulfilled: '.$label);

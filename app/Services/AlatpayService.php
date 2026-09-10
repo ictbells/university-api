@@ -80,18 +80,15 @@ class AlatpayService implements PaymentGateway
 
     public function verify(string $reference, ?string $transactionId = null): Payment
     {
-        $lookup = $transactionId ?: $reference;
-        $payment = Payment::query()
-            ->where('reference', $lookup)
-            ->orWhere('paystack_reference', $lookup)
-            ->orWhere('reference', $reference)
-            ->orWhere('paystack_reference', $reference)
-            ->firstOrFail();
+        $payment = $this->findPendingOrAnyPayment($reference, $transactionId);
         if ($payment->status === 'successful') {
             return $payment;
         }
 
         $txId = $this->resolveTransactionId($payment, $transactionId, $reference);
+        if (! $txId) {
+            $txId = $this->findTransactionIdByOrderReference($payment);
+        }
         if ($txId && $txId !== $payment->paystack_reference) {
             $payment->update(['paystack_reference' => $txId]);
             $payment->refresh();
@@ -100,10 +97,14 @@ class AlatpayService implements PaymentGateway
         $secret = (string) config('services.wema.secret');
         if ($secret) {
             if (! $txId) {
-                throw new RuntimeException('Payment has not been confirmed by Wema Bank.');
+                throw new RuntimeException(
+                    'Payment was started, but Wema/AlatPay has not returned a transaction ID yet. If the student was debited, confirm the transaction on the Wema dashboard and try Requery again shortly.'
+                );
             }
             $this->assertAlatpaySuccess($payment, $txId);
-        } elseif (! PaymentGatewaySettings::demoAllowed()) {
+        } elseif ($this->demoFulfillAllowed()) {
+            // Local/demo only — never when Wema API keys are present or APP_ENV=production.
+        } else {
             throw new RuntimeException('Online payments are not configured. Please pay at the admissions office.');
         }
 
@@ -120,22 +121,113 @@ class AlatpayService implements PaymentGateway
             'status' => 'received',
         ]);
 
-        $secret = (string) config('services.wema.webhook_secret');
-        if ($secret && $signature) {
-            $computed = hash_hmac('sha512', json_encode($payload), $secret);
-            if (! hash_equals($computed, $signature)) {
-                throw new RuntimeException('Invalid Wema Bank signature.');
+        $this->assertValidWebhookSignature($payload, $signature);
+
+        $transactionId = $this->stringValue($data, ['id', 'Id'])
+            ?: $this->stringValue(is_array($data['customer'] ?? null) ? $data['customer'] : [], ['transactionId', 'TransactionId']);
+        $orderReference = $this->resolveOurOrderReference($data, $transactionId !== '' ? $transactionId : null);
+
+        if ($orderReference === '' && $transactionId === '') {
+            return;
+        }
+
+        $this->verify($orderReference !== '' ? $orderReference : $transactionId, $transactionId !== '' ? $transactionId : null);
+    }
+
+    /**
+     * When Wema API keys are configured, unsigned or wrongly signed webhooks are rejected.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function assertValidWebhookSignature(array $payload, ?string $signature): void
+    {
+        $apiSecret = (string) config('services.wema.secret');
+        if ($apiSecret === '') {
+            throw new RuntimeException('Wema webhooks require API configuration.');
+        }
+
+        $webhookSecret = (string) config('services.wema.webhook_secret');
+        if ($webhookSecret === '') {
+            throw new RuntimeException('Wema webhook secret is not configured.');
+        }
+
+        if ($signature === null || $signature === '') {
+            throw new RuntimeException('Missing Wema Bank signature.');
+        }
+
+        $computed = hash_hmac('sha512', json_encode($payload), $webhookSecret);
+        if (! hash_equals($computed, $signature)) {
+            throw new RuntimeException('Invalid Wema Bank signature.');
+        }
+    }
+
+    private function demoFulfillAllowed(): bool
+    {
+        return PaymentGatewaySettings::demoAllowed()
+            && ! app()->isProduction()
+            && (string) config('services.wema.secret') === ''
+            && (string) config('services.wema.public') === '';
+    }
+
+    /**
+     * Prefer our WEMA- merchant order reference over AlatPay's internal orderId.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function resolveOurOrderReference(array $data, ?string $transactionId = null): string
+    {
+        $orderId = $this->stringValue($data, ['orderId', 'OrderId']);
+        if (str_starts_with($orderId, 'WEMA-')) {
+            return $orderId;
+        }
+
+        $metadata = $data['metadata'] ?? $data['MetaData'] ?? null;
+        if (is_array($metadata)) {
+            $metaOrder = $this->stringValue($metadata, ['orderId', 'OrderId']);
+            if (str_starts_with($metaOrder, 'WEMA-')) {
+                return $metaOrder;
             }
         }
 
-        $orderId = $this->stringValue($data, ['orderId', 'OrderId']);
-        $transactionId = $this->stringValue($data, ['id', 'Id'])
-            ?: $this->stringValue(is_array($data['customer'] ?? null) ? $data['customer'] : [], ['transactionId', 'TransactionId']);
-
-        $reference = $orderId ?: $transactionId;
-        if ($reference) {
-            $this->verify($reference, $transactionId ?: null);
+        if ($transactionId) {
+            $remote = $this->fetchAlatpayTransaction($transactionId);
+            if ($remote) {
+                $meta = $remote['metadata'] ?? $remote['MetaData'] ?? null;
+                if (is_array($meta)) {
+                    $metaOrder = $this->stringValue($meta, ['orderId', 'OrderId']);
+                    if (str_starts_with($metaOrder, 'WEMA-')) {
+                        return $metaOrder;
+                    }
+                }
+                $remoteOrder = $this->stringValue($remote, ['orderId', 'OrderId']);
+                if (str_starts_with($remoteOrder, 'WEMA-')) {
+                    return $remoteOrder;
+                }
+            }
         }
+
+        return str_starts_with($orderId, 'WEMA-') ? $orderId : '';
+    }
+
+    private function findPendingOrAnyPayment(string $reference, ?string $transactionId = null): Payment
+    {
+        $payment = Payment::query()
+            ->where(function ($query) use ($reference, $transactionId) {
+                $query->where('reference', $reference)
+                    ->orWhere('paystack_reference', $reference);
+                if ($transactionId) {
+                    $query->orWhere('paystack_reference', $transactionId)
+                        ->orWhere('reference', $transactionId);
+                }
+            })
+            ->latest('id')
+            ->first();
+
+        if ($payment) {
+            return $payment;
+        }
+
+        throw new RuntimeException('No matching payment was found for this Wema/AlatPay transaction.');
     }
 
     /**
@@ -153,7 +245,7 @@ class AlatpayService implements PaymentGateway
         $public = (string) config('services.wema.public');
         $businessId = (string) config('services.wema.business_id');
         if ($public === '' || $businessId === '') {
-            if ($requireDemoFlag && ! PaymentGatewaySettings::demoAllowed()) {
+            if ($requireDemoFlag && ! $this->demoFulfillAllowed()) {
                 throw new RuntimeException('Online payments are not configured. Please pay at the admissions office.');
             }
 
@@ -198,23 +290,172 @@ class AlatpayService implements PaymentGateway
             }
         }
 
-        return $transactionId ?: null;
+        return null;
     }
 
-    private function assertAlatpaySuccess(Payment $payment, string $transactionId): void
+    /**
+     * When callback/webhook never stored AlatPay's transaction id, search completed
+     * transactions for one that carries our WEMA- order reference.
+     */
+    private function findTransactionIdByOrderReference(Payment $payment): ?string
     {
+        $businessId = trim((string) config('services.wema.business_id'));
+        $secret = (string) config('services.wema.secret');
+        if ($businessId === '' || $secret === '') {
+            return null;
+        }
+
+        $base = rtrim((string) config('services.wema.base', 'https://apibox.alatpay.ng'), '/');
+        $startAt = optional($payment->created_at)?->copy()->subDay()->utc()->format('Y-m-d\TH:i:s.000\Z')
+            ?: now()->subDays(7)->utc()->format('Y-m-d\TH:i:s.000\Z');
+        $endAt = now()->addDay()->utc()->format('Y-m-d\TH:i:s.000\Z');
+        $order = (string) $payment->reference;
+
+        for ($page = 1; $page <= 5; $page++) {
+            $response = Http::withHeaders([
+                'Ocp-Apim-Subscription-Key' => $secret,
+                'Content-Type' => 'application/json',
+            ])->get($base.'/alatpaytransaction/api/v1/transactions', [
+                'businessId' => $businessId,
+                'page' => $page,
+                'limit' => 50,
+                'startAt' => $startAt,
+                'endAt' => $endAt,
+            ]);
+
+            if (! $response->successful()) {
+                return null;
+            }
+
+            $payload = $response->json();
+            $rows = data_get($payload, 'data');
+            if (! is_array($rows)) {
+                $rows = data_get($payload, 'data.items') ?? data_get($payload, 'data.data') ?? [];
+            }
+            if (! is_array($rows)) {
+                return null;
+            }
+
+            // Some AlatPay responses nest the list under data.transactions / data.result.
+            if ($rows !== [] && ! array_is_list($rows)) {
+                foreach (['transactions', 'result', 'items', 'records'] as $key) {
+                    if (isset($rows[$key]) && is_array($rows[$key]) && array_is_list($rows[$key])) {
+                        $rows = $rows[$key];
+                        break;
+                    }
+                }
+            }
+
+            foreach ($rows as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                if (! $this->transactionMatchesOrder($payment, $row, $order)) {
+                    continue;
+                }
+                $status = strtolower((string) ($row['status'] ?? ''));
+                if ($status !== '' && ! in_array($status, ['completed', 'successful', 'success', 'paid'], true)) {
+                    continue;
+                }
+                $id = $this->stringValue($row, ['id', 'Id', 'transactionId', 'TransactionId']);
+                if ($id !== '' && ! str_starts_with($id, 'WEMA-')) {
+                    return $id;
+                }
+            }
+
+            $totalPages = (int) (data_get($payload, 'pagination.totalPages')
+                ?? data_get($payload, 'data.pagination.totalPages')
+                ?? 1);
+            if ($page >= max(1, $totalPages)) {
+                break;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function transactionMatchesOrder(Payment $payment, array $row, string $order): bool
+    {
+        $orderMatched = false;
+        $orderId = $this->stringValue($row, ['orderId', 'OrderId']);
+        if ($orderId === $order) {
+            $orderMatched = true;
+        }
+
+        $metadata = $row['metadata'] ?? $row['MetaData'] ?? null;
+        if (! $orderMatched && is_array($metadata) && $this->stringValue($metadata, ['orderId', 'OrderId']) === $order) {
+            $orderMatched = true;
+        }
+
+        // Customer.metadata is sometimes a JSON string from AlatPay.
+        $customer = $row['customer'] ?? null;
+        if (! $orderMatched && is_array($customer)) {
+            $raw = $customer['metadata'] ?? $customer['MetaData'] ?? null;
+            if (is_string($raw) && $raw !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded) && $this->stringValue($decoded, ['orderId', 'OrderId']) === $order) {
+                    $orderMatched = true;
+                }
+            }
+            if (! $orderMatched && is_array($raw) && $this->stringValue($raw, ['orderId', 'OrderId']) === $order) {
+                $orderMatched = true;
+            }
+        }
+
+        if (! $orderMatched) {
+            return false;
+        }
+
+        if (is_array($metadata) && $payment->invoice_id) {
+            $metaInvoice = $this->stringValue($metadata, ['invoice_id', 'invoiceId', 'InvoiceId']);
+            if ($metaInvoice !== '' && $metaInvoice !== (string) $payment->invoice_id) {
+                return false;
+            }
+        }
+
+        // Defense in depth: when AlatPay includes an amount on the list row, it must fit this payment.
+        if (isset($row['amount']) && is_numeric($row['amount'])) {
+            return $this->alatpayAmountMatches($payment, (float) $row['amount'], $row);
+        }
+
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function fetchAlatpayTransaction(string $transactionId): ?array
+    {
+        $secret = (string) config('services.wema.secret');
+        if ($secret === '' || $transactionId === '') {
+            return null;
+        }
+
         $base = rtrim((string) config('services.wema.base', 'https://apibox.alatpay.ng'), '/');
         $response = Http::withHeaders([
-            'Ocp-Apim-Subscription-Key' => (string) config('services.wema.secret'),
+            'Ocp-Apim-Subscription-Key' => $secret,
             'Content-Type' => 'application/json',
         ])->get($base.'/alatpaytransaction/api/v1/transactions/'.$transactionId);
 
         if (! $response->successful()) {
-            throw new RuntimeException($response->json('message') ?: 'Payment has not been confirmed by Wema Bank.');
+            return null;
         }
 
         $data = $response->json('data');
-        $data = is_array($data) ? $data : [];
+
+        return is_array($data) ? $data : null;
+    }
+
+    private function assertAlatpaySuccess(Payment $payment, string $transactionId): void
+    {
+        $data = $this->fetchAlatpayTransaction($transactionId);
+        if ($data === null) {
+            throw new RuntimeException('Payment has not been confirmed by Wema Bank.');
+        }
+
         $status = strtolower((string) ($data['status'] ?? ''));
         if (! in_array($status, ['completed', 'successful', 'success', 'paid'], true)) {
             throw new RuntimeException('Payment has not been confirmed by Wema Bank.');

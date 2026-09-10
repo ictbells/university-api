@@ -157,11 +157,10 @@ class ReconcileWemaPaymentsTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_reconcile_ignores_payments_without_real_transaction_id(): void
+    public function test_reconcile_fulfills_pending_payment_found_by_order_reference_list(): void
     {
         $user = User::factory()->create(['status' => 'active']);
         $invoice = $this->pendingInvoice($user, 3000);
-        // paystack_reference still holds our own WEMA- reference (transactionId never captured)
         Payment::query()->create([
             'user_id' => $user->id,
             'invoice_id' => $invoice->id,
@@ -171,15 +170,43 @@ class ReconcileWemaPaymentsTest extends TestCase
             'reference' => 'WEMA-NOTXID01',
             'paystack_reference' => 'WEMA-NOTXID01',
             'purpose' => 'application_fee',
+            'created_at' => now()->subHour(),
         ]);
 
-        Http::fake();
+        Http::fake(function (\Illuminate\Http\Client\Request $request) {
+            $url = $request->url();
+            if (str_contains($url, '/transactions/tx-listed-001')) {
+                return Http::response([
+                    'status' => true,
+                    'data' => [
+                        'id' => 'tx-listed-001',
+                        'status' => 'completed',
+                        'amount' => 3000,
+                        'metadata' => ['orderId' => 'WEMA-NOTXID01'],
+                    ],
+                ]);
+            }
+            if (str_contains($url, '/alatpaytransaction/api/v1/transactions')) {
+                return Http::response([
+                    'status' => true,
+                    'data' => [[
+                        'id' => 'tx-listed-001',
+                        'status' => 'completed',
+                        'amount' => 3000,
+                        'metadata' => ['orderId' => 'WEMA-NOTXID01'],
+                    ]],
+                    'pagination' => ['totalPages' => 1],
+                ]);
+            }
+
+            return Http::response(['status' => false, 'message' => 'Unexpected URL: '.$url], 500);
+        });
 
         $this->artisan('payments:reconcile-wema')
-            ->expectsOutput('No pending Wema payments found.')
             ->assertExitCode(0);
 
-        Http::assertNothingSent();
+        $this->assertSame('successful', Payment::query()->where('reference', 'WEMA-NOTXID01')->value('status'));
+        $this->assertSame('paid', $invoice->fresh()->status);
     }
 
     public function test_reconcile_abandons_pending_payments_when_invoice_already_paid(): void

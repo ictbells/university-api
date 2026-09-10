@@ -24,6 +24,7 @@ class AlatpayPaymentTest extends TestCase
             'services.wema.public' => 'pk_wema_test',
             'services.wema.secret' => 'sk_wema_test',
             'services.wema.business_id' => 'biz-wema-test',
+            'services.wema.webhook_secret' => 'whsec_wema_test',
             'services.wema.base' => 'https://apibox.alatpay.ng',
             'services.paystack.allow_demo_fulfill' => false,
         ]);
@@ -323,12 +324,97 @@ class AlatpayPaymentTest extends TestCase
             ],
         ];
 
-        $this->postJson('/api/payments/wema/webhook', $payload)->assertOk();
+        $this->postJson('/api/payments/wema/webhook', $payload, $this->wemaWebhookHeaders($payload))->assertOk();
         $this->assertSame('successful', $payment->fresh()->status);
         $this->assertSame('paid', $invoice->fresh()->status);
 
-        $this->postJson('/api/payments/wema/webhook', $payload)->assertOk();
+        $this->postJson('/api/payments/wema/webhook', $payload, $this->wemaWebhookHeaders($payload))->assertOk();
         $this->assertEquals(1, Payment::query()->where('reference', $payment->reference)->where('status', 'successful')->count());
+    }
+
+    public function test_webhook_rejects_missing_or_invalid_signature(): void
+    {
+        $user = User::factory()->create(['status' => 'active']);
+        $invoice = $this->payableInvoice($user, 8000);
+        Payment::query()->create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $user->id,
+            'method' => 'wema',
+            'amount' => 8000,
+            'status' => 'pending',
+            'reference' => 'WEMA-HOOKBAD01',
+            'paystack_reference' => 'WEMA-HOOKBAD01',
+            'purpose' => 'application_fee',
+        ]);
+
+        $payload = [
+            'Value' => [
+                'Data' => [
+                    'Id' => 'tx-hook-bad',
+                    'OrderId' => 'WEMA-HOOKBAD01',
+                    'Status' => 'completed',
+                    'Amount' => 8000,
+                ],
+            ],
+        ];
+
+        $this->postJson('/api/payments/wema/webhook', $payload)
+            ->assertStatus(401)
+            ->assertJsonPath('message', 'Missing Wema Bank signature.');
+
+        $this->postJson('/api/payments/wema/webhook', $payload, [
+            'x-alatpay-signature' => 'not-a-valid-signature',
+        ])
+            ->assertStatus(401)
+            ->assertJsonPath('message', 'Invalid Wema Bank signature.');
+
+        $this->assertSame('pending', Payment::query()->where('reference', 'WEMA-HOOKBAD01')->value('status'));
+        $this->assertSame('unpaid', $invoice->fresh()->status);
+    }
+
+    public function test_webhook_finds_payment_when_alatpay_sends_merchant_prefixed_order_id(): void
+    {
+        $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
+        $invoice = $this->payableInvoice($user, 8000);
+        $payment = Payment::query()->create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $user->id,
+            'method' => 'wema',
+            'amount' => 8000,
+            'status' => 'pending',
+            'reference' => 'WEMA-HOOKMETA01',
+            'paystack_reference' => 'WEMA-HOOKMETA01',
+            'purpose' => 'application_fee',
+        ]);
+
+        Http::fake([
+            'https://apibox.alatpay.ng/alatpaytransaction/api/v1/transactions/tx-hook-meta' => Http::response([
+                'status' => true,
+                'data' => [
+                    'id' => 'tx-hook-meta',
+                    'status' => 'completed',
+                    'amount' => 8000,
+                    'orderId' => 'BELLSUNIVERSITY-internal',
+                    'metadata' => ['orderId' => 'WEMA-HOOKMETA01'],
+                ],
+            ]),
+        ]);
+
+        $payload = [
+            'Value' => [
+                'Data' => [
+                    'Id' => 'tx-hook-meta',
+                    'OrderId' => 'BELLSUNIVERSITY-internal',
+                    'Status' => 'completed',
+                    'Amount' => 8000,
+                ],
+            ],
+        ];
+
+        $this->postJson('/api/payments/wema/webhook', $payload, $this->wemaWebhookHeaders($payload))->assertOk();
+
+        $this->assertSame('successful', $payment->fresh()->status);
+        $this->assertSame('paid', $invoice->fresh()->status);
     }
 
     public function test_paystack_alias_uses_active_wema_gateway(): void
@@ -393,6 +479,33 @@ class AlatpayPaymentTest extends TestCase
         $this->assertStringStartsWith('WEMA-W-', Payment::query()->first()?->reference);
     }
 
+    public function test_demo_fulfill_is_blocked_when_wema_keys_are_configured(): void
+    {
+        config(['services.paystack.allow_demo_fulfill' => true]);
+        $user = User::factory()->create(['status' => 'active']);
+        $invoice = $this->payableInvoice($user, 2500);
+        $payment = Payment::query()->create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $user->id,
+            'method' => 'wema',
+            'amount' => 2500,
+            'status' => 'pending',
+            'reference' => 'WEMA-NODEMO01',
+            'paystack_reference' => 'WEMA-NODEMO01',
+            'purpose' => 'application_fee',
+        ]);
+
+        Sanctum::actingAs($user);
+        $this->getJson('/api/payments/verify/'.$payment->reference)
+            ->assertStatus(422)
+            ->assertJsonPath(
+                'message',
+                'Payment was started, but Wema/AlatPay has not returned a transaction ID yet. If the student was debited, confirm the transaction on the Wema dashboard and try Requery again shortly.'
+            );
+
+        $this->assertSame('pending', $payment->fresh()->status);
+    }
+
     private function payableInvoice(User $user, float $amount): Invoice
     {
         return Invoice::query()->create([
@@ -405,5 +518,20 @@ class AlatpayPaymentTest extends TestCase
             'status' => 'unpaid',
             'wallet_allowed' => false,
         ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, string>
+     */
+    private function wemaWebhookHeaders(array $payload): array
+    {
+        return [
+            'X-Alatpay-Signature' => hash_hmac(
+                'sha512',
+                json_encode($payload),
+                (string) config('services.wema.webhook_secret'),
+            ),
+        ];
     }
 }

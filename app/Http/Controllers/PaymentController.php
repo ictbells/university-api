@@ -8,6 +8,7 @@ use App\Services\FeeArrearsService;
 use App\Services\PaymentGatewayManager;
 use App\Support\SchoolFeeAccess;
 use Illuminate\Http\Request;
+use RuntimeException;
 
 class PaymentController extends Controller
 {
@@ -113,7 +114,21 @@ class PaymentController extends Controller
         $signature = $request->header('x-alatpay-signature')
             ?: $request->header('x-wema-signature')
             ?: $request->header('x-webhook-signature');
-        $this->gateways->driver('wema')->handleWebhook($request->all(), $signature);
+
+        try {
+            $this->gateways->driver('wema')->handleWebhook($request->all(), $signature);
+        } catch (RuntimeException $e) {
+            $message = $e->getMessage();
+            if (
+                str_contains($message, 'signature')
+                || str_contains($message, 'webhook secret')
+                || str_contains($message, 'webhooks require')
+            ) {
+                return response()->json(['message' => $message], 401);
+            }
+
+            return response()->json(['message' => $message], 422);
+        }
 
         return response()->json(['status' => 'ok']);
     }

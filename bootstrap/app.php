@@ -7,10 +7,12 @@ use App\Http\Middleware\EnsurePortalNav;
 use App\Http\Middleware\EnsureStaffSecurity;
 use App\Http\Middleware\EnsureStudent;
 use App\Http\Middleware\SecurityHeaders;
+use Fruitcake\Cors\CorsService;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -56,4 +58,20 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+
+        // HandleCors only decorates the happy path. Re-apply CORS on rendered
+        // exceptions so SPA clients can read 4xx/5xx bodies instead of a CORS mask.
+        $exceptions->respond(function (Response $response, \Throwable $e, Request $request) {
+            if (! $request->is('api/*') && ! $request->is('sanctum/csrf-cookie') && ! $request->is('api/sanctum/csrf-cookie')) {
+                return $response;
+            }
+
+            $cors = app(CorsService::class);
+            $cors->setOptions(config('cors', []));
+            if (! $cors->isCorsRequest($request)) {
+                return $response;
+            }
+
+            return $cors->addActualRequestHeaders($response, $request);
+        });
     })->create();
