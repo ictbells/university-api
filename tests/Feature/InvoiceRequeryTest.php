@@ -149,6 +149,80 @@ class InvoiceRequeryTest extends TestCase
         $this->assertSame('tx-from-list-001', Payment::query()->where('reference', 'WEMA-MC97CMEL3UBZ')->value('paystack_reference'));
     }
 
+    public function test_requery_finds_completed_alatpay_transaction_when_metadata_is_json_string(): void
+    {
+        $staff = $this->financeStaff();
+        $payer = User::factory()->create(['name' => 'David Fabuyi', 'status' => 'active']);
+        $invoice = Invoice::query()->create([
+            'number' => 'BUT/2026/STRINGMETA',
+            'user_id' => $payer->id,
+            'category' => 'acceptance_fee',
+            'amount' => 100000,
+            'full_amount' => 100000,
+            'balance' => 100000,
+            'status' => 'unpaid',
+            'wallet_allowed' => false,
+        ]);
+        Payment::query()->create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $payer->id,
+            'method' => 'wema',
+            'amount' => 100000,
+            'status' => 'pending',
+            'reference' => 'WEMA-AUZ5SBSKX0CY',
+            'paystack_reference' => 'WEMA-AUZ5SBSKX0CY',
+            'purpose' => 'acceptance_fee',
+            'created_at' => now()->subHour(),
+        ]);
+
+        $invoiceId = (string) $invoice->id;
+        Http::fake(function (\Illuminate\Http\Client\Request $request) use ($invoiceId) {
+            $url = $request->url();
+            $meta = '{"orderId":"WEMA-AUZ5SBSKX0CY","invoice_id":"'.$invoiceId.'","purpose":"acceptance_fee"}';
+            if (str_contains($url, '/transactions/e8d831b2-04dc-4a5c-ba39-ca7c5d97cd98')) {
+                return Http::response([
+                    'status' => true,
+                    'data' => [
+                        'id' => 'e8d831b2-04dc-4a5c-ba39-ca7c5d97cd98',
+                        'status' => 'completed',
+                        'amount' => 100350,
+                        'feeAmount' => 350,
+                        'orderId' => 'BELLSUNIVERSITY-internal',
+                        // Dashboard/API often return metadata as a JSON string.
+                        'metadata' => $meta,
+                    ],
+                ]);
+            }
+            if (str_contains($url, '/alatpaytransaction/api/v1/transactions')) {
+                return Http::response([
+                    'status' => true,
+                    'data' => [[
+                        'id' => 'e8d831b2-04dc-4a5c-ba39-ca7c5d97cd98',
+                        'status' => 'completed',
+                        'amount' => 100350,
+                        'feeAmount' => 350,
+                        'orderId' => 'BELLSUNIVERSITY-internal',
+                        'metadata' => $meta,
+                    ]],
+                    'pagination' => ['totalPages' => 1],
+                ]);
+            }
+
+            return Http::response(['status' => false, 'message' => 'Unexpected URL: '.$url], 500);
+        });
+
+        Sanctum::actingAs($staff);
+        $this->postJson('/api/invoices/'.$invoice->id.'/requery')
+            ->assertOk()
+            ->assertJsonPath('status', 'successful');
+
+        $this->assertSame('paid', $invoice->fresh()->status);
+        $this->assertSame(
+            'e8d831b2-04dc-4a5c-ba39-ca7c5d97cd98',
+            Payment::query()->where('reference', 'WEMA-AUZ5SBSKX0CY')->value('paystack_reference')
+        );
+    }
+
     public function test_requery_without_pending_payment_returns_422(): void
     {
         $staff = $this->financeStaff();

@@ -347,6 +347,19 @@ class AlatpayPaymentTest extends TestCase
             'purpose' => 'application_fee',
         ]);
 
+        // No signature and no real AlatPay transaction id → reject.
+        $this->postJson('/api/payments/wema/webhook', [
+            'Value' => [
+                'Data' => [
+                    'OrderId' => 'WEMA-HOOKBAD01',
+                    'Status' => 'completed',
+                    'Amount' => 8000,
+                ],
+            ],
+        ])
+            ->assertStatus(401)
+            ->assertJsonPath('message', 'Missing Wema Bank signature.');
+
         $payload = [
             'Value' => [
                 'Data' => [
@@ -358,10 +371,6 @@ class AlatpayPaymentTest extends TestCase
             ],
         ];
 
-        $this->postJson('/api/payments/wema/webhook', $payload)
-            ->assertStatus(401)
-            ->assertJsonPath('message', 'Missing Wema Bank signature.');
-
         $this->postJson('/api/payments/wema/webhook', $payload, [
             'x-alatpay-signature' => 'not-a-valid-signature',
         ])
@@ -370,6 +379,51 @@ class AlatpayPaymentTest extends TestCase
 
         $this->assertSame('pending', Payment::query()->where('reference', 'WEMA-HOOKBAD01')->value('status'));
         $this->assertSame('unpaid', $invoice->fresh()->status);
+    }
+
+    public function test_webhook_without_signature_header_verifies_via_alatpay_api(): void
+    {
+        $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
+        $invoice = $this->payableInvoice($user, 8000);
+        $payment = Payment::query()->create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $user->id,
+            'method' => 'wema',
+            'amount' => 8000,
+            'status' => 'pending',
+            'reference' => 'WEMA-NOSIG001',
+            'paystack_reference' => 'WEMA-NOSIG001',
+            'purpose' => 'application_fee',
+        ]);
+
+        Http::fake([
+            'https://apibox.alatpay.ng/alatpaytransaction/api/v1/transactions/tx-nosig-1' => Http::response([
+                'status' => true,
+                'data' => [
+                    'id' => 'tx-nosig-1',
+                    'status' => 'completed',
+                    'amount' => 8000,
+                    'orderId' => 'BELLSUNIVERSITY-internal',
+                    'metadata' => '{"orderId":"WEMA-NOSIG001","invoice_id":"'.$invoice->id.'","purpose":"application_fee"}',
+                ],
+            ]),
+        ]);
+
+        // Matches current AlatPay behaviour: webhook arrives with no signature header.
+        $this->postJson('/api/payments/wema/webhook', [
+            'Value' => [
+                'Data' => [
+                    'Id' => 'tx-nosig-1',
+                    'OrderId' => 'BELLSUNIVERSITY-internal',
+                    'Status' => 'completed',
+                    'Amount' => 8000,
+                ],
+            ],
+        ])->assertOk();
+
+        $this->assertSame('successful', $payment->fresh()->status);
+        $this->assertSame('paid', $invoice->fresh()->status);
+        $this->assertSame('tx-nosig-1', $payment->fresh()->paystack_reference);
     }
 
     public function test_webhook_finds_payment_when_alatpay_sends_merchant_prefixed_order_id(): void

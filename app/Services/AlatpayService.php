@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\WebhookLog;
 use App\Support\PaymentGatewaySettings;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
 
@@ -121,7 +122,7 @@ class AlatpayService implements PaymentGateway
             'status' => 'received',
         ]);
 
-        $this->assertValidWebhookSignature($payload, $signature);
+        $this->assertValidWebhookSignature($payload, $signature, $data);
 
         $transactionId = $this->stringValue($data, ['id', 'Id'])
             ?: $this->stringValue(is_array($data['customer'] ?? null) ? $data['customer'] : [], ['transactionId', 'TransactionId']);
@@ -135,11 +136,14 @@ class AlatpayService implements PaymentGateway
     }
 
     /**
-     * When Wema API keys are configured, unsigned or wrongly signed webhooks are rejected.
+     * Prefer HMAC when AlatPay sends a signature header. If no header is present
+     * (common in current AlatPay deliveries), require a transaction id in the
+     * payload and authenticate later via GET /transactions/{id} inside verify().
      *
      * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $data
      */
-    private function assertValidWebhookSignature(array $payload, ?string $signature): void
+    private function assertValidWebhookSignature(array $payload, ?string $signature, array $data): void
     {
         $apiSecret = (string) config('services.wema.secret');
         if ($apiSecret === '') {
@@ -147,18 +151,38 @@ class AlatpayService implements PaymentGateway
         }
 
         $webhookSecret = (string) config('services.wema.webhook_secret');
-        if ($webhookSecret === '') {
-            throw new RuntimeException('Wema webhook secret is not configured.');
+        $signature = is_string($signature) ? trim($signature) : '';
+
+        if ($signature !== '') {
+            if ($webhookSecret === '') {
+                throw new RuntimeException('Wema webhook secret is not configured.');
+            }
+
+            $candidates = [
+                hash_hmac('sha512', json_encode($payload), $webhookSecret),
+                hash_hmac('sha256', json_encode($payload), $webhookSecret),
+            ];
+            foreach ($candidates as $computed) {
+                if (hash_equals($computed, $signature)) {
+                    return;
+                }
+            }
+
+            throw new RuntimeException('Invalid Wema Bank signature.');
         }
 
-        if ($signature === null || $signature === '') {
+        $transactionId = $this->stringValue($data, ['id', 'Id'])
+            ?: $this->stringValue(is_array($data['customer'] ?? null) ? $data['customer'] : [], ['transactionId', 'TransactionId']);
+
+        if ($transactionId === '' || str_starts_with($transactionId, 'WEMA-')) {
             throw new RuntimeException('Missing Wema Bank signature.');
         }
 
-        $computed = hash_hmac('sha512', json_encode($payload), $webhookSecret);
-        if (! hash_equals($computed, $signature)) {
-            throw new RuntimeException('Invalid Wema Bank signature.');
-        }
+        // No signature header — authenticity is enforced by verifying this tx id
+        // against AlatPay with our subscription key before fulfilling.
+        Log::info('Wema webhook accepted without signature header; will verify via AlatPay API', [
+            'transaction_id' => $transactionId,
+        ]);
     }
 
     private function demoFulfillAllowed(): bool
@@ -181,8 +205,8 @@ class AlatpayService implements PaymentGateway
             return $orderId;
         }
 
-        $metadata = $data['metadata'] ?? $data['MetaData'] ?? null;
-        if (is_array($metadata)) {
+        $metadata = $this->decodeMetadata($data['metadata'] ?? $data['MetaData'] ?? null);
+        if ($metadata !== []) {
             $metaOrder = $this->stringValue($metadata, ['orderId', 'OrderId']);
             if (str_starts_with($metaOrder, 'WEMA-')) {
                 return $metaOrder;
@@ -192,8 +216,8 @@ class AlatpayService implements PaymentGateway
         if ($transactionId) {
             $remote = $this->fetchAlatpayTransaction($transactionId);
             if ($remote) {
-                $meta = $remote['metadata'] ?? $remote['MetaData'] ?? null;
-                if (is_array($meta)) {
+                $meta = $this->decodeMetadata($remote['metadata'] ?? $remote['MetaData'] ?? null);
+                if ($meta !== []) {
                     $metaOrder = $this->stringValue($meta, ['orderId', 'OrderId']);
                     if (str_starts_with($metaOrder, 'WEMA-')) {
                         return $metaOrder;
@@ -311,19 +335,26 @@ class AlatpayService implements PaymentGateway
         $endAt = now()->addDay()->utc()->format('Y-m-d\TH:i:s.000\Z');
         $order = (string) $payment->reference;
 
-        for ($page = 1; $page <= 5; $page++) {
+        for ($page = 1; $page <= 20; $page++) {
             $response = Http::withHeaders([
                 'Ocp-Apim-Subscription-Key' => $secret,
                 'Content-Type' => 'application/json',
             ])->get($base.'/alatpaytransaction/api/v1/transactions', [
                 'businessId' => $businessId,
                 'page' => $page,
-                'limit' => 50,
+                'limit' => 100,
                 'startAt' => $startAt,
                 'endAt' => $endAt,
             ]);
 
             if (! $response->successful()) {
+                Log::warning('AlatPay transaction list lookup failed', [
+                    'payment_id' => $payment->id,
+                    'reference' => $order,
+                    'status' => $response->status(),
+                    'body' => $response->json('message') ?: $response->body(),
+                ]);
+
                 return null;
             }
 
@@ -385,22 +416,16 @@ class AlatpayService implements PaymentGateway
             $orderMatched = true;
         }
 
-        $metadata = $row['metadata'] ?? $row['MetaData'] ?? null;
-        if (! $orderMatched && is_array($metadata) && $this->stringValue($metadata, ['orderId', 'OrderId']) === $order) {
+        // AlatPay often returns metadata as a JSON string (same as merchant dashboard).
+        $metadata = $this->decodeMetadata($row['metadata'] ?? $row['MetaData'] ?? null);
+        if (! $orderMatched && $metadata !== [] && $this->stringValue($metadata, ['orderId', 'OrderId']) === $order) {
             $orderMatched = true;
         }
 
-        // Customer.metadata is sometimes a JSON string from AlatPay.
         $customer = $row['customer'] ?? null;
         if (! $orderMatched && is_array($customer)) {
-            $raw = $customer['metadata'] ?? $customer['MetaData'] ?? null;
-            if (is_string($raw) && $raw !== '') {
-                $decoded = json_decode($raw, true);
-                if (is_array($decoded) && $this->stringValue($decoded, ['orderId', 'OrderId']) === $order) {
-                    $orderMatched = true;
-                }
-            }
-            if (! $orderMatched && is_array($raw) && $this->stringValue($raw, ['orderId', 'OrderId']) === $order) {
+            $customerMeta = $this->decodeMetadata($customer['metadata'] ?? $customer['MetaData'] ?? null);
+            if ($customerMeta !== [] && $this->stringValue($customerMeta, ['orderId', 'OrderId']) === $order) {
                 $orderMatched = true;
             }
         }
@@ -409,7 +434,7 @@ class AlatpayService implements PaymentGateway
             return false;
         }
 
-        if (is_array($metadata) && $payment->invoice_id) {
+        if ($metadata !== [] && $payment->invoice_id) {
             $metaInvoice = $this->stringValue($metadata, ['invoice_id', 'invoiceId', 'InvoiceId']);
             if ($metaInvoice !== '' && $metaInvoice !== (string) $payment->invoice_id) {
                 return false;
@@ -422,6 +447,24 @@ class AlatpayService implements PaymentGateway
         }
 
         return true;
+    }
+
+    /**
+     * AlatPay returns metadata as either an object or a JSON-encoded string.
+     *
+     * @return array<string, mixed>
+     */
+    private function decodeMetadata(mixed $raw): array
+    {
+        if (is_array($raw)) {
+            return $raw;
+        }
+        if (! is_string($raw) || trim($raw) === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+
+        return is_array($decoded) ? $decoded : [];
     }
 
     /**
@@ -534,8 +577,8 @@ class AlatpayService implements PaymentGateway
      */
     private function assertAlatpayReference(Payment $payment, array $data): void
     {
-        $metadata = $data['metadata'] ?? $data['MetaData'] ?? null;
-        if (! is_array($metadata)) {
+        $metadata = $this->decodeMetadata($data['metadata'] ?? $data['MetaData'] ?? null);
+        if ($metadata === []) {
             return;
         }
 

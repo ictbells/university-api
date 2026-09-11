@@ -13,7 +13,9 @@ class ReconcileWemaPayments extends Command
     protected $signature = 'payments:reconcile-wema
                             {--dry-run : Show which payments would be reconciled without fulfilling them}
                             {--since= : Only consider payments created on or after this date (Y-m-d)}
-                            {--id=* : Specific payment IDs to reconcile}';
+                            {--id=* : Specific payment IDs to reconcile}
+                            {--transaction-id= : AlatPay transaction id (use with a single --id when list lookup cannot find it)}
+                            {--trace-lookup : Print full AlatPay “no tx id” messages}';
 
     protected $description = 'Re-verify pending Wema/AlatPay payments and fulfill those confirmed by AlatPay.';
 
@@ -22,6 +24,14 @@ class ReconcileWemaPayments extends Command
         $dryRun = $this->option('dry-run');
         $since = $this->option('since');
         $ids = array_filter(array_map('intval', (array) $this->option('id')));
+        $forcedTxId = trim((string) $this->option('transaction-id'));
+        $traceLookup = (bool) $this->option('trace-lookup');
+
+        if ($forcedTxId !== '' && count($ids) !== 1) {
+            $this->error('Use --transaction-id together with exactly one --id=<paymentId>.');
+
+            return self::FAILURE;
+        }
 
         $staleQuery = Payment::query()
             ->where('method', 'wema')
@@ -73,16 +83,20 @@ class ReconcileWemaPayments extends Command
         $fulfilled = 0;
         $skipped = 0;
         $failed = 0;
+        $noTxId = 0;
 
         foreach ($payments as $payment) {
             $txId = (string) $payment->paystack_reference;
             $ref = (string) $payment->reference;
+            $verifyTxId = $forcedTxId !== ''
+                ? $forcedTxId
+                : (str_starts_with($txId, 'WEMA-') ? null : ($txId !== '' ? $txId : null));
 
             $label = sprintf(
                 'Payment #%d  ref=%s  txId=%s  amount=%.2f',
                 $payment->id,
                 $ref,
-                $txId,
+                $verifyTxId ?: $txId,
                 (float) $payment->amount,
             );
 
@@ -105,7 +119,7 @@ class ReconcileWemaPayments extends Command
             }
 
             try {
-                $result = $alatpay->verify($ref, str_starts_with($txId, 'WEMA-') ? null : ($txId !== '' ? $txId : null));
+                $result = $alatpay->verify($ref, $verifyTxId);
 
                 if ($result->status === 'successful') {
                     $this->info('  ✓ fulfilled: '.$label);
@@ -115,8 +129,14 @@ class ReconcileWemaPayments extends Command
                     $skipped++;
                 }
             } catch (RuntimeException $e) {
-                // AlatPay explicitly says the payment is not confirmed yet — not an error.
-                $this->warn('  – not confirmed by AlatPay: '.$label.' ('.$e->getMessage().')');
+                $message = $e->getMessage();
+                if (str_contains($message, 'has not returned a transaction ID')) {
+                    $noTxId++;
+                }
+                if ($traceLookup) {
+                    $this->line('      '.$message);
+                }
+                $this->warn('  – not confirmed by AlatPay: '.$label.' ('.$message.')');
                 $skipped++;
             } catch (Throwable $e) {
                 $this->error('  ✗ failed: '.$label);
@@ -127,11 +147,19 @@ class ReconcileWemaPayments extends Command
 
         $this->newLine();
         $this->line(sprintf(
-            'Done. Fulfilled: %d  |  Skipped/unconfirmed: %d  |  Errors: %d',
+            'Done. Fulfilled: %d  |  Skipped/unconfirmed: %d  |  No AlatPay tx id found: %d  |  Errors: %d',
             $fulfilled,
             $skipped,
+            $noTxId,
             $failed,
         ));
+        if ($noTxId > 0) {
+            $this->comment(
+                'Tip: many of those are abandoned checkouts (student opened pay, never finished). '
+                .'If Wema dashboard shows a completed charge, copy its transaction id and run: '
+                .'php artisan payments:reconcile-wema --id=<paymentId> --transaction-id=<alatpayTxId>'
+            );
+        }
 
         return $failed > 0 ? self::FAILURE : self::SUCCESS;
     }

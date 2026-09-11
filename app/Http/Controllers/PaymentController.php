@@ -111,9 +111,7 @@ class PaymentController extends Controller
 
     public function wemaWebhook(Request $request)
     {
-        $signature = $request->header('x-alatpay-signature')
-            ?: $request->header('x-wema-signature')
-            ?: $request->header('x-webhook-signature');
+        $signature = $this->wemaWebhookSignature($request);
 
         try {
             $this->gateways->driver('wema')->handleWebhook($request->all(), $signature);
@@ -131,6 +129,30 @@ class PaymentController extends Controller
         }
 
         return response()->json(['status' => 'ok']);
+    }
+
+    private function wemaWebhookSignature(Request $request): ?string
+    {
+        foreach ([
+            'x-alatpay-signature',
+            'x-wema-signature',
+            'x-webhook-signature',
+            'x-signature',
+            'signature',
+            'alatpay-signature',
+        ] as $header) {
+            $value = trim((string) $request->header($header, ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        $authorization = trim((string) $request->header('Authorization', ''));
+        if (preg_match('/^(?:Bearer|Signature)\s+(.+)$/i', $authorization, $matches) === 1) {
+            return trim($matches[1]);
+        }
+
+        return null;
     }
 
     public function paygateWebhook(Request $request)
