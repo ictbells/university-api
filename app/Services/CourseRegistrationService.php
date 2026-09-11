@@ -792,19 +792,7 @@ class CourseRegistrationService
 
     public function studentLevel(Student $student): ?AcademicLevel
     {
-        $code = (string) $student->current_level;
-
-        $studyLevel = StudyLevel::ofStudent($student->loadMissing(['application', 'program']));
-
-        return AcademicLevel::query()
-            ->where('study_level', $studyLevel)
-            ->where(function ($query) use ($code) {
-                $query->where('code', $code)
-                    ->orWhere('code', $code.'L')
-                    ->orWhere('name', 'like', $code.'%');
-            })
-            ->orderBy('sort_order')
-            ->first();
+        return \App\Support\StudentAcademicLevel::resolve($student);
     }
 
     /** @return array<string, array{min: ?int, max: ?int, grace: int}> */

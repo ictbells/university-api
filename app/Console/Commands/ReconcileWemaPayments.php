@@ -13,16 +13,18 @@ class ReconcileWemaPayments extends Command
     protected $signature = 'payments:reconcile-wema
                             {--dry-run : Show which payments would be reconciled without fulfilling them}
                             {--since= : Only consider payments created on or after this date (Y-m-d)}
+                            {--days=30 : Minimum AlatPay lookback window in days when matching pending payments}
                             {--id=* : Specific payment IDs to reconcile}
                             {--transaction-id= : AlatPay transaction id (use with a single --id when list lookup cannot find it)}
                             {--trace-lookup : Print full AlatPay “no tx id” messages}';
 
-    protected $description = 'Re-verify pending Wema/AlatPay payments and fulfill those confirmed by AlatPay.';
+    protected $description = 'Re-verify all pending Wema/AlatPay payments and fulfill those confirmed by AlatPay.';
 
     public function handle(AlatpayService $alatpay): int
     {
         $dryRun = $this->option('dry-run');
         $since = $this->option('since');
+        $days = max(1, (int) $this->option('days'));
         $ids = array_filter(array_map('intval', (array) $this->option('id')));
         $forcedTxId = trim((string) $this->option('transaction-id'));
         $traceLookup = (bool) $this->option('trace-lookup');
@@ -85,18 +87,16 @@ class ReconcileWemaPayments extends Command
         $failed = 0;
         $noTxId = 0;
 
-        // Prefetch completed AlatPay txs once for the whole batch. Bulk reconcile
-        // otherwise re-lists per payment and often misses rows that only expose
-        // our WEMA- order id on GET /transactions/{id} (which --transaction-id uses).
-        $needsListLookup = ! $dryRun && $forcedTxId === '' && $payments->contains(
-            fn (Payment $payment) => str_starts_with((string) $payment->paystack_reference, 'WEMA-')
-                || trim((string) $payment->paystack_reference) === ''
-        );
+        // Always prefetch for bulk runs so drifted metadata.orderId can still match via invoice_id.
+        $needsListLookup = ! $dryRun && $forcedTxId === '';
         if ($needsListLookup) {
             $earliest = $payments->min(fn (Payment $payment) => $payment->created_at);
-            $from = $earliest
+            $fromPayment = $earliest
                 ? \Carbon\Carbon::parse($earliest)->subDay()
-                : now()->subDays(14);
+                : now()->subDays($days);
+            $from = $fromPayment->lt(now()->subDays($days))
+                ? $fromPayment
+                : now()->subDays($days);
             $alatpay->beginCompletedTransactionLookup($from, now()->addDay());
             $this->line(sprintf(
                 'Prefetched AlatPay completed transactions since %s.',
@@ -116,7 +116,7 @@ class ReconcileWemaPayments extends Command
                     'Payment #%d  ref=%s  txId=%s  amount=%.2f',
                     $payment->id,
                     $ref,
-                    $verifyTxId ?: $txId,
+                    $verifyTxId ?: ($txId !== '' ? $txId : 'list-lookup'),
                     (float) $payment->amount,
                 );
 
@@ -139,7 +139,10 @@ class ReconcileWemaPayments extends Command
                 }
 
                 try {
-                    $result = $alatpay->verify($ref, $verifyTxId);
+                    $result = $alatpay->reconcilePayment(
+                        $payment,
+                        $forcedTxId !== '' ? $forcedTxId : null,
+                    );
 
                     if ($result->status === 'successful') {
                         $this->info('  ✓ fulfilled: '.$label);

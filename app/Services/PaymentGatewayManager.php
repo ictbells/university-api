@@ -94,10 +94,13 @@ class PaymentGatewayManager
             }
 
             try {
-                $result = $this->driverFor($payment)->verify(
-                    (string) $payment->reference,
-                    $txId !== '' ? $txId : null,
-                );
+                $driver = $this->driverFor($payment);
+                $result = $driver instanceof AlatpayService
+                    ? $driver->reconcilePayment($payment, $txId !== '' ? $txId : null)
+                    : $driver->verify(
+                        (string) $payment->reference,
+                        $txId !== '' ? $txId : null,
+                    );
                 if ($result->status === 'successful') {
                     return $result->load('invoice');
                 }

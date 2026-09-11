@@ -422,4 +422,86 @@ class ProgrammeFeeScheduleTest extends TestCase
                 ->count()
         );
     }
+
+    public function test_jupeb_student_resolves_fees_tagged_with_jupeb_level_name(): void
+    {
+        $campus = Campus::query()->create(['name' => 'Main', 'is_active' => true]);
+        $faculty = Faculty::query()->create(['name' => 'JUPEB Sciences', 'campus_id' => $campus->id]);
+        $department = Department::query()->create([
+            'name' => 'JUPEB Sciences',
+            'faculty_id' => $faculty->id,
+        ]);
+        $program = Program::query()->create([
+            'name' => 'JUPEB Sciences',
+            'code' => 'JUP-SCI',
+            'department_id' => $department->id,
+            'study_level' => 'jupeb',
+            'entry_modes' => ['jupeb'],
+            'duration_years' => 1,
+            'is_active' => true,
+        ]);
+        \App\Models\AcademicLevel::query()->create([
+            'name' => 'JUPEB',
+            'code' => null,
+            'study_level' => 'jupeb',
+            'sort_order' => 9,
+            'is_active' => true,
+        ]);
+        \App\Models\AcademicLevel::query()->create([
+            'name' => '100 Level',
+            'code' => '100',
+            'study_level' => 'undergraduate',
+            'sort_order' => 1,
+            'is_active' => true,
+        ]);
+
+        $tuition = FeeItem::query()->create([
+            'name' => 'School Fees',
+            'category' => 'tuition',
+            'amount' => 742000,
+            'is_active' => true,
+        ]);
+        $wrong = FeeItem::query()->create([
+            'name' => 'UG School Fees',
+            'category' => 'tuition',
+            'amount' => 5000000,
+            'is_active' => true,
+        ]);
+
+        ProgrammeFee::query()->create([
+            'program_id' => $program->id,
+            'fee_item_id' => $tuition->id,
+            'level_code' => 'JUPEB',
+            'semester' => 'both',
+            'amount' => 742000,
+            'is_active' => true,
+            'display_order' => 1,
+        ]);
+        // Stray numeric band left on the JUPEB programme — must not win over named JUPEB fees.
+        ProgrammeFee::query()->create([
+            'program_id' => $program->id,
+            'fee_item_id' => $wrong->id,
+            'level_code' => '100',
+            'semester' => 'both',
+            'amount' => 5000000,
+            'is_active' => true,
+            'display_order' => 2,
+        ]);
+
+        $user = User::factory()->create();
+        $student = \App\Models\Student::query()->create([
+            'user_id' => $user->id,
+            'program_id' => $program->id,
+            'first_name' => 'Ada',
+            'last_name' => 'Okoye',
+            'study_level' => 'jupeb',
+            'current_level' => 100,
+            'status' => 'active',
+            'student_number' => 'J/2026/1',
+        ]);
+
+        $this->assertSame('JUPEB', \App\Support\StudentAcademicLevel::label($student));
+        $this->assertContains('JUPEB', \App\Support\StudentAcademicLevel::feeLevelCodes($student));
+        $this->assertSame(742000.0, \App\Support\ProgrammeFeeResolver::totalForStudent($student));
+    }
 }

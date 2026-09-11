@@ -17,6 +17,8 @@ class Student extends BaseModel
 
     protected $hidden = ['nin_hash'];
 
+    protected $appends = ['level_label'];
+
     protected function casts(): array
     {
         return [
@@ -26,6 +28,11 @@ class Student extends BaseModel
             'nin_locked' => 'boolean',
             'nin' => 'encrypted',
         ];
+    }
+
+    public function getLevelLabelAttribute(): ?string
+    {
+        return \App\Support\StudentAcademicLevel::label($this);
     }
 
     protected static function booted(): void

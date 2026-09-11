@@ -35,19 +35,58 @@ class AlatpayService implements PaymentGateway
 
     /**
      * Prefetch completed AlatPay transactions for a date window (used by bulk reconcile).
+     * Hydrates list rows that omit our WEMA- metadata so invoice/order matching works in bulk.
      */
     public function beginCompletedTransactionLookup(\DateTimeInterface $from, \DateTimeInterface $to): void
     {
         $startAt = \Carbon\Carbon::parse($from)->utc()->format('Y-m-d\TH:i:s.000\Z');
         $endAt = \Carbon\Carbon::parse($to)->utc()->format('Y-m-d\TH:i:s.000\Z');
 
-        $this->sharedCompletedTransactions = $this->listAlatpayTransactions($startAt, $endAt);
+        $this->sharedCompletedTransactions = $this->hydrateCompletedTransactionMetadata(
+            $this->listAlatpayTransactions($startAt, $endAt)
+        );
     }
 
     public function endCompletedTransactionLookup(): void
     {
         $this->sharedCompletedTransactions = null;
         $this->transactionDetailCache = [];
+    }
+
+    /**
+     * Reconcile one pending payment: try known tx id, then AlatPay list/order/invoice match.
+     */
+    public function reconcilePayment(Payment $payment, ?string $forcedTransactionId = null): Payment
+    {
+        if ($payment->status === 'successful') {
+            return $payment;
+        }
+
+        $reference = (string) $payment->reference;
+        $forced = trim((string) $forcedTransactionId);
+        if ($forced !== '') {
+            return $this->verify($reference, $forced);
+        }
+
+        $stored = trim((string) $payment->paystack_reference);
+        $storedTx = ($stored !== '' && ! str_starts_with($stored, 'WEMA-')) ? $stored : null;
+
+        if ($storedTx) {
+            try {
+                return $this->verify($reference, $storedTx);
+            } catch (RuntimeException) {
+                // Callback may have stored a stale/wrong id; fall through to list matching.
+            }
+        }
+
+        $listed = $this->findTransactionIdByOrderReference($payment);
+        if (! $listed) {
+            throw new RuntimeException(
+                'Payment was started, but Wema/AlatPay has not returned a transaction ID yet. If the student was debited, confirm the transaction on the Wema dashboard and try Requery again shortly.'
+            );
+        }
+
+        return $this->verify($reference, $listed);
     }
 
     public function initializeInvoice(User $user, Invoice $invoice, ?string $callbackUrl = null): array
@@ -63,13 +102,17 @@ class AlatpayService implements PaymentGateway
             $invoice->category,
         );
 
+        // Must match payments.reference. createPendingPayment may reuse an existing
+        // pending row and keep its original reference — never send a fresh orderId.
+        $orderReference = (string) $payment->reference;
+
         return $this->checkoutPayload(
             $user,
             $payment,
             (float) $invoice->balance,
             $callbackUrl ?: $this->fulfillment->callbackUrl('staff'),
             [
-                'orderId' => $reference,
+                'orderId' => $orderReference,
                 'invoice_id' => (string) $invoice->id,
                 'purpose' => $invoice->category,
             ],
@@ -93,13 +136,15 @@ class AlatpayService implements PaymentGateway
             'wallet_topup',
         );
 
+        $orderReference = (string) $payment->reference;
+
         return $this->checkoutPayload(
             $user,
             $payment,
             $amount,
             $this->fulfillment->callbackUrl($portal === 'staff' ? 'staff' : 'student'),
             [
-                'orderId' => $reference,
+                'orderId' => $orderReference,
                 'purpose' => 'wallet_topup',
                 'portal' => $portal,
             ],
@@ -152,7 +197,7 @@ class AlatpayService implements PaymentGateway
 
         $this->assertValidWebhookSignature($payload, $signature, $data);
 
-        $transactionId = $this->stringValue($data, ['id', 'Id'])
+        $transactionId = $this->stringValue($data, ['id', 'Id', 'transactionId', 'TransactionId'])
             ?: $this->stringValue(is_array($data['customer'] ?? null) ? $data['customer'] : [], ['transactionId', 'TransactionId']);
         $orderReference = $this->resolveOurOrderReference($data, $transactionId !== '' ? $transactionId : null);
 
@@ -160,7 +205,17 @@ class AlatpayService implements PaymentGateway
             return;
         }
 
-        $this->verify($orderReference !== '' ? $orderReference : $transactionId, $transactionId !== '' ? $transactionId : null);
+        $lookup = $orderReference !== '' ? $orderReference : $transactionId;
+        try {
+            $this->verify($lookup, $transactionId !== '' ? $transactionId : null);
+        } catch (RuntimeException $e) {
+            // Re-init once sent a new metadata orderId while DB kept the old reference.
+            $recovered = $this->findPendingPaymentByInvoiceMetadata($data, $transactionId !== '' ? $transactionId : null);
+            if (! $recovered) {
+                throw $e;
+            }
+            $this->verify((string) $recovered->reference, $transactionId !== '' ? $transactionId : null);
+        }
     }
 
     /**
@@ -199,7 +254,7 @@ class AlatpayService implements PaymentGateway
             throw new RuntimeException('Invalid Wema Bank signature.');
         }
 
-        $transactionId = $this->stringValue($data, ['id', 'Id'])
+        $transactionId = $this->stringValue($data, ['id', 'Id', 'transactionId', 'TransactionId'])
             ?: $this->stringValue(is_array($data['customer'] ?? null) ? $data['customer'] : [], ['transactionId', 'TransactionId']);
 
         if ($transactionId === '' || str_starts_with($transactionId, 'WEMA-')) {
@@ -280,6 +335,36 @@ class AlatpayService implements PaymentGateway
         }
 
         throw new RuntimeException('No matching payment was found for this Wema/AlatPay transaction.');
+    }
+
+    /**
+     * When checkout metadata.orderId drifted from payments.reference (re-init bug),
+     * recover the pending row via metadata.invoice_id.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function findPendingPaymentByInvoiceMetadata(array $data, ?string $transactionId = null): ?Payment
+    {
+        $metadata = $this->decodeMetadata($data['metadata'] ?? $data['MetaData'] ?? null);
+        if ($metadata === [] && $transactionId) {
+            $remote = $this->fetchAlatpayTransaction($transactionId);
+            if ($remote) {
+                $metadata = $this->decodeMetadata($remote['metadata'] ?? $remote['MetaData'] ?? null);
+                $data = $remote;
+            }
+        }
+
+        $invoiceId = $this->stringValue($metadata, ['invoice_id', 'invoiceId']);
+        if ($invoiceId === '' || ! ctype_digit($invoiceId)) {
+            return null;
+        }
+
+        return Payment::query()
+            ->where('invoice_id', (int) $invoiceId)
+            ->where('method', $this->key())
+            ->where('status', 'pending')
+            ->latest('id')
+            ->first();
     }
 
     /**
@@ -384,6 +469,44 @@ class AlatpayService implements PaymentGateway
         }
 
         return null;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    private function hydrateCompletedTransactionMetadata(array $rows): array
+    {
+        $hydrated = [];
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            $status = strtolower((string) ($row['status'] ?? ''));
+            if ($status !== '' && ! in_array($status, ['completed', 'successful', 'success', 'paid'], true)) {
+                $hydrated[] = $row;
+                continue;
+            }
+
+            $metadata = $this->decodeMetadata($row['metadata'] ?? $row['MetaData'] ?? null);
+            $metaOrder = $this->stringValue($metadata, ['orderId', 'OrderId']);
+            if (str_starts_with($metaOrder, 'WEMA-')) {
+                $hydrated[] = $row;
+                continue;
+            }
+
+            $id = $this->stringValue($row, ['id', 'Id', 'transactionId', 'TransactionId']);
+            if ($id === '' || str_starts_with($id, 'WEMA-')) {
+                $hydrated[] = $row;
+                continue;
+            }
+
+            $detail = $this->fetchAlatpayTransactionCached($id);
+            $hydrated[] = is_array($detail) ? $detail : $row;
+        }
+
+        return $hydrated;
     }
 
     /**
@@ -561,6 +684,23 @@ class AlatpayService implements PaymentGateway
             }
         }
 
+        // Re-init could have charged under a newer metadata.orderId while DB kept $order.
+        // Match pending invoice payments when metadata.invoice_id still points here.
+        if (
+            ! $orderMatched
+            && $payment->invoice_id
+            && $metadata !== []
+        ) {
+            $metaInvoice = $this->stringValue($metadata, ['invoice_id', 'invoiceId', 'InvoiceId']);
+            $metaOrder = $this->stringValue($metadata, ['orderId', 'OrderId']);
+            if (
+                $metaInvoice === (string) $payment->invoice_id
+                && str_starts_with($metaOrder, 'WEMA-')
+            ) {
+                $orderMatched = true;
+            }
+        }
+
         if (! $orderMatched) {
             return false;
         }
@@ -719,9 +859,26 @@ class AlatpayService implements PaymentGateway
         }
 
         // Only enforce when AlatPay echoed our own WEMA- reference back in metadata.
-        if (str_starts_with($orderId, 'WEMA-') && $orderId !== $payment->reference) {
-            throw new RuntimeException('Payment does not match this transaction.');
+        if (! str_starts_with($orderId, 'WEMA-') || $orderId === $payment->reference) {
+            return;
         }
+
+        // Re-init used to put a new orderId in checkout metadata while keeping the
+        // original payments.reference. Accept when invoice_id still matches, then
+        // realign so webhook/list lookups work afterwards.
+        $invoiceId = $this->stringValue($metadata, ['invoice_id', 'invoiceId']);
+        if (
+            $payment->invoice_id
+            && $invoiceId !== ''
+            && (string) $payment->invoice_id === $invoiceId
+        ) {
+            $payment->update(['reference' => $orderId]);
+            $payment->refresh();
+
+            return;
+        }
+
+        throw new RuntimeException('Payment does not match this transaction.');
     }
 
     /**

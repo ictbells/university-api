@@ -869,6 +869,7 @@ class FinanceController extends Controller
                 'email' => $student->user?->email,
                 'program' => $student->program?->name,
                 'current_level' => $student->current_level,
+                'level_label' => \App\Support\StudentAcademicLevel::label($student),
                 'status' => $student->status,
             ],
             'summary' => [
@@ -1261,7 +1262,19 @@ class FinanceController extends Controller
             ->where(function (Builder $query) {
                 $query->where('programme_fees.level_code', 'all')
                     ->orWhereColumn('programme_fees.level_code', 'students.current_level')
-                    ->orWhereRaw("programme_fees.level_code = REPLACE(CAST(students.current_level AS CHAR), 'L', '')");
+                    ->orWhereRaw("programme_fees.level_code = REPLACE(CAST(students.current_level AS CHAR), 'L', '')")
+                    // JUPEB fees are often stored as the academic level name ("JUPEB") while
+                    // students.current_level remains the numeric band 100.
+                    ->orWhereExists(function ($sub) {
+                        $sub->selectRaw('1')
+                            ->from('academic_levels')
+                            ->whereColumn('academic_levels.study_level', 'students.study_level')
+                            ->where('academic_levels.is_active', true)
+                            ->where(function ($level) {
+                                $level->whereColumn('academic_levels.code', 'programme_fees.level_code')
+                                    ->orWhereColumn('academic_levels.name', 'programme_fees.level_code');
+                            });
+                    });
             })
             ->where(function (Builder $query) {
                 $query->where(function (Builder $inner) {
@@ -1362,6 +1375,7 @@ class FinanceController extends Controller
             'department' => $student->program?->department?->name,
             'college' => $student->program?->department?->faculty?->name,
             'current_level' => $student->current_level,
+            'level_label' => \App\Support\StudentAcademicLevel::label($student),
             'status' => $student->status,
             'wallet_balance' => round((float) ($student->wallet_balance ?? $student->wallet?->balance ?? 0), 2),
             'billed' => $summary['billed'],

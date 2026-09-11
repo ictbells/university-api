@@ -15,6 +15,7 @@ use App\Models\Student;
 use App\Models\User;
 use App\Support\FeeSchedule;
 use App\Support\ProgrammeFeeResolver;
+use App\Support\StudentAcademicLevel;
 use App\Support\Studentship;
 use App\Support\TuitionProgress;
 use Illuminate\Support\Collection;
@@ -502,7 +503,7 @@ class InvoiceService
         $student->loadMissing(['user', 'program']);
         $resolvedLevel = $levelCode !== null && $levelCode !== ''
             ? $levelCode
-            : ($student->current_level !== null ? (string) $student->current_level : null);
+            : StudentAcademicLevel::primaryFeeLevelCode($student);
         $paidPercent = TuitionProgress::percentPaid(
             $student,
             $sessionId,
@@ -514,8 +515,8 @@ class InvoiceService
                 ? 'Tuition is already paid in full.'
                 : 'This installment has already been paid. Choose the next unpaid share.');
         }
-        $lines = $student->program_id && $resolvedLevel
-            ? ProgrammeFeeResolver::forProgram((int) $student->program_id, $resolvedLevel, $semester)
+        $lines = $levelCode !== null && $levelCode !== '' && $student->program_id
+            ? ProgrammeFeeResolver::forProgram((int) $student->program_id, $levelCode, $semester)
             : ProgrammeFeeResolver::forStudent($student, $semester);
         $fullAmount = ProgrammeFeeResolver::scheduleFullAmount($lines);
 
@@ -883,9 +884,12 @@ class InvoiceService
         if (! $studentId) {
             return null;
         }
-        $level = Student::query()->whereKey($studentId)->value('current_level');
+        $student = Student::query()->find($studentId);
+        if (! $student) {
+            return null;
+        }
 
-        return $level !== null && $level !== '' ? (string) $level : null;
+        return StudentAcademicLevel::primaryFeeLevelCode($student);
     }
 
     private function constrainInvoiceSession($query, ?int $sessionId, bool $includeLegacy = false): void

@@ -208,7 +208,20 @@ class ReceiptPayer
 
     private static function level(?Student $student, ?Invoice $invoice, ?Application $application): ?string
     {
-        $formatted = self::formatLevel($invoice?->level_code ?? $student?->current_level);
+        if ($student) {
+            $label = StudentAcademicLevel::label($student);
+            if ($label) {
+                // Prefer catalog label; still honour an explicit non-numeric invoice stamp (e.g. JUPEB).
+                $invoiceLevel = trim((string) ($invoice?->level_code ?? ''));
+                if ($invoiceLevel !== '' && ! preg_match('/^\d{3}/', $invoiceLevel)) {
+                    return StudentAcademicLevel::formatNumericBand($invoiceLevel) ?? $invoiceLevel;
+                }
+
+                return $label;
+            }
+        }
+
+        $formatted = StudentAcademicLevel::formatNumericBand($invoice?->level_code ?? $student?->current_level);
         if ($formatted) {
             return $formatted;
         }
@@ -224,15 +237,18 @@ class ReceiptPayer
     private static function applicationEntryLevel(Application $application): string
     {
         $mode = strtolower((string) $application->entry_mode);
+        if ($mode === 'jupeb') {
+            return 'JUPEB';
+        }
         if ($mode === 'transfer') {
             $assessed = ProgrammeEligibility::step($application, 'credit_assessment')['approved_entry_level'] ?? null;
 
-            return self::formatLevel($assessed) ?: '200 Level';
+            return StudentAcademicLevel::formatNumericBand($assessed) ?: '200 Level';
         }
         if ($mode === 'de') {
             $requested = ProgrammeEligibility::step($application, 'direct_entry')['requested_entry_level'] ?? null;
 
-            return self::formatLevel($requested) ?: '200 Level';
+            return StudentAcademicLevel::formatNumericBand($requested) ?: '200 Level';
         }
         if ($mode === 'pg') {
             return '1';
@@ -243,34 +259,6 @@ class ReceiptPayer
 
     private static function formatLevel(mixed $value): ?string
     {
-        if ($value === null || $value === '') {
-            return null;
-        }
-
-        if (is_numeric($value)) {
-            $n = (int) $value;
-            if ($n <= 0) {
-                return null;
-            }
-            // Undergraduate bands are stored as 100/200/…; PG may use 1–5.
-            if ($n < 100) {
-                return (string) $n;
-            }
-
-            return $n.' Level';
-        }
-
-        $text = trim((string) $value);
-        if ($text === '') {
-            return null;
-        }
-        if (preg_match('/^(\d{3})\s*L(?:evel)?$/i', $text, $match)) {
-            return ((int) $match[1]).' Level';
-        }
-        if (preg_match('/^\d+$/', $text)) {
-            return self::formatLevel((int) $text);
-        }
-
-        return $text;
+        return StudentAcademicLevel::formatNumericBand($value);
     }
 }

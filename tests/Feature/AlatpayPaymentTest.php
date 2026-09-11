@@ -133,7 +133,108 @@ class AlatpayPaymentTest extends TestCase
 
         $this->assertSame($first->json('payment_id'), $second->json('payment_id'));
         $this->assertSame($first->json('reference'), $second->json('reference'));
+        $this->assertSame($first->json('reference'), $first->json('checkout.metadata.orderId'));
+        $this->assertSame($second->json('reference'), $second->json('checkout.metadata.orderId'));
         $this->assertSame(1, Payment::query()->where('invoice_id', $invoice->id)->count());
+    }
+
+    public function test_verify_realigns_when_alatpay_metadata_order_id_drifted_from_reference(): void
+    {
+        $user = User::factory()->create(['name' => 'Maximillian Chiedozie Obiakor', 'status' => 'active']);
+        $invoice = $this->payableInvoice($user, 100000, 'acceptance_fee');
+        Sanctum::actingAs($user);
+
+        $payment = Payment::query()->create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $user->id,
+            'method' => 'wema',
+            'amount' => 100000,
+            'status' => 'pending',
+            'reference' => 'WEMA-OLDREFERENCE',
+            'paystack_reference' => 'WEMA-OLDREFERENCE',
+            'purpose' => 'acceptance_fee',
+        ]);
+
+        Http::fake([
+            'https://apibox.alatpay.ng/alatpaytransaction/api/v1/transactions/3a932c5a-15fc-4bef-940c-5e2bfde317c6' => Http::response([
+                'status' => true,
+                'message' => 'Success',
+                'data' => [
+                    'id' => '3a932c5a-15fc-4bef-940c-5e2bfde317c6',
+                    'status' => 'success',
+                    'amount' => 100350,
+                    'fee' => 350,
+                    'orderId' => 'BELLSUNIVERSITY-internal',
+                    'metadata' => [
+                        'orderId' => 'WEMA-59NSZ5YAIUTR',
+                        'invoice_id' => (string) $invoice->id,
+                        'purpose' => 'acceptance_fee',
+                    ],
+                ],
+            ]),
+        ]);
+
+        $this->getJson('/api/payments/verify/'.$payment->reference.'?transactionId=3a932c5a-15fc-4bef-940c-5e2bfde317c6')
+            ->assertOk()
+            ->assertJsonPath('status', 'successful');
+
+        $payment->refresh();
+        $this->assertSame('successful', $payment->status);
+        $this->assertSame('WEMA-59NSZ5YAIUTR', $payment->reference);
+        $this->assertSame('paid', $invoice->fresh()->status);
+    }
+
+    public function test_webhook_recovers_pending_payment_via_invoice_id_when_order_id_unknown(): void
+    {
+        $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
+        $invoice = $this->payableInvoice($user, 100000, 'acceptance_fee');
+        $payment = Payment::query()->create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $user->id,
+            'method' => 'wema',
+            'amount' => 100000,
+            'status' => 'pending',
+            'reference' => 'WEMA-DBOLDREF01',
+            'paystack_reference' => 'WEMA-DBOLDREF01',
+            'purpose' => 'acceptance_fee',
+        ]);
+
+        Http::fake([
+            'https://apibox.alatpay.ng/alatpaytransaction/api/v1/transactions/tx-orphan-order' => Http::response([
+                'status' => true,
+                'data' => [
+                    'id' => 'tx-orphan-order',
+                    'status' => 'success',
+                    'amount' => 100350,
+                    'fee' => 350,
+                    'orderId' => 'BELLSUNIVERSITY-internal',
+                    'metadata' => [
+                        'orderId' => 'WEMA-59NSZ5YAIUTR',
+                        'invoice_id' => (string) $invoice->id,
+                        'purpose' => 'acceptance_fee',
+                    ],
+                ],
+            ]),
+        ]);
+
+        $this->postJson('/api/payments/wema/webhook', [
+            'data' => [
+                'id' => 'tx-orphan-order',
+                'orderId' => 'BELLSUNIVERSITY-internal',
+                'status' => 'success',
+                'amount' => 100350,
+                'metadata' => [
+                    'orderId' => 'WEMA-59NSZ5YAIUTR',
+                    'invoice_id' => (string) $invoice->id,
+                    'purpose' => 'acceptance_fee',
+                ],
+            ],
+        ])->assertOk();
+
+        $payment->refresh();
+        $this->assertSame('successful', $payment->status);
+        $this->assertSame('WEMA-59NSZ5YAIUTR', $payment->reference);
+        $this->assertSame('paid', $invoice->fresh()->status);
     }
 
     public function test_verify_abandons_other_pending_payments_on_the_same_invoice(): void
@@ -560,12 +661,12 @@ class AlatpayPaymentTest extends TestCase
         $this->assertSame('pending', $payment->fresh()->status);
     }
 
-    private function payableInvoice(User $user, float $amount): Invoice
+    private function payableInvoice(User $user, float $amount, string $category = 'application_fee'): Invoice
     {
         return Invoice::query()->create([
             'number' => 'INV-WEMA-'.$user->id.'-'.uniqid(),
             'user_id' => $user->id,
-            'category' => 'application_fee',
+            'category' => $category,
             'amount' => $amount,
             'full_amount' => $amount,
             'balance' => $amount,

@@ -26,3 +26,10 @@ Schedule::command('clinic:cancel-no-shows')
     ->withoutOverlapping()
     ->onOneServer()
     ->appendOutputTo(storage_path('logs/clinic-no-shows.log'));
+
+Schedule::command('payments:reconcile-wema')
+    ->everyThirtyMinutes()
+    ->timezone('Africa/Lagos')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->appendOutputTo(storage_path('logs/wema-reconcile.log'));

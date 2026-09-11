@@ -9,11 +9,12 @@ use Illuminate\Support\Collection;
 class ProgrammeFeeResolver
 {
     /**
+     * @param  string|list<string>|null  $levelCode
      * @return Collection<int, ProgrammeFee>
      */
     public static function forProgram(
         int $programId,
-        ?string $levelCode = null,
+        string|array|null $levelCode = null,
         ?string $semester = null,
     ): Collection {
         $query = ProgrammeFee::query()
@@ -22,10 +23,13 @@ class ProgrammeFeeResolver
             ->where('is_active', true)
             ->whereHas('feeItem', fn ($fee) => $fee->where('is_active', true));
 
-        if ($levelCode !== null && $levelCode !== '') {
-            $query->where(function ($builder) use ($levelCode) {
-                $builder->where('level_code', 'all')
-                    ->orWhere('level_code', $levelCode);
+        $codes = self::normalizeLevelCodes($levelCode);
+        if ($codes !== []) {
+            $query->where(function ($builder) use ($codes) {
+                $builder->where('level_code', 'all');
+                foreach ($codes as $code) {
+                    $builder->orWhere('level_code', $code);
+                }
             });
         }
 
@@ -44,21 +48,62 @@ class ProgrammeFeeResolver
      */
     public static function forStudent(Student $student, ?string $semester = null): Collection
     {
-        $student->loadMissing('program');
+        $student->loadMissing(['program', 'application']);
         if (! $student->program_id) {
             return collect();
         }
 
-        $levelCode = $student->current_level !== null
-            ? (string) $student->current_level
-            : null;
+        $codes = StudentAcademicLevel::feeLevelCodes($student);
+        $lines = self::forProgram((int) $student->program_id, $codes, $semester);
 
-        return self::forProgram((int) $student->program_id, $levelCode, $semester);
+        // When JUPEB (or any track) has a named academic level with its own fee rows,
+        // prefer those over the shared numeric band (e.g. "100") so UG-style lines
+        // accidentally left on a JUPEB programme do not inflate the bill.
+        $preferred = self::preferredTrackLevelCodes($student);
+        if ($preferred === []) {
+            return $lines;
+        }
+
+        $named = $lines->filter(
+            fn (ProgrammeFee $fee) => $fee->level_code === 'all' || in_array((string) $fee->level_code, $preferred, true)
+        );
+        if ($named->contains(fn (ProgrammeFee $fee) => $fee->level_code !== 'all')) {
+            return $named->values();
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function preferredTrackLevelCodes(Student $student): array
+    {
+        $level = StudentAcademicLevel::resolve($student);
+        if (! $level) {
+            return [];
+        }
+
+        $preferred = [];
+        $code = trim((string) ($level->code ?: ''));
+        $name = trim((string) ($level->name ?: ''));
+        if ($code !== '') {
+            $preferred[] = $code;
+        }
+        if ($name !== '') {
+            $preferred[] = $name;
+        }
+
+        // Numeric-only codes (100) are the shared UG band — not "preferred" for disambiguation.
+        return array_values(array_filter(
+            $preferred,
+            fn (string $value) => ! preg_match('/^\d{3}$/', $value),
+        ));
     }
 
     public static function totalForProgram(
         int $programId,
-        ?string $levelCode = null,
+        string|array|null $levelCode = null,
         ?string $semester = null,
     ): float {
         return self::scheduleFullAmount(self::forProgram($programId, $levelCode, $semester));
@@ -101,5 +146,27 @@ class ProgrammeFeeResolver
     {
         return FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
             && $fee->effective_installment_tranche !== null;
+    }
+
+    /**
+     * @param  string|list<string>|null  $levelCode
+     * @return list<string>
+     */
+    private static function normalizeLevelCodes(string|array|null $levelCode): array
+    {
+        if ($levelCode === null || $levelCode === '') {
+            return [];
+        }
+
+        $raw = is_array($levelCode) ? $levelCode : [$levelCode];
+        $codes = [];
+        foreach ($raw as $code) {
+            $code = trim((string) $code);
+            if ($code !== '') {
+                $codes[] = $code;
+            }
+        }
+
+        return array_values(array_unique($codes));
     }
 }
