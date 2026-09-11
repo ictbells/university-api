@@ -434,6 +434,7 @@ class ProgrammeFeeScheduleTest extends TestCase
         $program = Program::query()->create([
             'name' => 'JUPEB Sciences',
             'code' => 'JUP-SCI',
+            'award_type' => 'JUPEB',
             'department_id' => $department->id,
             'study_level' => 'jupeb',
             'entry_modes' => ['jupeb'],
