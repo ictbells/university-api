@@ -209,6 +209,64 @@ class ReconcileWemaPaymentsTest extends TestCase
         $this->assertSame('paid', $invoice->fresh()->status);
     }
 
+    public function test_reconcile_fulfills_when_list_omits_metadata_but_detail_has_order(): void
+    {
+        $user = User::factory()->create(['status' => 'active']);
+        $invoice = $this->pendingInvoice($user, 100000);
+        $payment = Payment::query()->create([
+            'user_id' => $user->id,
+            'invoice_id' => $invoice->id,
+            'method' => 'wema',
+            'amount' => 100000,
+            'status' => 'pending',
+            'reference' => 'WEMA-LISTOMIT01',
+            'paystack_reference' => 'WEMA-LISTOMIT01',
+            'purpose' => 'application_fee',
+            'created_at' => now()->subHour(),
+        ]);
+
+        Http::fake(function (\Illuminate\Http\Client\Request $request) use ($invoice) {
+            $url = $request->url();
+            $meta = '{"orderId":"WEMA-LISTOMIT01","invoice_id":"'.$invoice->id.'","purpose":"application_fee"}';
+            if (str_contains($url, '/transactions/tx-detail-meta-001')) {
+                return Http::response([
+                    'status' => true,
+                    'data' => [
+                        'id' => 'tx-detail-meta-001',
+                        'status' => 'completed',
+                        'amount' => 100350,
+                        'feeAmount' => 350,
+                        'orderId' => 'BELLSUNIVERSITY-internal',
+                        'metadata' => $meta,
+                    ],
+                ]);
+            }
+            if (str_contains($url, '/alatpaytransaction/api/v1/transactions')) {
+                // List rows often lack usable metadata — only merchant-prefixed orderId.
+                return Http::response([
+                    'status' => true,
+                    'data' => [[
+                        'id' => 'tx-detail-meta-001',
+                        'status' => 'completed',
+                        'amount' => 100350,
+                        'feeAmount' => 350,
+                        'orderId' => 'BELLSUNIVERSITY-internal',
+                    ]],
+                    'pagination' => ['totalPages' => 1],
+                ]);
+            }
+
+            return Http::response(['status' => false, 'message' => 'Unexpected URL: '.$url], 500);
+        });
+
+        $this->artisan('payments:reconcile-wema', ['--id' => [$payment->id]])
+            ->assertExitCode(0);
+
+        $this->assertSame('successful', $payment->fresh()->status);
+        $this->assertSame('tx-detail-meta-001', $payment->fresh()->paystack_reference);
+        $this->assertSame('paid', $invoice->fresh()->status);
+    }
+
     public function test_reconcile_abandons_pending_payments_when_invoice_already_paid(): void
     {
         $user = User::factory()->create(['status' => 'active']);

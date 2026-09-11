@@ -15,11 +15,39 @@ use RuntimeException;
 
 class AlatpayService implements PaymentGateway
 {
+    /**
+     * Shared completed-transaction rows for one reconcile/requery batch.
+     * Avoids re-paging AlatPay once per pending payment.
+     *
+     * @var list<array<string, mixed>>|null
+     */
+    private ?array $sharedCompletedTransactions = null;
+
+    /** @var array<string, array<string, mixed>|null> */
+    private array $transactionDetailCache = [];
+
     public function __construct(private PaymentFulfillmentService $fulfillment) {}
 
     public function key(): string
     {
         return PaymentGatewaySettings::WEMA;
+    }
+
+    /**
+     * Prefetch completed AlatPay transactions for a date window (used by bulk reconcile).
+     */
+    public function beginCompletedTransactionLookup(\DateTimeInterface $from, \DateTimeInterface $to): void
+    {
+        $startAt = \Carbon\Carbon::parse($from)->utc()->format('Y-m-d\TH:i:s.000\Z');
+        $endAt = \Carbon\Carbon::parse($to)->utc()->format('Y-m-d\TH:i:s.000\Z');
+
+        $this->sharedCompletedTransactions = $this->listAlatpayTransactions($startAt, $endAt);
+    }
+
+    public function endCompletedTransactionLookup(): void
+    {
+        $this->sharedCompletedTransactions = null;
+        $this->transactionDetailCache = [];
     }
 
     public function initializeInvoice(User $user, Invoice $invoice, ?string $callbackUrl = null): array
@@ -329,80 +357,183 @@ class AlatpayService implements PaymentGateway
             return null;
         }
 
-        $base = rtrim((string) config('services.wema.base', 'https://apibox.alatpay.ng'), '/');
-        $startAt = optional($payment->created_at)?->copy()->subDay()->utc()->format('Y-m-d\TH:i:s.000\Z')
-            ?: now()->subDays(7)->utc()->format('Y-m-d\TH:i:s.000\Z');
-        $endAt = now()->addDay()->utc()->format('Y-m-d\TH:i:s.000\Z');
         $order = (string) $payment->reference;
+        $rows = $this->sharedCompletedTransactions;
+        if ($rows === null) {
+            $startAt = optional($payment->created_at)?->copy()->subDay()->utc()->format('Y-m-d\TH:i:s.000\Z')
+                ?: now()->subDays(7)->utc()->format('Y-m-d\TH:i:s.000\Z');
+            $endAt = now()->addDay()->utc()->format('Y-m-d\TH:i:s.000\Z');
+            $rows = $this->listAlatpayTransactions($startAt, $endAt);
+        }
 
-        for ($page = 1; $page <= 20; $page++) {
-            $response = Http::withHeaders([
-                'Ocp-Apim-Subscription-Key' => $secret,
-                'Content-Type' => 'application/json',
-            ])->get($base.'/alatpaytransaction/api/v1/transactions', [
+        // Pass 1: match from list payload (orderId / metadata).
+        foreach ($rows as $row) {
+            $id = $this->completedListRowTransactionId($payment, $row, $order, enrich: false);
+            if ($id !== null) {
+                return $id;
+            }
+        }
+
+        // Pass 2: list rows often omit usable metadata (merchant-prefixed orderId only).
+        // Detail-fetch amount candidates — same path that works with --transaction-id.
+        foreach ($rows as $row) {
+            $id = $this->completedListRowTransactionId($payment, $row, $order, enrich: true);
+            if ($id !== null) {
+                return $id;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     * @return list<array<string, mixed>>
+     */
+    private function listAlatpayTransactions(string $startAt, string $endAt, array $filters = []): array
+    {
+        $businessId = trim((string) config('services.wema.business_id'));
+        $secret = (string) config('services.wema.secret');
+        if ($businessId === '' || $secret === '') {
+            return [];
+        }
+
+        $base = rtrim((string) config('services.wema.base', 'https://apibox.alatpay.ng'), '/');
+        $all = [];
+
+        for ($page = 1; $page <= 50; $page++) {
+            $query = array_merge([
                 'businessId' => $businessId,
                 'page' => $page,
                 'limit' => 100,
                 'startAt' => $startAt,
                 'endAt' => $endAt,
-            ]);
+            ], $filters);
+
+            $response = Http::withHeaders([
+                'Ocp-Apim-Subscription-Key' => $secret,
+                'Content-Type' => 'application/json',
+            ])->get($base.'/alatpaytransaction/api/v1/transactions', $query);
 
             if (! $response->successful()) {
                 Log::warning('AlatPay transaction list lookup failed', [
-                    'payment_id' => $payment->id,
-                    'reference' => $order,
                     'status' => $response->status(),
                     'body' => $response->json('message') ?: $response->body(),
+                    'page' => $page,
+                    'startAt' => $startAt,
+                    'endAt' => $endAt,
                 ]);
 
-                return null;
+                break;
             }
 
             $payload = $response->json();
-            $rows = data_get($payload, 'data');
-            if (! is_array($rows)) {
-                $rows = data_get($payload, 'data.items') ?? data_get($payload, 'data.data') ?? [];
-            }
-            if (! is_array($rows)) {
-                return null;
-            }
-
-            // Some AlatPay responses nest the list under data.transactions / data.result.
-            if ($rows !== [] && ! array_is_list($rows)) {
-                foreach (['transactions', 'result', 'items', 'records'] as $key) {
-                    if (isset($rows[$key]) && is_array($rows[$key]) && array_is_list($rows[$key])) {
-                        $rows = $rows[$key];
-                        break;
-                    }
-                }
-            }
-
+            $rows = $this->extractTransactionListRows(is_array($payload) ? $payload : []);
             foreach ($rows as $row) {
-                if (! is_array($row)) {
-                    continue;
-                }
-                if (! $this->transactionMatchesOrder($payment, $row, $order)) {
-                    continue;
-                }
-                $status = strtolower((string) ($row['status'] ?? ''));
-                if ($status !== '' && ! in_array($status, ['completed', 'successful', 'success', 'paid'], true)) {
-                    continue;
-                }
-                $id = $this->stringValue($row, ['id', 'Id', 'transactionId', 'TransactionId']);
-                if ($id !== '' && ! str_starts_with($id, 'WEMA-')) {
-                    return $id;
-                }
+                $all[] = $row;
             }
 
             $totalPages = (int) (data_get($payload, 'pagination.totalPages')
                 ?? data_get($payload, 'data.pagination.totalPages')
                 ?? 1);
-            if ($page >= max(1, $totalPages)) {
+            if ($page >= max(1, $totalPages) || $rows === []) {
                 break;
             }
         }
 
-        return null;
+        return $all;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return list<array<string, mixed>>
+     */
+    private function extractTransactionListRows(array $payload): array
+    {
+        $rows = data_get($payload, 'data');
+        if (! is_array($rows)) {
+            $rows = data_get($payload, 'data.items')
+                ?? data_get($payload, 'data.data')
+                ?? data_get($payload, 'data.transactions')
+                ?? [];
+        }
+        if (! is_array($rows)) {
+            return [];
+        }
+
+        if ($rows !== [] && ! array_is_list($rows)) {
+            foreach (['transactions', 'result', 'items', 'records', 'data'] as $key) {
+                if (isset($rows[$key]) && is_array($rows[$key]) && array_is_list($rows[$key])) {
+                    $rows = $rows[$key];
+                    break;
+                }
+            }
+        }
+
+        // Docs sample a single object under data; treat a transaction-shaped object as one row.
+        if ($rows !== [] && ! array_is_list($rows)) {
+            if (isset($rows['id']) || isset($rows['Id']) || isset($rows['orderId']) || isset($rows['OrderId'])) {
+                return [$rows];
+            }
+
+            return [];
+        }
+
+        return array_values(array_filter($rows, 'is_array'));
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function completedListRowTransactionId(Payment $payment, array $row, string $order, bool $enrich): ?string
+    {
+        $status = strtolower((string) ($row['status'] ?? ''));
+        if ($status !== '' && ! in_array($status, ['completed', 'successful', 'success', 'paid'], true)) {
+            return null;
+        }
+
+        $id = $this->stringValue($row, ['id', 'Id', 'transactionId', 'TransactionId']);
+        if ($id === '' || str_starts_with($id, 'WEMA-')) {
+            return null;
+        }
+
+        $candidate = $row;
+        if ($enrich) {
+            // Only detail-fetch rows that could plausibly be this payment (amount / no amount).
+            if (isset($row['amount']) && is_numeric($row['amount'])
+                && ! $this->alatpayAmountMatches($payment, (float) $row['amount'], $row)) {
+                return null;
+            }
+            if ($this->transactionMatchesOrder($payment, $row, $order)) {
+                return $id;
+            }
+            $detail = $this->fetchAlatpayTransactionCached($id);
+            if (! is_array($detail)) {
+                return null;
+            }
+            $candidate = $detail;
+        }
+
+        if (! $this->transactionMatchesOrder($payment, $candidate, $order)) {
+            return null;
+        }
+
+        return $id;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function fetchAlatpayTransactionCached(string $transactionId): ?array
+    {
+        if (array_key_exists($transactionId, $this->transactionDetailCache)) {
+            return $this->transactionDetailCache[$transactionId];
+        }
+
+        $detail = $this->fetchAlatpayTransaction($transactionId);
+        $this->transactionDetailCache[$transactionId] = $detail;
+
+        return $detail;
     }
 
     /**
@@ -560,7 +691,7 @@ class AlatpayService implements PaymentGateway
      */
     private function alatpayReportedFee(array $data): ?float
     {
-        foreach (['fee', 'Fee', 'transactionFee', 'TransactionFee', 'charges', 'Charges'] as $key) {
+        foreach (['fee', 'Fee', 'feeAmount', 'FeeAmount', 'transactionFee', 'TransactionFee', 'charges', 'Charges'] as $key) {
             if (isset($data[$key]) && is_numeric($data[$key])) {
                 $fee = (float) $data[$key];
                 if ($fee >= 0) {
