@@ -139,6 +139,20 @@ class PaymentGatewayManager
         throw new RuntimeException($lastMessage);
     }
 
+    /**
+     * @return array<string, mixed>
+     */
+    public function failurePayload(RuntimeException $e): array
+    {
+        $payload = ['message' => $e->getMessage()];
+        $lookup = $this->alatpay->lastGatewayLookup();
+        if (is_array($lookup) && $lookup !== []) {
+            $payload['alatpay'] = $lookup;
+        }
+
+        return $payload;
+    }
+
     private function findPayment(string $reference, ?string $transactionId = null): Payment
     {
         return Payment::query()

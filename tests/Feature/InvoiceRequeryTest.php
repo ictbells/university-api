@@ -289,6 +289,62 @@ class InvoiceRequeryTest extends TestCase
         });
     }
 
+    public function test_requery_returns_alatpay_body_when_search_finds_nothing(): void
+    {
+        $staff = $this->financeStaff();
+        $payer = User::factory()->create(['status' => 'active']);
+        $invoice = Invoice::query()->create([
+            'number' => 'BUT/2026/REQUERYEMPTY',
+            'user_id' => $payer->id,
+            'category' => 'acceptance_fee',
+            'amount' => 5000,
+            'full_amount' => 5000,
+            'balance' => 5000,
+            'status' => 'unpaid',
+            'wallet_allowed' => false,
+        ]);
+        Payment::query()->create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $payer->id,
+            'method' => 'wema',
+            'amount' => 5000,
+            'status' => 'pending',
+            'reference' => 'WEMA-EMPTYSEARCH1',
+            'paystack_reference' => 'WEMA-EMPTYSEARCH1',
+            'purpose' => 'acceptance_fee',
+        ]);
+
+        Http::fake(function (Request $request) {
+            $url = $request->url();
+            if (str_contains($url, 'search=')) {
+                return Http::response([
+                    'status' => true,
+                    'message' => 'Success',
+                    'data' => [],
+                    'pagination' => ['totalPages' => 1],
+                ]);
+            }
+            if (str_contains($url, '/alatpaytransaction/api/v1/transactions')) {
+                return Http::response([
+                    'status' => true,
+                    'message' => 'Success',
+                    'data' => [],
+                    'pagination' => ['totalPages' => 1],
+                ]);
+            }
+
+            return Http::response(['status' => false, 'message' => 'Unexpected URL: '.$url], 500);
+        });
+
+        Sanctum::actingAs($staff);
+        $this->postJson('/api/invoices/'.$invoice->id.'/requery')
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'AlatPay returned no transaction for WEMA-EMPTYSEARCH1. Success')
+            ->assertJsonPath('alatpay.http_status', 200)
+            ->assertJsonPath('alatpay.ok', true)
+            ->assertJsonPath('alatpay.body.message', 'Success');
+    }
+
     public function test_requery_without_pending_payment_returns_422(): void
     {
         $staff = $this->financeStaff();

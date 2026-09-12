@@ -488,7 +488,7 @@ class FinanceController extends Controller
         try {
             $payment = $this->gateways->requeryInvoice($invoice);
         } catch (RuntimeException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
+            return response()->json($this->gateways->failurePayload($e), 422);
         }
 
         $this->audit->record(

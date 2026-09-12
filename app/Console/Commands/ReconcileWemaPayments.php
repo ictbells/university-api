@@ -4,7 +4,6 @@ namespace App\Console\Commands;
 
 use App\Models\Payment;
 use App\Services\AlatpayService;
-use Carbon\Carbon;
 use Illuminate\Console\Command;
 use RuntimeException;
 use Throwable;
@@ -14,12 +13,12 @@ class ReconcileWemaPayments extends Command
     protected $signature = 'payments:reconcile-wema
                             {--dry-run : Show which payments would be reconciled without fulfilling them}
                             {--since= : Only consider payments created on or after this date (Y-m-d)}
-                            {--days=30 : Minimum AlatPay lookback window in days when matching pending payments}
+                            {--days=30 : Date-window fallback in days if metadata search returns nothing}
                             {--id=* : Specific payment IDs to reconcile}
-                            {--transaction-id= : AlatPay transaction id (use with a single --id when list lookup cannot find it)}
-                            {--trace-lookup : Print full AlatPay “no tx id” messages}';
+                            {--transaction-id= : AlatPay transaction id (use with a single --id when search cannot find it)}
+                            {--trace-lookup : Print the full AlatPay JSON body on failures}';
 
-    protected $description = 'Re-verify all pending Wema/AlatPay payments and fulfill those confirmed by AlatPay.';
+    protected $description = 'Re-verify pending Wema/AlatPay payments via metadata search and fulfill those AlatPay confirms.';
 
     public function handle(AlatpayService $alatpay): int
     {
@@ -83,108 +82,81 @@ class ReconcileWemaPayments extends Command
             $dryRun ? ' — dry-run, no changes will be made' : ''
         ));
 
+        $alatpay->setListLookbackDays($days);
+
         $fulfilled = 0;
         $skipped = 0;
         $failed = 0;
         $noTxId = 0;
 
-        $needsListLookup = ! $dryRun && $forcedTxId === '';
+        foreach ($payments as $payment) {
+            $txId = (string) $payment->paystack_reference;
+            $ref = (string) $payment->reference;
+            $verifyTxId = $forcedTxId !== ''
+                ? $forcedTxId
+                : (str_starts_with($txId, 'WEMA-') ? null : ($txId !== '' ? $txId : null));
 
-        try {
-            if ($needsListLookup) {
-                $earliest = $payments->min(fn (Payment $payment) => $payment->created_at);
-                $fromPayment = $earliest
-                    ? Carbon::parse($earliest)->subDay()
-                    : now()->subDays($days);
-                $from = $fromPayment->lt(now()->subDays($days))
-                    ? $fromPayment
-                    : now()->subDays($days);
-                $alatpay->beginCompletedTransactionLookup($from, now()->addDay());
-                $this->line(sprintf(
-                    'Prefetched %d AlatPay transaction(s) since %s.',
-                    $alatpay->completedTransactionCount(),
-                    $from->toDateString()
-                ));
-                if ($alatpay->completedTransactionCount() === 0) {
-                    $this->warn('AlatPay returned no transactions for that window. Check WEMA_ALATPAY_BUSINESS_ID / API keys, or widen --days.');
-                }
+            $label = sprintf(
+                'Payment #%d  ref=%s  txId=%s  amount=%.2f',
+                $payment->id,
+                $ref,
+                $verifyTxId ?: ($txId !== '' ? $txId : 'search'),
+                (float) $payment->amount,
+            );
 
-                $applied = $alatpay->applyCompletedTransactionsToPending($payments);
-                $fulfilled += $applied['fulfilled'];
-                if ($applied['fulfilled'] > 0) {
-                    $this->info(sprintf('  ✓ matched %d pending payment(s) from AlatPay completed charges.', $applied['fulfilled']));
+            if ($payment->invoice && ! $payment->invoice->isPayable()) {
+                if ($dryRun) {
+                    $this->line('  [dry-run] would abandon (invoice already settled): '.$label);
+                    $skipped++;
+
+                    continue;
                 }
-                $payments = $applied['remaining'];
+                $payment->update(['status' => 'abandoned']);
+                $this->warn('  – invoice already settled, abandoned: '.$label);
+                $skipped++;
+
+                continue;
             }
 
-            foreach ($payments as $payment) {
-                $txId = (string) $payment->paystack_reference;
-                $ref = (string) $payment->reference;
-                $verifyTxId = $forcedTxId !== ''
-                    ? $forcedTxId
-                    : (str_starts_with($txId, 'WEMA-') ? null : ($txId !== '' ? $txId : null));
+            if ($dryRun) {
+                $this->line('  [dry-run] would search/verify: '.$label);
+                $skipped++;
 
-                $label = sprintf(
-                    'Payment #%d  ref=%s  txId=%s  amount=%.2f',
-                    $payment->id,
-                    $ref,
-                    $verifyTxId ?: ($txId !== '' ? $txId : 'list-lookup'),
-                    (float) $payment->amount,
+                continue;
+            }
+
+            try {
+                $result = $alatpay->reconcilePayment(
+                    $payment,
+                    $forcedTxId !== '' ? $forcedTxId : null,
                 );
 
-                if ($payment->invoice && ! $payment->invoice->isPayable()) {
-                    if ($dryRun) {
-                        $this->line('  [dry-run] would abandon (invoice already settled): '.$label);
-                        $skipped++;
-
-                        continue;
-                    }
-                    $payment->update(['status' => 'abandoned']);
-                    $this->warn('  – invoice already settled, abandoned: '.$label);
+                if ($result->status === 'successful') {
+                    $this->info('  ✓ fulfilled: '.$label);
+                    $fulfilled++;
+                } else {
+                    $this->warn('  – still pending after verify: '.$label);
+                    $this->writeAlatpayLookup($alatpay, $traceLookup);
                     $skipped++;
-
-                    continue;
                 }
-
-                if ($dryRun) {
-                    $this->line('  [dry-run] would verify: '.$label);
-                    $skipped++;
-
-                    continue;
+            } catch (RuntimeException $e) {
+                $message = $e->getMessage();
+                if (
+                    str_contains($message, 'has not returned a transaction ID')
+                    || str_contains($message, 'returned no transaction')
+                    || str_contains($message, 'AlatPay HTTP')
+                    || str_contains($message, 'AlatPay was not queried')
+                ) {
+                    $noTxId++;
                 }
-
-                try {
-                    $result = $alatpay->reconcilePayment(
-                        $payment,
-                        $forcedTxId !== '' ? $forcedTxId : null,
-                    );
-
-                    if ($result->status === 'successful') {
-                        $this->info('  ✓ fulfilled: '.$label);
-                        $fulfilled++;
-                    } else {
-                        $this->warn('  – still pending after verify: '.$label);
-                        $skipped++;
-                    }
-                } catch (RuntimeException $e) {
-                    $message = $e->getMessage();
-                    if (str_contains($message, 'has not returned a transaction ID')) {
-                        $noTxId++;
-                    }
-                    if ($traceLookup) {
-                        $this->line('      '.$message);
-                    }
-                    $this->warn('  – not confirmed by AlatPay: '.$label.' ('.$message.')');
-                    $skipped++;
-                } catch (Throwable $e) {
-                    $this->error('  ✗ failed: '.$label);
-                    $this->error('      '.$e->getMessage());
-                    $failed++;
-                }
-            }
-        } finally {
-            if ($needsListLookup) {
-                $alatpay->endCompletedTransactionLookup();
+                $this->warn('  – not confirmed by AlatPay: '.$label.' ('.$message.')');
+                $this->writeAlatpayLookup($alatpay, $traceLookup);
+                $skipped++;
+            } catch (Throwable $e) {
+                $this->error('  ✗ failed: '.$label);
+                $this->error('      '.$e->getMessage());
+                $this->writeAlatpayLookup($alatpay, $traceLookup);
+                $failed++;
             }
         }
 
@@ -205,5 +177,33 @@ class ReconcileWemaPayments extends Command
         }
 
         return $failed > 0 ? self::FAILURE : self::SUCCESS;
+    }
+
+    private function writeAlatpayLookup(AlatpayService $alatpay, bool $fullBody): void
+    {
+        $lookup = $alatpay->lastGatewayLookup();
+        if (! is_array($lookup) || $lookup === []) {
+            return;
+        }
+
+        $this->line(sprintf(
+            '      AlatPay HTTP %s  ok=%s  rows=%d',
+            $lookup['http_status'] ?? 'n/a',
+            ($lookup['ok'] ?? false) ? 'true' : 'false',
+            $lookup['row_count'] ?? 0,
+        ));
+        if (! empty($lookup['url'])) {
+            $this->line('      '.$lookup['url']);
+        }
+
+        $body = is_array($lookup['body'] ?? null) ? $lookup['body'] : [];
+        $alatpayMessage = $body['message'] ?? $body['Message'] ?? $body['statusReason'] ?? null;
+        if (is_string($alatpayMessage) && trim($alatpayMessage) !== '') {
+            $this->line('      '.$alatpayMessage);
+        }
+
+        if ($fullBody && $body !== []) {
+            $this->line('      '.json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        }
     }
 }

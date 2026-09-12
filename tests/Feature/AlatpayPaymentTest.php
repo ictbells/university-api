@@ -762,10 +762,9 @@ class AlatpayPaymentTest extends TestCase
         ]);
         $this->getJson('/api/payments/verify/'.$payment->reference)
             ->assertStatus(422)
-            ->assertJsonPath(
-                'message',
-                'Payment was started, but Wema/AlatPay has not returned a transaction ID yet. If the student was debited, confirm the transaction on the Wema dashboard and try Requery again shortly.'
-            );
+            ->assertJsonPath('message', 'AlatPay HTTP 401: Access denied due to invalid subscription key.')
+            ->assertJsonPath('alatpay.http_status', 401)
+            ->assertJsonPath('alatpay.body.message', 'Access denied due to invalid subscription key.');
 
         $this->assertSame('pending', $payment->fresh()->status);
     }

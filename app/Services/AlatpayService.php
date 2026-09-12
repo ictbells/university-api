@@ -32,7 +32,31 @@ class AlatpayService implements PaymentGateway
     /** @var array<string, array<string, mixed>|null> */
     private array $transactionDetailCache = [];
 
+    /**
+     * Last AlatPay HTTP lookup (search / list / GET by id).
+     *
+     * @var array{url: string, http_status: int|null, ok: bool, row_count: int, body: array<string, mixed>}|null
+     */
+    private ?array $lastAlatpayLookup = null;
+
+    private bool $lastAlatpayLookupFailed = false;
+
+    private int $listLookbackDays = 7;
+
     public function __construct(private PaymentFulfillmentService $fulfillment) {}
+
+    /**
+     * @return array{url: string, http_status: int|null, ok: bool, row_count: int, body: array<string, mixed>}|null
+     */
+    public function lastGatewayLookup(): ?array
+    {
+        return $this->lastAlatpayLookup;
+    }
+
+    public function setListLookbackDays(int $days): void
+    {
+        $this->listLookbackDays = max(1, $days);
+    }
 
     public function key(): string
     {
@@ -158,9 +182,7 @@ class AlatpayService implements PaymentGateway
 
         $listed = $this->findTransactionIdByOrderReference($payment);
         if (! $listed) {
-            throw new RuntimeException(
-                'Payment was started, but Wema/AlatPay has not returned a transaction ID yet. If the student was debited, confirm the transaction on the Wema dashboard and try Requery again shortly.'
-            );
+            throw new RuntimeException($this->formatMissingTransactionId($payment));
         }
 
         return $this->verify($reference, $listed);
@@ -248,9 +270,7 @@ class AlatpayService implements PaymentGateway
         $secret = (string) config('services.wema.secret');
         if ($secret) {
             if (! $txId) {
-                throw new RuntimeException(
-                    'Payment was started, but Wema/AlatPay has not returned a transaction ID yet. If the student was debited, confirm the transaction on the Wema dashboard and try Requery again shortly.'
-                );
+                throw new RuntimeException($this->formatMissingTransactionId($payment));
             }
             $this->assertAlatpaySuccess($payment, $txId);
         } elseif ($this->demoFulfillAllowed()) {
@@ -519,12 +539,18 @@ class AlatpayService implements PaymentGateway
         $rows = $this->sharedCompletedTransactions;
         if ($rows === null) {
             $rows = $this->searchAlatpayTransactions($order);
+            if ($this->lastAlatpayLookupFailed) {
+                return null;
+            }
             if ($rows === [] && $payment->invoice_id) {
                 $rows = $this->searchAlatpayTransactions((string) $payment->invoice_id);
+                if ($this->lastAlatpayLookupFailed) {
+                    return null;
+                }
             }
             if ($rows === []) {
                 $startAt = optional($payment->created_at)?->copy()->subDay()->utc()->format('Y-m-d\TH:i:s.000\Z')
-                    ?: now()->subDays(7)->utc()->format('Y-m-d\TH:i:s.000\Z');
+                    ?: now()->subDays($this->listLookbackDays)->utc()->format('Y-m-d\TH:i:s.000\Z');
                 $endAt = now()->addDay()->utc()->format('Y-m-d\TH:i:s.000\Z');
                 $rows = $this->listAlatpayTransactions($startAt, $endAt);
             }
@@ -606,10 +632,12 @@ class AlatpayService implements PaymentGateway
         }
 
         $base = rtrim((string) config('services.wema.base', 'https://apibox.alatpay.ng'), '/');
-        $response = $this->alatpayGet($base.'/alatpaytransaction/api/v1/transactions', array_merge($identity, [
-            'search' => $search,
-        ]));
+        $query = array_merge($identity, ['search' => $search]);
+        $response = $this->alatpayGet($base.'/alatpaytransaction/api/v1/transactions', $query);
+        $url = $this->alatpayRequestUrl($response, $base.'/alatpaytransaction/api/v1/transactions', $query);
+
         if ($response === null || ! $response->successful()) {
+            $this->recordAlatpayLookup($url, $response, 0, failed: true);
             Log::warning('AlatPay metadata search lookup failed', [
                 'status' => $response?->status(),
                 'body' => $response?->json('message') ?: $response?->body(),
@@ -620,8 +648,10 @@ class AlatpayService implements PaymentGateway
         }
 
         $payload = $response->json();
+        $rows = $this->extractTransactionListRows(is_array($payload) ? $payload : []);
+        $this->recordAlatpayLookup($url, $response, count($rows), failed: false);
 
-        return $this->extractTransactionListRows(is_array($payload) ? $payload : []);
+        return $rows;
     }
 
     /**
@@ -667,7 +697,9 @@ class AlatpayService implements PaymentGateway
             ], $filters);
 
             $response = $this->alatpayGet($base.'/alatpaytransaction/api/v1/transactions', $query);
+            $url = $this->alatpayRequestUrl($response, $base.'/alatpaytransaction/api/v1/transactions', $query);
             if ($response === null || ! $response->successful()) {
+                $this->recordAlatpayLookup($url, $response, count($all), failed: true);
                 Log::warning('AlatPay transaction list lookup failed', [
                     'status' => $response?->status(),
                     'body' => $response?->json('message') ?: $response?->body(),
@@ -684,6 +716,7 @@ class AlatpayService implements PaymentGateway
             foreach ($rows as $row) {
                 $all[] = $row;
             }
+            $this->recordAlatpayLookup($url, $response, count($all), failed: false);
 
             $totalPages = (int) (data_get($payload, 'pagination.totalPages')
                 ?? data_get($payload, 'data.pagination.totalPages')
@@ -870,12 +903,17 @@ class AlatpayService implements PaymentGateway
         }
 
         $base = rtrim((string) config('services.wema.base', 'https://apibox.alatpay.ng'), '/');
-        $response = $this->alatpayGet($base.'/alatpaytransaction/api/v1/transactions/'.$transactionId);
+        $url = $base.'/alatpaytransaction/api/v1/transactions/'.$transactionId;
+        $response = $this->alatpayGet($url);
+        $url = $this->alatpayRequestUrl($response, $url);
         if ($response === null || ! $response->successful()) {
+            $this->recordAlatpayLookup($url, $response, 0, failed: true);
+
             return null;
         }
 
         $data = $response->json('data');
+        $this->recordAlatpayLookup($url, $response, is_array($data) ? 1 : 0, failed: false);
 
         return is_array($data) ? $data : null;
     }
@@ -884,12 +922,19 @@ class AlatpayService implements PaymentGateway
     {
         $data = $this->fetchAlatpayTransaction($transactionId);
         if ($data === null) {
-            throw new RuntimeException('Payment has not been confirmed by Wema Bank.');
+            throw new RuntimeException($this->formatAlatpayHttpFailure(
+                'Payment has not been confirmed by Wema Bank.'
+            ));
         }
 
         $status = $this->rowStatus($data);
         if (! in_array($status, ['completed', 'successful', 'success', 'paid'], true)) {
-            throw new RuntimeException('Payment has not been confirmed by Wema Bank.');
+            $alatpay = $this->alatpayBodyMessage();
+            $label = $status !== '' ? $status : 'unknown';
+
+            throw new RuntimeException(trim(
+                'AlatPay status is '.$label.'. '.($alatpay !== '' ? $alatpay : 'Payment has not been confirmed by Wema Bank.')
+            ));
         }
 
         $returnedId = $this->stringValue($data, ['id', 'Id']);
@@ -1018,6 +1063,117 @@ class AlatpayService implements PaymentGateway
         }
 
         return $payload;
+    }
+
+    private function formatMissingTransactionId(Payment $payment): string
+    {
+        $lookup = $this->lastAlatpayLookup;
+        $alatpay = $this->alatpayBodyMessage();
+        $http = $lookup['http_status'] ?? null;
+        $httpLabel = $http ? 'HTTP '.$http : 'no HTTP response';
+
+        if ($lookup === null) {
+            return 'AlatPay was not queried. Set WEMA_ALATPAY_BUSINESS_ID and WEMA_ALATPAY_SECRET_KEY.';
+        }
+
+        if (! ($lookup['ok'] ?? false)) {
+            return $this->formatAlatpayHttpFailure(
+                'AlatPay search failed ('.$httpLabel.').'
+            );
+        }
+
+        $rows = (int) ($lookup['row_count'] ?? 0);
+        $prefix = $rows > 0
+            ? 'AlatPay returned '.$rows.' transaction(s) but none matched '.$payment->reference.'.'
+            : 'AlatPay returned no transaction for '.$payment->reference.'.';
+
+        return trim($prefix.' '.($alatpay !== '' ? $alatpay : $httpLabel));
+    }
+
+    private function formatAlatpayHttpFailure(string $fallback): string
+    {
+        $lookup = $this->lastAlatpayLookup;
+        $alatpay = $this->alatpayBodyMessage();
+        $http = $lookup['http_status'] ?? null;
+        $httpLabel = $http ? 'AlatPay HTTP '.$http : 'AlatPay did not respond';
+
+        if ($alatpay !== '') {
+            return $httpLabel.': '.$alatpay;
+        }
+
+        $raw = is_array($lookup['body'] ?? null) ? ($lookup['body']['raw'] ?? null) : null;
+        if (is_string($raw) && trim($raw) !== '') {
+            return $httpLabel.': '.Str::limit(trim($raw), 400);
+        }
+
+        return $fallback;
+    }
+
+    private function alatpayBodyMessage(): string
+    {
+        $body = $this->lastAlatpayLookup['body'] ?? null;
+        if (! is_array($body)) {
+            return '';
+        }
+
+        foreach (['message', 'Message', 'statusReason', 'StatusReason', 'error', 'Error'] as $key) {
+            $value = $body[$key] ?? null;
+            if (is_string($value) && trim($value) !== '') {
+                return trim($value);
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * @param  array<string, mixed>  $query
+     */
+    private function alatpayRequestUrl(?Response $response, string $fallback, array $query = []): string
+    {
+        $uri = $response?->effectiveUri();
+        if ($uri) {
+            return (string) $uri;
+        }
+        if ($query === []) {
+            return $fallback;
+        }
+
+        return $fallback.'?'.http_build_query($query);
+    }
+
+    private function recordAlatpayLookup(string $url, ?Response $response, int $rowCount, bool $failed): void
+    {
+        $this->lastAlatpayLookupFailed = $failed;
+        $json = $response?->json();
+        $this->lastAlatpayLookup = [
+            'url' => $url,
+            'http_status' => $response?->status(),
+            'ok' => (bool) $response?->successful(),
+            'row_count' => $rowCount,
+            'body' => $this->compactAlatpayBody($json, $response?->body()),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function compactAlatpayBody(mixed $json, ?string $raw): array
+    {
+        if (! is_array($json)) {
+            $text = trim((string) $raw);
+
+            return $text === '' ? [] : ['raw' => Str::limit($text, 4000)];
+        }
+
+        $data = $json['data'] ?? null;
+        if (is_array($data) && array_is_list($data) && count($data) > 5) {
+            $json['data'] = array_slice($data, 0, 5);
+            $json['_truncated'] = true;
+            $json['_row_count'] = count($data);
+        }
+
+        return $json;
     }
 
     private function alatpayHttp(): PendingRequest

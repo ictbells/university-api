@@ -109,7 +109,7 @@ class PaymentController extends Controller
         try {
             return $this->gateways->verify($reference, $transactionId ? (string) $transactionId : null)->load('invoice');
         } catch (RuntimeException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
+            return response()->json($this->gateways->failurePayload($e), 422);
         }
     }
 
@@ -120,7 +120,7 @@ class PaymentController extends Controller
         try {
             return $this->gateways->requeryPayment($payment);
         } catch (RuntimeException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
+            return response()->json($this->gateways->failurePayload($e), 422);
         }
     }
 

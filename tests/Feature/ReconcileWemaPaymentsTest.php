@@ -22,6 +22,7 @@ class ReconcileWemaPaymentsTest extends TestCase
             'services.wema.public' => 'pk_wema_test',
             'services.wema.secret' => 'sk_wema_test',
             'services.wema.business_id' => 'biz-wema-test',
+            'services.wema.merchant_id' => 'merch-wema-test',
             'services.wema.base' => 'https://apibox.alatpay.ng',
             'services.paystack.allow_demo_fulfill' => false,
         ]);
@@ -223,6 +224,16 @@ class ReconcileWemaPaymentsTest extends TestCase
 
         $this->assertSame('successful', Payment::query()->where('reference', 'WEMA-NOTXID01')->value('status'));
         $this->assertSame('paid', $invoice->fresh()->status);
+
+        Http::assertSent(function (Request $request) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return str_contains($request->url(), '/alatpaytransaction/api/v1/transactions')
+                && ($query['search'] ?? null) === 'WEMA-NOTXID01'
+                && ($query['businessId'] ?? null) === 'biz-wema-test'
+                && ($query['merchantId'] ?? null) === 'merch-wema-test'
+                && ! isset($query['startAt']);
+        });
     }
 
     public function test_reconcile_fulfills_when_list_omits_metadata_but_detail_has_order(): void
@@ -421,6 +432,39 @@ class ReconcileWemaPaymentsTest extends TestCase
 
         $this->assertSame('abandoned', $stale->fresh()->status);
         Http::assertNothingSent();
+    }
+
+    public function test_reconcile_prints_alatpay_response_when_search_finds_nothing(): void
+    {
+        $user = User::factory()->create(['status' => 'active']);
+        $invoice = $this->pendingInvoice($user, 5000);
+        $payment = Payment::query()->create([
+            'user_id' => $user->id,
+            'invoice_id' => $invoice->id,
+            'method' => 'wema',
+            'amount' => 5000,
+            'status' => 'pending',
+            'reference' => 'WEMA-NOMATCH01',
+            'paystack_reference' => 'WEMA-NOMATCH01',
+            'purpose' => 'application_fee',
+        ]);
+
+        Http::fake([
+            'https://apibox.alatpay.ng/alatpaytransaction/api/v1/transactions*' => Http::response([
+                'status' => true,
+                'message' => 'Success',
+                'data' => [],
+                'pagination' => ['totalPages' => 1],
+            ]),
+        ]);
+
+        $this->artisan('payments:reconcile-wema', ['--id' => [$payment->id]])
+            ->expectsOutputToContain('AlatPay returned no transaction for WEMA-NOMATCH01. Success')
+            ->expectsOutputToContain('AlatPay HTTP 200')
+            ->expectsOutputToContain('Success')
+            ->assertExitCode(0);
+
+        $this->assertSame('pending', $payment->fresh()->status);
     }
 
     private function pendingInvoice(User $user, float $amount): Invoice
