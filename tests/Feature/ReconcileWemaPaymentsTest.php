@@ -461,7 +461,7 @@ class ReconcileWemaPaymentsTest extends TestCase
         $this->artisan('payments:reconcile-wema', ['--id' => [$payment->id]])
             ->expectsOutputToContain('AlatPay returned no transaction for WEMA-NOMATCH01. Success')
             ->expectsOutputToContain('AlatPay HTTP 200')
-            ->expectsOutputToContain('Success')
+            ->expectsOutputToContain('payload:')
             ->assertExitCode(0);
 
         $this->assertSame('pending', $payment->fresh()->status);

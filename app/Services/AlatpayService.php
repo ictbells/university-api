@@ -14,6 +14,7 @@ use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -584,6 +585,17 @@ class AlatpayService implements PaymentGateway
                 return $id;
             }
         }
+
+        $this->logAlatpayPayload('unmatched', [
+            'reference' => $order,
+            'invoice_id' => $payment->invoice_id,
+            'from_search' => $fromSearch,
+            'row_count' => count($rows),
+            'first_row_keys' => is_array($rows[0] ?? null) ? array_keys($rows[0]) : [],
+            'first_row' => is_array($rows[0] ?? null) ? $rows[0] : null,
+            'extracted_id' => is_array($rows[0] ?? null) ? $this->transactionIdFromRow($rows[0]) : '',
+            'last_lookup' => $this->lastAlatpayLookup,
+        ]);
 
         return null;
     }
@@ -1213,6 +1225,35 @@ class AlatpayService implements PaymentGateway
             'row_count' => $rowCount,
             'body' => $this->compactAlatpayBody($json, $response?->body()),
         ];
+        $this->logAlatpayPayload($failed ? 'http_failed' : 'lookup', [
+            'url' => $url,
+            'http_status' => $response?->status(),
+            'ok' => (bool) $response?->successful(),
+            'row_count' => $rowCount,
+            'body' => $this->lastAlatpayLookup['body'],
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    private function logAlatpayPayload(string $event, array $context): void
+    {
+        $record = array_merge([
+            'ts' => now()->toIso8601String(),
+            'event' => $event,
+        ], $context);
+
+        Log::info('alatpay.payload.'.$event, $record);
+
+        try {
+            File::append(
+                storage_path('logs/alatpay-lookup.log'),
+                json_encode($record, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE).PHP_EOL,
+            );
+        } catch (\Throwable) {
+            // Requery/reconcile must not fail because the lookup log could not be written.
+        }
     }
 
     /**

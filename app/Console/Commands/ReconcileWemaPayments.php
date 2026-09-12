@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\Payment;
 use App\Services\AlatpayService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
 
@@ -174,6 +175,7 @@ class ReconcileWemaPayments extends Command
                 .'If Wema dashboard shows a completed charge, copy its transaction id and run: '
                 .'php artisan payments:reconcile-wema --id=<paymentId> --transaction-id=<alatpayTxId>'
             );
+            $this->comment('Wema/AlatPay payloads were written to storage/logs/alatpay-lookup.log');
         }
 
         return $failed > 0 ? self::FAILURE : self::SUCCESS;
@@ -202,8 +204,15 @@ class ReconcileWemaPayments extends Command
             $this->line('      '.$alatpayMessage);
         }
 
-        if ($fullBody && $body !== []) {
-            $this->line('      '.json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        $toPrint = $body;
+        if (isset($toPrint['data']) && is_array($toPrint['data']) && array_is_list($toPrint['data']) && $toPrint['data'] !== []) {
+            $toPrint['data'] = [$toPrint['data'][0]];
+            if (($lookup['row_count'] ?? 0) > 1) {
+                $toPrint['_showing'] = 'first row only';
+            }
+        }
+        if ($json = json_encode($toPrint, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)) {
+            $this->line('      payload: '.Str::limit($json, $fullBody ? 20000 : 4000));
         }
     }
 }
