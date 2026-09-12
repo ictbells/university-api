@@ -467,6 +467,70 @@ class ReconcileWemaPaymentsTest extends TestCase
         $this->assertSame('pending', $payment->fresh()->status);
     }
 
+    public function test_reconcile_matches_customer_metadata_json_when_order_id_drifted(): void
+    {
+        $user = User::factory()->create(['email' => 'leroyobinna@gmail.com', 'status' => 'active']);
+        $invoice = $this->pendingInvoice($user, 7350);
+        $payment = Payment::query()->create([
+            'user_id' => $user->id,
+            'invoice_id' => $invoice->id,
+            'method' => 'wema',
+            'amount' => 7350,
+            'status' => 'pending',
+            'reference' => 'WEMA-9FWZMXZYQBVJ',
+            'paystack_reference' => 'WEMA-9FWZMXZYQBVJ',
+            'purpose' => 'application_fee',
+        ]);
+
+        $detail = [
+            'amount' => 7350,
+            'feeAmount' => 350,
+            'id' => 'e19fc8cf-3b8b-48ff-a740-78e75e5e3ee1',
+            'status' => 'completed',
+            'orderId' => '400cc86d-d7d3-422b-abaf-64ae46f0b199',
+            'customer' => [
+                'id' => '53a7a6a0-9dc7-433b-930e-08df0f7e446e',
+                'transactionId' => 'e19fc8cf-3b8b-48ff-a740-78e75e5e3ee1',
+                'email' => 'leroyobinna@gmail.com',
+                'firstName' => 'LEROY',
+                'lastName' => 'CHUKWUEBUKA OBINNA',
+                'metadata' => '{"orderId":"WEMA-NSMBYQKGECG2","invoice_id":"'.$invoice->id.'","purpose":"application_fee"}',
+            ],
+        ];
+
+        Http::fake(function (Request $request) use ($detail) {
+            $url = $request->url();
+            if (str_contains($url, '/transactions/e19fc8cf-3b8b-48ff-a740-78e75e5e3ee1')) {
+                return Http::response(['status' => true, 'message' => 'Success', 'data' => $detail]);
+            }
+            if (str_contains($url, 'search=WEMA-9FWZMXZYQBVJ') || str_contains($url, 'search='.$detail['customer']['metadata'])) {
+                return Http::response([
+                    'status' => true,
+                    'message' => 'Success',
+                    'data' => [$detail],
+                ]);
+            }
+            if (str_contains($url, 'search=')) {
+                return Http::response([
+                    'status' => true,
+                    'message' => 'Success',
+                    'data' => [$detail],
+                ]);
+            }
+
+            return Http::response(['status' => false, 'message' => 'Unexpected URL: '.$url], 500);
+        });
+
+        $this->artisan('payments:reconcile-wema', ['--id' => [$payment->id]])
+            ->assertExitCode(0);
+
+        $payment->refresh();
+        $this->assertSame('successful', $payment->status);
+        $this->assertSame('WEMA-NSMBYQKGECG2', $payment->reference);
+        $this->assertSame('e19fc8cf-3b8b-48ff-a740-78e75e5e3ee1', $payment->paystack_reference);
+        $this->assertSame('paid', $invoice->fresh()->status);
+    }
+
     private function pendingInvoice(User $user, float $amount): Invoice
     {
         return Invoice::query()->create([

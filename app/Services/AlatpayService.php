@@ -559,13 +559,22 @@ class AlatpayService implements PaymentGateway
             }
         }
 
-        // Metadata search already filtered to this WEMA-/invoice. List rows often omit
-        // our orderId (merchant-prefixed orderId only) — take the UUID and let verify()
-        // confirm status/amount via GET /transactions/{id}.
+        // Metadata search is fuzzy. Confirm the GET detail belongs to this payment
+        // (customer.metadata.orderId or invoice_id) before using the UUID.
         if ($fromSearch) {
-            $id = $this->transactionIdFromSearchHits($rows);
-            if ($id !== null) {
-                return $id;
+            foreach ($rows as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $id = $this->transactionIdFromRow($row);
+                if ($id === '') {
+                    continue;
+                }
+                $detail = $this->fetchAlatpayTransactionCached($id);
+                $candidate = is_array($detail) ? $detail : $row;
+                if ($this->transactionMatchesOrder($payment, $candidate, $order)) {
+                    return $id;
+                }
             }
         }
 
@@ -796,29 +805,6 @@ class AlatpayService implements PaymentGateway
     }
 
     /**
-     * @param  list<array<string, mixed>>  $rows
-     */
-    private function transactionIdFromSearchHits(array $rows): ?string
-    {
-        $fallback = null;
-        foreach ($rows as $row) {
-            if (! is_array($row)) {
-                continue;
-            }
-            $id = $this->transactionIdFromRow($row);
-            if ($id === '') {
-                continue;
-            }
-            if ($this->rowLooksCompleted($row)) {
-                return $id;
-            }
-            $fallback ??= $id;
-        }
-
-        return $fallback;
-    }
-
-    /**
      * @param  array<string, mixed>  $row
      */
     private function transactionIdFromRow(array $row): string
@@ -894,32 +880,46 @@ class AlatpayService implements PaymentGateway
     }
 
     /**
+     * AlatPay puts our checkout metadata on customer.metadata as a JSON string.
+     * Top-level orderId is their warehousing UUID, not WEMA-*.
+     *
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>
+     */
+    private function rowCheckoutMetadata(array $row): array
+    {
+        $merged = [];
+        $customer = $row['customer'] ?? $row['Customer'] ?? null;
+        foreach ([
+            $row['metadata'] ?? $row['MetaData'] ?? $row['Metadata'] ?? null,
+            is_array($customer) ? ($customer['metadata'] ?? $customer['MetaData'] ?? $customer['Metadata'] ?? null) : null,
+        ] as $raw) {
+            $decoded = $this->decodeMetadata($raw);
+            if ($decoded !== []) {
+                $merged = array_merge($merged, $decoded);
+            }
+        }
+
+        return $merged;
+    }
+
+    /**
      * @param  array<string, mixed>  $row
      */
     private function transactionMatchesOrder(Payment $payment, array $row, string $order): bool
     {
+        $metadata = $this->rowCheckoutMetadata($row);
         $orderMatched = false;
+
         $orderId = $this->stringValue($row, ['orderId', 'OrderId']);
         if ($orderId === $order) {
             $orderMatched = true;
         }
-
-        // AlatPay often returns metadata as a JSON string (same as merchant dashboard).
-        $metadata = $this->decodeMetadata($row['metadata'] ?? $row['MetaData'] ?? $row['Metadata'] ?? null);
         if (! $orderMatched && $metadata !== [] && $this->stringValue($metadata, ['orderId', 'OrderId']) === $order) {
             $orderMatched = true;
         }
 
-        $customer = $row['customer'] ?? $row['Customer'] ?? null;
-        if (! $orderMatched && is_array($customer)) {
-            $customerMeta = $this->decodeMetadata($customer['metadata'] ?? $customer['MetaData'] ?? $customer['Metadata'] ?? null);
-            if ($customerMeta !== [] && $this->stringValue($customerMeta, ['orderId', 'OrderId']) === $order) {
-                $orderMatched = true;
-            }
-        }
-
-        // Re-init could have charged under a newer metadata.orderId while DB kept $order.
-        // Match pending invoice payments when metadata.invoice_id still points here.
+        // Re-init: charged under another WEMA-* while this pending row kept the old reference.
         if (! $orderMatched && $payment->invoice_id && $metadata !== []) {
             $metaInvoice = $this->stringValue($metadata, ['invoice_id', 'invoiceId', 'InvoiceId']);
             if ($metaInvoice === (string) $payment->invoice_id) {
@@ -938,7 +938,6 @@ class AlatpayService implements PaymentGateway
             }
         }
 
-        // Defense in depth: when AlatPay includes an amount on the list row, it must fit this payment.
         if (isset($row['amount']) && is_numeric($row['amount'])) {
             return $this->alatpayAmountMatches($payment, (float) $row['amount'], $row);
         }
@@ -1082,7 +1081,7 @@ class AlatpayService implements PaymentGateway
      */
     private function assertAlatpayReference(Payment $payment, array $data): void
     {
-        $metadata = $this->decodeMetadata($data['metadata'] ?? $data['MetaData'] ?? null);
+        $metadata = $this->rowCheckoutMetadata($data);
         if ($metadata === []) {
             return;
         }
@@ -1100,7 +1099,7 @@ class AlatpayService implements PaymentGateway
         // Re-init used to put a new orderId in checkout metadata while keeping the
         // original payments.reference. Accept when invoice_id still matches, then
         // realign so webhook/list lookups work afterwards.
-        $invoiceId = $this->stringValue($metadata, ['invoice_id', 'invoiceId']);
+        $invoiceId = $this->stringValue($metadata, ['invoice_id', 'invoiceId', 'InvoiceId']);
         if (
             $payment->invoice_id
             && $invoiceId !== ''

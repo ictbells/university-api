@@ -232,7 +232,7 @@ class InvoiceRequeryTest extends TestCase
             'purpose' => 'acceptance_fee',
         ]);
 
-        Http::fake(function (Request $request) {
+        Http::fake(function (Request $request) use ($invoice) {
             $url = $request->url();
             if (str_contains($url, '/transactions/3a932c5a-15fc-4bef-940c-5e2bfde317c6')) {
                 return Http::response([
@@ -246,7 +246,7 @@ class InvoiceRequeryTest extends TestCase
                         'orderId' => 'BELLSUNIVERSITY-internal',
                         'customer' => [
                             'TransactionId' => '3a932c5a-15fc-4bef-940c-5e2bfde317c6',
-                            'Metadata' => '{"orderId":"WEMA-YRMIVMMNMYCI","invoice_id":"1"}',
+                            'Metadata' => '{"orderId":"WEMA-YRMIVMMNMYCI","invoice_id":"'.$invoice->id.'","purpose":"acceptance_fee"}',
                         ],
                     ],
                 ]);
