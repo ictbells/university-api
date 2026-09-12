@@ -9,7 +9,10 @@ use App\Models\User;
 use App\Models\WebhookLog;
 use App\Support\PaymentGatewaySettings;
 use Carbon\Carbon;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -757,12 +760,11 @@ class AlatpayService implements PaymentGateway
                 'endAt' => $endAt,
             ], $filters);
 
-            $response = $this->alatpayHttp()->get($base.'/alatpaytransaction/api/v1/transactions', $query);
-
-            if (! $response->successful()) {
+            $response = $this->alatpayGet($base.'/alatpaytransaction/api/v1/transactions', $query);
+            if ($response === null || ! $response->successful()) {
                 Log::warning('AlatPay transaction list lookup failed', [
-                    'status' => $response->status(),
-                    'body' => $response->json('message') ?: $response->body(),
+                    'status' => $response?->status(),
+                    'body' => $response?->json('message') ?: $response?->body(),
                     'page' => $page,
                     'startAt' => $startAt,
                     'endAt' => $endAt,
@@ -962,9 +964,8 @@ class AlatpayService implements PaymentGateway
         }
 
         $base = rtrim((string) config('services.wema.base', 'https://apibox.alatpay.ng'), '/');
-        $response = $this->alatpayHttp()->get($base.'/alatpaytransaction/api/v1/transactions/'.$transactionId);
-
-        if (! $response->successful()) {
+        $response = $this->alatpayGet($base.'/alatpaytransaction/api/v1/transactions/'.$transactionId);
+        if ($response === null || ! $response->successful()) {
             return null;
         }
 
@@ -1118,7 +1119,27 @@ class AlatpayService implements PaymentGateway
         return Http::withHeaders([
             'Ocp-Apim-Subscription-Key' => (string) config('services.wema.secret'),
             'Content-Type' => 'application/json',
-        ])->timeout(30)->retry(2, 250);
+        ])->timeout(30)->retry(2, 250, throw: false);
+    }
+
+    /**
+     * GET that never bubbles 4xx/5xx/connection errors to the caller.
+     * Verify/requery must stay 422 when AlatPay rejects dummy or expired keys.
+     */
+    private function alatpayGet(string $url, array $query = []): ?Response
+    {
+        try {
+            return $query === []
+                ? $this->alatpayHttp()->get($url)
+                : $this->alatpayHttp()->get($url, $query);
+        } catch (ConnectionException|RequestException $e) {
+            Log::warning('AlatPay request failed', [
+                'url' => $url,
+                'message' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
     }
 
     /**

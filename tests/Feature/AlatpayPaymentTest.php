@@ -651,6 +651,12 @@ class AlatpayPaymentTest extends TestCase
         ]);
 
         Sanctum::actingAs($user);
+        Http::fake([
+            'https://apibox.alatpay.ng/*' => Http::response([
+                'statusCode' => 401,
+                'message' => 'Access denied due to invalid subscription key.',
+            ], 401),
+        ]);
         $this->getJson('/api/payments/verify/'.$payment->reference)
             ->assertStatus(422)
             ->assertJsonPath(
