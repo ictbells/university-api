@@ -503,6 +503,9 @@ class AlatpayService implements PaymentGateway
     /**
      * When callback/webhook never stored AlatPay's transaction id, search completed
      * transactions for one that carries our WEMA- order reference.
+     *
+     * Requery uses Wema's metadata search:
+     * GET /alatpaytransaction/api/v1/transactions?search={metadata}&businessId=&merchantId=
      */
     private function findTransactionIdByOrderReference(Payment $payment): ?string
     {
@@ -515,10 +518,16 @@ class AlatpayService implements PaymentGateway
         $order = (string) $payment->reference;
         $rows = $this->sharedCompletedTransactions;
         if ($rows === null) {
-            $startAt = optional($payment->created_at)?->copy()->subDay()->utc()->format('Y-m-d\TH:i:s.000\Z')
-                ?: now()->subDays(7)->utc()->format('Y-m-d\TH:i:s.000\Z');
-            $endAt = now()->addDay()->utc()->format('Y-m-d\TH:i:s.000\Z');
-            $rows = $this->listAlatpayTransactions($startAt, $endAt);
+            $rows = $this->searchAlatpayTransactions($order);
+            if ($rows === [] && $payment->invoice_id) {
+                $rows = $this->searchAlatpayTransactions((string) $payment->invoice_id);
+            }
+            if ($rows === []) {
+                $startAt = optional($payment->created_at)?->copy()->subDay()->utc()->format('Y-m-d\TH:i:s.000\Z')
+                    ?: now()->subDays(7)->utc()->format('Y-m-d\TH:i:s.000\Z');
+                $endAt = now()->addDay()->utc()->format('Y-m-d\TH:i:s.000\Z');
+                $rows = $this->listAlatpayTransactions($startAt, $endAt);
+            }
         }
 
         // Pass 1: match from list payload (orderId / metadata).
@@ -583,14 +592,66 @@ class AlatpayService implements PaymentGateway
     }
 
     /**
+     * Search AlatPay transactions by metadata (our WEMA- orderId / invoice_id).
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function searchAlatpayTransactions(string $search): array
+    {
+        $search = trim($search);
+        $identity = $this->alatpayMerchantQuery();
+        $secret = (string) config('services.wema.secret');
+        if ($search === '' || $identity === [] || $secret === '') {
+            return [];
+        }
+
+        $base = rtrim((string) config('services.wema.base', 'https://apibox.alatpay.ng'), '/');
+        $response = $this->alatpayGet($base.'/alatpaytransaction/api/v1/transactions', array_merge($identity, [
+            'search' => $search,
+        ]));
+        if ($response === null || ! $response->successful()) {
+            Log::warning('AlatPay metadata search lookup failed', [
+                'status' => $response?->status(),
+                'body' => $response?->json('message') ?: $response?->body(),
+                'search' => $search,
+            ]);
+
+            return [];
+        }
+
+        $payload = $response->json();
+
+        return $this->extractTransactionListRows(is_array($payload) ? $payload : []);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function alatpayMerchantQuery(): array
+    {
+        $businessId = trim((string) config('services.wema.business_id'));
+        if ($businessId === '') {
+            return [];
+        }
+
+        $query = ['businessId' => $businessId];
+        $merchantId = trim((string) config('services.wema.merchant_id'));
+        if ($merchantId !== '') {
+            $query['merchantId'] = $merchantId;
+        }
+
+        return $query;
+    }
+
+    /**
      * @param  array<string, mixed>  $filters
      * @return list<array<string, mixed>>
      */
     private function listAlatpayTransactions(string $startAt, string $endAt, array $filters = []): array
     {
-        $businessId = trim((string) config('services.wema.business_id'));
+        $identity = $this->alatpayMerchantQuery();
         $secret = (string) config('services.wema.secret');
-        if ($businessId === '' || $secret === '') {
+        if ($identity === [] || $secret === '') {
             return [];
         }
 
@@ -598,8 +659,7 @@ class AlatpayService implements PaymentGateway
         $all = [];
 
         for ($page = 1; $page <= 50; $page++) {
-            $query = array_merge([
-                'businessId' => $businessId,
+            $query = array_merge($identity, [
                 'page' => $page,
                 'limit' => 100,
                 'startAt' => $startAt,

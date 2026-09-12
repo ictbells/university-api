@@ -337,6 +337,44 @@ class StudentFinanceInstallmentTest extends TestCase
         $this->assertEquals('outstanding', $payload['summary']['clearance']);
     }
 
+    public function test_jupeb_student_status_label_is_not_100_level(): void
+    {
+        $staff = $this->financeStaff();
+        $campus = Campus::query()->create(['name' => 'Main', 'is_active' => true]);
+        $faculty = Faculty::query()->create(['campus_id' => $campus->id, 'name' => 'JUPEB Sciences']);
+        $department = Department::query()->create(['faculty_id' => $faculty->id, 'name' => 'JUPEB Sciences']);
+        $program = Program::query()->create([
+            'name' => 'JUPEB Sciences',
+            'code' => 'JUP-SCI',
+            'award_type' => 'JUPEB',
+            'department_id' => $department->id,
+            'study_level' => 'undergraduate',
+            'entry_modes' => ['utme'],
+            'duration_years' => 1,
+            'is_active' => true,
+        ]);
+        $user = User::factory()->create(['status' => 'active']);
+        $student = Student::query()->create([
+            'user_id' => $user->id,
+            'program_id' => $program->id,
+            'first_name' => 'Oluwatamilore',
+            'last_name' => 'Abiodun-Akiode',
+            'study_level' => 'undergraduate',
+            'current_level' => 100,
+            'status' => 'active',
+            'matric_number' => 'J/2026/000003',
+        ]);
+
+        Sanctum::actingAs($staff);
+        $payload = $this->getJson('/api/finance/student-status?student_id='.$student->id)
+            ->assertOk()
+            ->json();
+
+        $this->assertSame('jupeb', $payload['student']['study_level']);
+        $this->assertSame('JUPEB', $payload['student']['level_label']);
+        $this->assertSame(100, (int) $payload['student']['current_level']);
+    }
+
     private function financeStaff(): User
     {
         foreach (PermissionCatalog::all() as $perm) {

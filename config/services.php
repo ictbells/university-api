@@ -46,6 +46,7 @@ return [
         'public' => env('WEMA_ALATPAY_PUBLIC_KEY'),
         'secret' => env('WEMA_ALATPAY_SECRET_KEY'),
         'business_id' => env('WEMA_ALATPAY_BUSINESS_ID'),
+        'merchant_id' => env('WEMA_ALATPAY_MERCHANT_ID'),
         'webhook_secret' => env('WEMA_ALATPAY_WEBHOOK_SECRET'),
         'base' => env('WEMA_ALATPAY_BASE_URL', 'https://apibox.alatpay.ng'),
     ],

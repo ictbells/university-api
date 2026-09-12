@@ -61,19 +61,57 @@ class StudyLevel
     public static function ofStudent(Student $student): string
     {
         $stored = strtolower((string) $student->study_level);
-        if (in_array($stored, self::ALL, true)) {
-            return $stored;
+        $stored = in_array($stored, self::ALL, true) ? $stored : null;
+
+        $fromApplication = $student->application?->entry_mode
+            ? self::fromEntryMode($student->application->entry_mode)
+            : null;
+
+        $fromProgram = $student->program ? self::ofProgram($student->program) : null;
+
+        $inferredJupeb = self::looksLikeJupebProgram($student->program)
+            || self::looksLikeJupebMatric($student->matric_number)
+            || self::looksLikeJupebMatric($student->student_number);
+
+        $candidates = array_values(array_filter([
+            $fromApplication,
+            $fromProgram,
+            $inferredJupeb ? self::JUPEB : null,
+            $stored,
+        ]));
+
+        // A JUPEB/PG programme, application, or J/ matric beats a default
+        // undergraduate stamp left on students.study_level.
+        if (in_array(self::JUPEB, $candidates, true)) {
+            return self::JUPEB;
+        }
+        if (in_array(self::POSTGRADUATE, $candidates, true)) {
+            return self::POSTGRADUATE;
         }
 
-        if ($student->application?->entry_mode) {
-            return self::fromEntryMode($student->application->entry_mode);
+        return $stored ?? $fromApplication ?? $fromProgram ?? self::UNDERGRADUATE;
+    }
+
+    public static function looksLikeJupebProgram(?Program $program): bool
+    {
+        if (! $program) {
+            return false;
         }
 
-        if ($student->program) {
-            return self::ofProgram($student->program);
-        }
+        $haystack = strtoupper(trim(implode(' ', array_filter([
+            $program->name,
+            $program->code,
+            $program->award_type,
+        ]))));
 
-        return self::UNDERGRADUATE;
+        return $haystack !== '' && str_contains($haystack, 'JUPEB');
+    }
+
+    public static function looksLikeJupebMatric(?string $matric): bool
+    {
+        $value = strtoupper(str_replace(' ', '', (string) $matric));
+
+        return $value !== '' && str_starts_with($value, 'J/');
     }
 
     /**

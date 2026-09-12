@@ -808,6 +808,8 @@ class FinanceController extends Controller
      */
     private function financeStatusPayload(Student $student): array
     {
+        $student->loadMissing(['user', 'program', 'wallet', 'application']);
+
         $invoices = Invoice::query()
             ->with([
                 'items',
@@ -870,6 +872,7 @@ class FinanceController extends Controller
                 'program' => $student->program?->name,
                 'current_level' => $student->current_level,
                 'level_label' => \App\Support\StudentAcademicLevel::label($student),
+                'study_level' => \App\Support\StudyLevel::ofStudent($student),
                 'status' => $student->status,
             ],
             'summary' => [
@@ -1107,7 +1110,7 @@ class FinanceController extends Controller
                 'matric' => $row['matric_number'] ?: ($row['student_number'] ?: '—'),
                 'programme' => $row['program'] ?: '—',
                 'college' => $row['college'] ?: '—',
-                'level' => $row['current_level'] ? $row['current_level'].'L' : '—',
+                'level' => $row['level_label'] ?: ($row['current_level'] ? $row['current_level'].'L' : '—'),
                 'wallet' => number_format((float) $row['wallet_balance'], 2),
                 'billed' => number_format((float) $row['billed'], 2),
                 'paid' => number_format((float) $row['paid'], 2),
@@ -1175,7 +1178,7 @@ class FinanceController extends Controller
         $query = Student::query()
             ->select('students.*')
             ->selectSub($wallet, 'wallet_balance')
-            ->with(['user:id,name,email', 'program.department.faculty'])
+            ->with(['user:id,name,email', 'program.department.faculty', 'application:id,entry_mode'])
             ->orderBy('last_name')
             ->orderBy('first_name');
 
@@ -1376,6 +1379,7 @@ class FinanceController extends Controller
             'college' => $student->program?->department?->faculty?->name,
             'current_level' => $student->current_level,
             'level_label' => \App\Support\StudentAcademicLevel::label($student),
+            'study_level' => \App\Support\StudyLevel::ofStudent($student),
             'status' => $student->status,
             'wallet_balance' => round((float) ($student->wallet_balance ?? $student->wallet?->balance ?? 0), 2),
             'billed' => $summary['billed'],

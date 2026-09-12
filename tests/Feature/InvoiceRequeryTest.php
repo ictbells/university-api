@@ -26,6 +26,7 @@ class InvoiceRequeryTest extends TestCase
             'services.wema.public' => 'pk_wema_test',
             'services.wema.secret' => 'sk_wema_test',
             'services.wema.business_id' => 'biz-wema_test',
+            'services.wema.merchant_id' => 'merch-wema_test',
             'services.wema.base' => 'https://apibox.alatpay.ng',
             'services.paystack.allow_demo_fulfill' => false,
         ]);
@@ -194,6 +195,16 @@ class InvoiceRequeryTest extends TestCase
 
         $this->assertSame('paid', $invoice->fresh()->status);
         $this->assertSame('tx-from-list-001', Payment::query()->where('reference', 'WEMA-MC97CMEL3UBZ')->value('paystack_reference'));
+
+        Http::assertSent(function (Request $request) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return str_contains($request->url(), '/alatpaytransaction/api/v1/transactions')
+                && ($query['search'] ?? null) === 'WEMA-MC97CMEL3UBZ'
+                && ($query['businessId'] ?? null) === 'biz-wema_test'
+                && ($query['merchantId'] ?? null) === 'merch-wema_test'
+                && ! isset($query['startAt']);
+        });
     }
 
     public function test_requery_finds_completed_alatpay_transaction_when_metadata_is_json_string(): void
@@ -268,6 +279,14 @@ class InvoiceRequeryTest extends TestCase
             'e8d831b2-04dc-4a5c-ba39-ca7c5d97cd98',
             Payment::query()->where('reference', 'WEMA-AUZ5SBSKX0CY')->value('paystack_reference')
         );
+
+        Http::assertSent(function (Request $request) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return ($query['search'] ?? null) === 'WEMA-AUZ5SBSKX0CY'
+                && ($query['businessId'] ?? null) === 'biz-wema_test'
+                && ($query['merchantId'] ?? null) === 'merch-wema_test';
+        });
     }
 
     public function test_requery_without_pending_payment_returns_422(): void
