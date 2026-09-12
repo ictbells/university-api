@@ -207,6 +207,79 @@ class InvoiceRequeryTest extends TestCase
         });
     }
 
+    public function test_requery_uses_search_hit_when_list_row_omits_our_order_id(): void
+    {
+        $staff = $this->financeStaff();
+        $payer = User::factory()->create(['status' => 'active']);
+        $invoice = Invoice::query()->create([
+            'number' => 'BUT/2026/SEARCHHIT',
+            'user_id' => $payer->id,
+            'category' => 'acceptance_fee',
+            'amount' => 100000,
+            'full_amount' => 100000,
+            'balance' => 100000,
+            'status' => 'unpaid',
+            'wallet_allowed' => false,
+        ]);
+        Payment::query()->create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $payer->id,
+            'method' => 'wema',
+            'amount' => 100000,
+            'status' => 'pending',
+            'reference' => 'WEMA-YRMIVMMNMYCI',
+            'paystack_reference' => 'WEMA-YRMIVMMNMYCI',
+            'purpose' => 'acceptance_fee',
+        ]);
+
+        Http::fake(function (Request $request) {
+            $url = $request->url();
+            if (str_contains($url, '/transactions/3a932c5a-15fc-4bef-940c-5e2bfde317c6')) {
+                return Http::response([
+                    'status' => true,
+                    'message' => 'Success',
+                    'data' => [
+                        'id' => '3a932c5a-15fc-4bef-940c-5e2bfde317c6',
+                        'status' => 'completed',
+                        'amount' => 100350,
+                        'feeAmount' => 350,
+                        'orderId' => 'BELLSUNIVERSITY-internal',
+                        'customer' => [
+                            'TransactionId' => '3a932c5a-15fc-4bef-940c-5e2bfde317c6',
+                            'Metadata' => '{"orderId":"WEMA-YRMIVMMNMYCI","invoice_id":"1"}',
+                        ],
+                    ],
+                ]);
+            }
+            if (str_contains($url, 'search=WEMA-YRMIVMMNMYCI')) {
+                return Http::response([
+                    'status' => true,
+                    'message' => 'Success',
+                    'data' => [[
+                        'id' => '3a932c5a-15fc-4bef-940c-5e2bfde317c6',
+                        'status' => 'Success',
+                        'amount' => 100350,
+                        'orderId' => 'BELLSUNIVERSITY-internal',
+                    ]],
+                    'pagination' => ['totalPages' => 1],
+                ]);
+            }
+
+            return Http::response(['status' => false, 'message' => 'Unexpected URL: '.$url], 500);
+        });
+
+        Sanctum::actingAs($staff);
+        $this->postJson('/api/invoices/'.$invoice->id.'/requery')
+            ->assertOk()
+            ->assertJsonPath('status', 'successful');
+
+        $this->assertSame('paid', $invoice->fresh()->status);
+        $this->assertSame(
+            '3a932c5a-15fc-4bef-940c-5e2bfde317c6',
+            Payment::query()->where('reference', 'WEMA-YRMIVMMNMYCI')->value('paystack_reference')
+        );
+    }
+
     public function test_requery_finds_completed_alatpay_transaction_when_metadata_is_json_string(): void
     {
         $staff = $this->financeStaff();

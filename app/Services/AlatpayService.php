@@ -536,6 +536,7 @@ class AlatpayService implements PaymentGateway
         }
 
         $order = (string) $payment->reference;
+        $fromSearch = false;
         $rows = $this->sharedCompletedTransactions;
         if ($rows === null) {
             $rows = $this->searchAlatpayTransactions($order);
@@ -548,11 +549,22 @@ class AlatpayService implements PaymentGateway
                     return null;
                 }
             }
+            $fromSearch = $rows !== [];
             if ($rows === []) {
                 $startAt = optional($payment->created_at)?->copy()->subDay()->utc()->format('Y-m-d\TH:i:s.000\Z')
                     ?: now()->subDays($this->listLookbackDays)->utc()->format('Y-m-d\TH:i:s.000\Z');
                 $endAt = now()->addDay()->utc()->format('Y-m-d\TH:i:s.000\Z');
                 $rows = $this->listAlatpayTransactions($startAt, $endAt);
+            }
+        }
+
+        // Metadata search already filtered to this WEMA-/invoice. List rows often omit
+        // our orderId (merchant-prefixed orderId only) — take the UUID and let verify()
+        // confirm status/amount via GET /transactions/{id}.
+        if ($fromSearch) {
+            $id = $this->transactionIdFromSearchHits($rows);
+            if ($id !== null) {
+                return $id;
             }
         }
 
@@ -757,7 +769,11 @@ class AlatpayService implements PaymentGateway
 
         // Docs sample a single object under data; treat a transaction-shaped object as one row.
         if ($rows !== [] && ! array_is_list($rows)) {
-            if (isset($rows['id']) || isset($rows['Id']) || isset($rows['orderId']) || isset($rows['OrderId'])) {
+            if (
+                isset($rows['id']) || isset($rows['Id'])
+                || isset($rows['orderId']) || isset($rows['OrderId'])
+                || isset($rows['transactionId']) || isset($rows['TransactionId'])
+            ) {
                 return [$rows];
             }
 
@@ -765,6 +781,50 @@ class AlatpayService implements PaymentGateway
         }
 
         return array_values(array_filter($rows, 'is_array'));
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     */
+    private function transactionIdFromSearchHits(array $rows): ?string
+    {
+        $fallback = null;
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $id = $this->transactionIdFromRow($row);
+            if ($id === '') {
+                continue;
+            }
+            if ($this->rowLooksCompleted($row)) {
+                return $id;
+            }
+            $fallback ??= $id;
+        }
+
+        return $fallback;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function transactionIdFromRow(array $row): string
+    {
+        $id = $this->stringValue($row, ['id', 'Id', 'transactionId', 'TransactionId']);
+        if ($id !== '' && ! str_starts_with($id, 'WEMA-')) {
+            return $id;
+        }
+
+        $customer = $row['customer'] ?? $row['Customer'] ?? null;
+        if (is_array($customer)) {
+            $id = $this->stringValue($customer, ['transactionId', 'TransactionId', 'id', 'Id']);
+            if ($id !== '' && ! str_starts_with($id, 'WEMA-')) {
+                return $id;
+            }
+        }
+
+        return '';
     }
 
     /**
@@ -777,7 +837,7 @@ class AlatpayService implements PaymentGateway
             return null;
         }
 
-        $id = $this->stringValue($row, ['id', 'Id', 'transactionId', 'TransactionId']);
+        $id = $this->transactionIdFromRow($row);
         if ($id === '' || str_starts_with($id, 'WEMA-')) {
             return null;
         }
@@ -833,14 +893,14 @@ class AlatpayService implements PaymentGateway
         }
 
         // AlatPay often returns metadata as a JSON string (same as merchant dashboard).
-        $metadata = $this->decodeMetadata($row['metadata'] ?? $row['MetaData'] ?? null);
+        $metadata = $this->decodeMetadata($row['metadata'] ?? $row['MetaData'] ?? $row['Metadata'] ?? null);
         if (! $orderMatched && $metadata !== [] && $this->stringValue($metadata, ['orderId', 'OrderId']) === $order) {
             $orderMatched = true;
         }
 
-        $customer = $row['customer'] ?? null;
+        $customer = $row['customer'] ?? $row['Customer'] ?? null;
         if (! $orderMatched && is_array($customer)) {
-            $customerMeta = $this->decodeMetadata($customer['metadata'] ?? $customer['MetaData'] ?? null);
+            $customerMeta = $this->decodeMetadata($customer['metadata'] ?? $customer['MetaData'] ?? $customer['Metadata'] ?? null);
             if ($customerMeta !== [] && $this->stringValue($customerMeta, ['orderId', 'OrderId']) === $order) {
                 $orderMatched = true;
             }
