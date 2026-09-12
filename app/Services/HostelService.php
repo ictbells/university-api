@@ -17,6 +17,7 @@ use App\Models\Setting;
 use App\Models\Student;
 use App\Support\ApplicantPassport;
 use App\Support\InstitutionLogo;
+use App\Support\StudentAcademicLevel;
 use App\Support\TuitionProgress;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -606,6 +607,7 @@ class HostelService
         return [
             'category' => $category,
             'level' => $student->current_level,
+            'level_label' => StudentAcademicLevel::label($student),
             'gender' => $student->gender,
             'window' => $window,
             'window_open' => $open,

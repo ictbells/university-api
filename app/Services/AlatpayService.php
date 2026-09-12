@@ -8,6 +8,9 @@ use App\Models\Payment;
 use App\Models\User;
 use App\Models\WebhookLog;
 use App\Support\PaymentGatewaySettings;
+use Carbon\Carbon;
+use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -39,18 +42,236 @@ class AlatpayService implements PaymentGateway
      */
     public function beginCompletedTransactionLookup(\DateTimeInterface $from, \DateTimeInterface $to): void
     {
-        $startAt = \Carbon\Carbon::parse($from)->utc()->format('Y-m-d\TH:i:s.000\Z');
-        $endAt = \Carbon\Carbon::parse($to)->utc()->format('Y-m-d\TH:i:s.000\Z');
+        $startAt = Carbon::parse($from)->utc()->format('Y-m-d\TH:i:s.000\Z');
+        $endAt = Carbon::parse($to)->utc()->format('Y-m-d\TH:i:s.000\Z');
 
         $this->sharedCompletedTransactions = $this->hydrateCompletedTransactionMetadata(
             $this->listAlatpayTransactions($startAt, $endAt)
         );
     }
 
+    public function completedTransactionCount(): int
+    {
+        return is_array($this->sharedCompletedTransactions) ? count($this->sharedCompletedTransactions) : 0;
+    }
+
+    /**
+     * Match a pending portal payment to the AlatPay transaction Wema recorded.
+     *
+     * @return array{match_by: string, transaction: array<string, mixed>|null}
+     */
+    public function matchCompletedTransactionForReport(Payment $payment, ?string $forcedTransactionId = null): array
+    {
+        $forced = trim((string) $forcedTransactionId);
+        if ($forced !== '') {
+            $detail = $this->fetchAlatpayTransactionCached($forced);
+            if (is_array($detail)) {
+                return [
+                    'match_by' => 'forced_transaction_id',
+                    'transaction' => $detail,
+                ];
+            }
+        }
+
+        $byReference = [strtoupper((string) $payment->reference) => $payment];
+        $byInvoice = [];
+        if ($payment->invoice_id) {
+            $byInvoice[(string) $payment->invoice_id] = $payment;
+        }
+
+        foreach ($this->sharedCompletedTransactions ?? [] as $row) {
+            if (! is_array($row) || ! $this->rowLooksCompleted($row)) {
+                continue;
+            }
+
+            $txId = $this->stringValue($row, ['id', 'Id', 'transactionId', 'TransactionId']);
+            if ($txId === '' || str_starts_with($txId, 'WEMA-')) {
+                continue;
+            }
+
+            $detail = $this->rowHasMatchableMetadata($row) ? $row : ($this->fetchAlatpayTransactionCached($txId) ?: $row);
+            if ($this->pendingPaymentForCompletedRow($detail, $byReference, $byInvoice)) {
+                return [
+                    'match_by' => $this->describeMatchBy($payment, $detail),
+                    'transaction' => $detail,
+                ];
+            }
+        }
+
+        $stored = trim((string) $payment->paystack_reference);
+        if ($stored !== '' && ! str_starts_with($stored, 'WEMA-')) {
+            $detail = $this->fetchAlatpayTransactionCached($stored);
+            if (is_array($detail)) {
+                return [
+                    'match_by' => 'stored_transaction_id',
+                    'transaction' => $detail,
+                ];
+            }
+        }
+
+        return ['match_by' => 'none', 'transaction' => null];
+    }
+
+    /**
+     * Completed Wema charges that did not match any of the given pending payments.
+     *
+     * @param  iterable<Payment>  $payments
+     * @return list<array<string, mixed>>
+     */
+    public function unmatchedCompletedTransactionsForReport(iterable $payments): array
+    {
+        $byReference = [];
+        $byInvoice = [];
+        foreach ($payments as $payment) {
+            $byReference[strtoupper((string) $payment->reference)] = $payment;
+            if ($payment->invoice_id) {
+                $byInvoice[(string) $payment->invoice_id] = $payment;
+            }
+        }
+
+        $unmatched = [];
+        foreach ($this->sharedCompletedTransactions ?? [] as $row) {
+            if (! is_array($row) || ! $this->rowLooksCompleted($row)) {
+                continue;
+            }
+
+            $txId = $this->stringValue($row, ['id', 'Id', 'transactionId', 'TransactionId']);
+            if ($txId === '' || str_starts_with($txId, 'WEMA-')) {
+                continue;
+            }
+
+            $detail = $this->rowHasMatchableMetadata($row) ? $row : ($this->fetchAlatpayTransactionCached($txId) ?: $row);
+            if ($this->pendingPaymentForCompletedRow($detail, $byReference, $byInvoice)) {
+                continue;
+            }
+
+            $unmatched[] = $detail;
+        }
+
+        return $unmatched;
+    }
+
+    /**
+     * Flatten an AlatPay transaction into report columns.
+     *
+     * @param  array<string, mixed>|null  $row
+     * @return array<string, string>
+     */
+    public function flattenTransactionForReport(?array $row): array
+    {
+        if ($row === null) {
+            return [
+                'wema_transaction_id' => '',
+                'wema_status' => '',
+                'wema_amount' => '',
+                'wema_fee' => '',
+                'wema_order_id' => '',
+                'wema_metadata_order_id' => '',
+                'wema_metadata_invoice_id' => '',
+                'wema_metadata_purpose' => '',
+                'wema_customer_email' => '',
+                'wema_transaction_time' => '',
+                'wema_metadata_json' => '',
+            ];
+        }
+
+        $metadata = $this->decodeMetadata($row['metadata'] ?? $row['MetaData'] ?? null);
+        $customer = is_array($row['customer'] ?? null) ? $row['customer'] : [];
+        $customerMeta = $this->decodeMetadata($customer['metadata'] ?? $customer['MetaData'] ?? null);
+        $fee = $this->alatpayReportedFee($row);
+
+        return [
+            'wema_transaction_id' => $this->stringValue($row, ['id', 'Id', 'transactionId', 'TransactionId']),
+            'wema_status' => $this->rowStatus($row),
+            'wema_amount' => isset($row['amount']) && is_numeric($row['amount']) ? (string) $row['amount'] : $this->stringValue($row, ['amount', 'Amount']),
+            'wema_fee' => $fee !== null ? (string) $fee : '',
+            'wema_order_id' => $this->stringValue($row, ['orderId', 'OrderId']),
+            'wema_metadata_order_id' => $this->stringValue($metadata, ['orderId', 'OrderId'])
+                ?: $this->stringValue($customerMeta, ['orderId', 'OrderId']),
+            'wema_metadata_invoice_id' => $this->stringValue($metadata, ['invoice_id', 'invoiceId', 'InvoiceId'])
+                ?: $this->stringValue($customerMeta, ['invoice_id', 'invoiceId', 'InvoiceId']),
+            'wema_metadata_purpose' => $this->stringValue($metadata, ['purpose', 'Purpose'])
+                ?: $this->stringValue($customerMeta, ['purpose', 'Purpose']),
+            'wema_customer_email' => $this->stringValue($customer, ['email', 'Email'])
+                ?: $this->stringValue($row, ['email', 'Email', 'customerEmail']),
+            'wema_transaction_time' => $this->stringValue($row, [
+                'completedAt', 'CompletedAt', 'paidAt', 'PaidAt', 'transactionDate',
+                'TransactionDate', 'createdAt', 'CreatedAt', 'created_at', 'updatedAt',
+            ]),
+            'wema_metadata_json' => $metadata !== [] ? (json_encode($metadata, JSON_UNESCAPED_SLASHES) ?: '') : '',
+        ];
+    }
+
     public function endCompletedTransactionLookup(): void
     {
         $this->sharedCompletedTransactions = null;
         $this->transactionDetailCache = [];
+    }
+
+    /**
+     * Walk AlatPay completed charges and fulfill matching pending portal rows.
+     * This is the reliable bulk path: Wema successes → our pending payments.
+     *
+     * @param  iterable<Payment>  $payments
+     * @return array{fulfilled: int, remaining: Collection<int, Payment>}
+     */
+    public function applyCompletedTransactionsToPending(iterable $payments): array
+    {
+        $pending = collect($payments)
+            ->filter(fn (Payment $payment) => $payment->status === 'pending')
+            ->values();
+
+        $byReference = [];
+        $byInvoice = [];
+        foreach ($pending as $payment) {
+            $byReference[strtoupper((string) $payment->reference)] = $payment;
+            if ($payment->invoice_id) {
+                $byInvoice[(string) $payment->invoice_id] = $payment;
+            }
+        }
+
+        $fulfilled = 0;
+        $usedTx = [];
+        $rows = $this->sharedCompletedTransactions ?? [];
+
+        foreach ($rows as $row) {
+            if (! is_array($row) || ! $this->rowLooksCompleted($row)) {
+                continue;
+            }
+
+            $txId = $this->stringValue($row, ['id', 'Id', 'transactionId', 'TransactionId']);
+            if ($txId === '' || str_starts_with($txId, 'WEMA-') || isset($usedTx[$txId])) {
+                continue;
+            }
+
+            $detail = $this->rowHasMatchableMetadata($row) ? $row : ($this->fetchAlatpayTransactionCached($txId) ?: $row);
+            $payment = $this->pendingPaymentForCompletedRow($detail, $byReference, $byInvoice);
+            if (! $payment || $payment->status === 'successful') {
+                continue;
+            }
+
+            try {
+                $result = $this->verify((string) $payment->reference, $txId);
+                if ($result->status === 'successful') {
+                    $fulfilled++;
+                    $usedTx[$txId] = true;
+                    unset($byReference[strtoupper((string) $payment->reference)]);
+                    if ($payment->invoice_id) {
+                        unset($byInvoice[(string) $payment->invoice_id]);
+                    }
+                }
+            } catch (RuntimeException) {
+                // Verify will reject amount/status mismatches; try the next completed row.
+            }
+        }
+
+        $remaining = $pending
+            ->map(fn (Payment $payment) => $payment->fresh())
+            ->filter(fn (?Payment $payment) => $payment && $payment->status === 'pending')
+            ->values();
+        $remaining->each(fn (Payment $payment) => $payment->loadMissing('invoice'));
+
+        return ['fulfilled' => $fulfilled, 'remaining' => $remaining];
     }
 
     /**
@@ -483,9 +704,10 @@ class AlatpayService implements PaymentGateway
                 continue;
             }
 
-            $status = strtolower((string) ($row['status'] ?? ''));
+            $status = $this->rowStatus($row);
             if ($status !== '' && ! in_array($status, ['completed', 'successful', 'success', 'paid'], true)) {
                 $hydrated[] = $row;
+
                 continue;
             }
 
@@ -493,12 +715,14 @@ class AlatpayService implements PaymentGateway
             $metaOrder = $this->stringValue($metadata, ['orderId', 'OrderId']);
             if (str_starts_with($metaOrder, 'WEMA-')) {
                 $hydrated[] = $row;
+
                 continue;
             }
 
             $id = $this->stringValue($row, ['id', 'Id', 'transactionId', 'TransactionId']);
             if ($id === '' || str_starts_with($id, 'WEMA-')) {
                 $hydrated[] = $row;
+
                 continue;
             }
 
@@ -533,10 +757,7 @@ class AlatpayService implements PaymentGateway
                 'endAt' => $endAt,
             ], $filters);
 
-            $response = Http::withHeaders([
-                'Ocp-Apim-Subscription-Key' => $secret,
-                'Content-Type' => 'application/json',
-            ])->get($base.'/alatpaytransaction/api/v1/transactions', $query);
+            $response = $this->alatpayHttp()->get($base.'/alatpaytransaction/api/v1/transactions', $query);
 
             if (! $response->successful()) {
                 Log::warning('AlatPay transaction list lookup failed', [
@@ -610,7 +831,7 @@ class AlatpayService implements PaymentGateway
      */
     private function completedListRowTransactionId(Payment $payment, array $row, string $order, bool $enrich): ?string
     {
-        $status = strtolower((string) ($row['status'] ?? ''));
+        $status = $this->rowStatus($row);
         if ($status !== '' && ! in_array($status, ['completed', 'successful', 'success', 'paid'], true)) {
             return null;
         }
@@ -686,17 +907,9 @@ class AlatpayService implements PaymentGateway
 
         // Re-init could have charged under a newer metadata.orderId while DB kept $order.
         // Match pending invoice payments when metadata.invoice_id still points here.
-        if (
-            ! $orderMatched
-            && $payment->invoice_id
-            && $metadata !== []
-        ) {
+        if (! $orderMatched && $payment->invoice_id && $metadata !== []) {
             $metaInvoice = $this->stringValue($metadata, ['invoice_id', 'invoiceId', 'InvoiceId']);
-            $metaOrder = $this->stringValue($metadata, ['orderId', 'OrderId']);
-            if (
-                $metaInvoice === (string) $payment->invoice_id
-                && str_starts_with($metaOrder, 'WEMA-')
-            ) {
+            if ($metaInvoice === (string) $payment->invoice_id) {
                 $orderMatched = true;
             }
         }
@@ -749,10 +962,7 @@ class AlatpayService implements PaymentGateway
         }
 
         $base = rtrim((string) config('services.wema.base', 'https://apibox.alatpay.ng'), '/');
-        $response = Http::withHeaders([
-            'Ocp-Apim-Subscription-Key' => $secret,
-            'Content-Type' => 'application/json',
-        ])->get($base.'/alatpaytransaction/api/v1/transactions/'.$transactionId);
+        $response = $this->alatpayHttp()->get($base.'/alatpaytransaction/api/v1/transactions/'.$transactionId);
 
         if (! $response->successful()) {
             return null;
@@ -770,7 +980,7 @@ class AlatpayService implements PaymentGateway
             throw new RuntimeException('Payment has not been confirmed by Wema Bank.');
         }
 
-        $status = strtolower((string) ($data['status'] ?? ''));
+        $status = $this->rowStatus($data);
         if (! in_array($status, ['completed', 'successful', 'success', 'paid'], true)) {
             throw new RuntimeException('Payment has not been confirmed by Wema Bank.');
         }
@@ -901,6 +1111,118 @@ class AlatpayService implements PaymentGateway
         }
 
         return $payload;
+    }
+
+    private function alatpayHttp(): PendingRequest
+    {
+        return Http::withHeaders([
+            'Ocp-Apim-Subscription-Key' => (string) config('services.wema.secret'),
+            'Content-Type' => 'application/json',
+        ])->timeout(30)->retry(2, 250);
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function rowStatus(array $row): string
+    {
+        return strtolower($this->stringValue($row, ['status', 'Status', 'transactionStatus', 'TransactionStatus']));
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function rowLooksCompleted(array $row): bool
+    {
+        $status = $this->rowStatus($row);
+
+        return $status === '' || in_array($status, ['completed', 'successful', 'success', 'paid'], true);
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function rowHasMatchableMetadata(array $row): bool
+    {
+        $metadata = $this->decodeMetadata($row['metadata'] ?? $row['MetaData'] ?? null);
+        if ($metadata === []) {
+            return false;
+        }
+
+        return $this->stringValue($metadata, ['orderId', 'OrderId', 'invoice_id', 'invoiceId', 'InvoiceId']) !== '';
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function describeMatchBy(Payment $payment, array $row): string
+    {
+        $metadata = $this->decodeMetadata($row['metadata'] ?? $row['MetaData'] ?? null);
+        $order = $this->stringValue($metadata, ['orderId', 'OrderId']);
+        if (str_starts_with($order, 'WEMA-') && strcasecmp($order, (string) $payment->reference) === 0) {
+            return 'metadata.orderId';
+        }
+
+        $invoiceId = $this->stringValue($metadata, ['invoice_id', 'invoiceId', 'InvoiceId']);
+        if ($payment->invoice_id && $invoiceId !== '' && (string) $payment->invoice_id === $invoiceId) {
+            return 'metadata.invoice_id';
+        }
+
+        $txId = $this->stringValue($row, ['id', 'Id', 'transactionId', 'TransactionId']);
+        $stored = trim((string) $payment->paystack_reference);
+        if ($txId !== '' && $stored !== '' && strcasecmp($txId, $stored) === 0) {
+            return 'stored_transaction_id';
+        }
+
+        return 'list_match';
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @param  array<string, Payment>  $byReference
+     * @param  array<string, Payment>  $byInvoice
+     */
+    private function pendingPaymentForCompletedRow(array $row, array $byReference, array $byInvoice): ?Payment
+    {
+        $metadata = $this->decodeMetadata($row['metadata'] ?? $row['MetaData'] ?? null);
+        $customer = is_array($row['customer'] ?? null) ? $row['customer'] : [];
+        $customerMeta = $this->decodeMetadata($customer['metadata'] ?? $customer['MetaData'] ?? null);
+
+        foreach ([$metadata, $customerMeta, $row] as $source) {
+            if (! is_array($source) || $source === []) {
+                continue;
+            }
+            $order = $this->stringValue($source, ['orderId', 'OrderId']);
+            if (str_starts_with($order, 'WEMA-') && isset($byReference[strtoupper($order)])) {
+                $payment = $byReference[strtoupper($order)];
+                if ($this->amountFitsIfPresent($payment, $row)) {
+                    return $payment;
+                }
+            }
+        }
+
+        $invoiceId = $this->stringValue($metadata, ['invoice_id', 'invoiceId', 'InvoiceId'])
+            ?: $this->stringValue($customerMeta, ['invoice_id', 'invoiceId', 'InvoiceId']);
+        if ($invoiceId !== '' && isset($byInvoice[$invoiceId])) {
+            $payment = $byInvoice[$invoiceId];
+            if ($this->amountFitsIfPresent($payment, $row)) {
+                return $payment;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function amountFitsIfPresent(Payment $payment, array $row): bool
+    {
+        if (! isset($row['amount']) || ! is_numeric($row['amount'])) {
+            return true;
+        }
+
+        return $this->alatpayAmountMatches($payment, (float) $row['amount'], $row);
     }
 
     /**

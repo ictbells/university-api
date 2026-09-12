@@ -42,6 +42,17 @@ class PaymentController extends Controller
             $query->where('status', $status);
         }
 
+        $search = trim((string) $request->input('search', ''));
+        if ($search !== '') {
+            $term = '%'.str_replace(['%', '_'], ['\\%', '\\_'], $search).'%';
+            $query->where(function ($builder) use ($term) {
+                $builder->where('reference', 'like', $term)
+                    ->orWhere('paystack_reference', 'like', $term)
+                    ->orWhere('receipt_no', 'like', $term)
+                    ->orWhereHas('invoice', fn ($invoices) => $invoices->where('number', 'like', $term));
+            });
+        }
+
         return $query->paginate($perPage);
     }
 
@@ -68,7 +79,7 @@ class PaymentController extends Controller
         );
         try {
             SchoolFeeAccess::assertCanPayInvoice($request->user(), $invoice);
-        } catch (\RuntimeException $e) {
+        } catch (RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
         $student = $request->user()->student;
@@ -76,7 +87,7 @@ class PaymentController extends Controller
             $this->arrears->ensureForStudent($student);
             try {
                 $this->arrears->assertCanPay($student, $invoice);
-            } catch (\RuntimeException $e) {
+            } catch (RuntimeException $e) {
                 return response()->json(['message' => $e->getMessage()], 422);
             }
         }
@@ -86,7 +97,7 @@ class PaymentController extends Controller
 
         try {
             return $this->gateways->initializeInvoice($request->user(), $invoice, $callbackUrl);
-        } catch (\RuntimeException $e) {
+        } catch (RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
     }
@@ -97,7 +108,18 @@ class PaymentController extends Controller
 
         try {
             return $this->gateways->verify($reference, $transactionId ? (string) $transactionId : null)->load('invoice');
-        } catch (\RuntimeException $e) {
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+    }
+
+    public function requery(Request $request, Payment $payment)
+    {
+        abort_unless($request->user()->hasPermission('finance.invoices.manage'), 403);
+
+        try {
+            return $this->gateways->requeryPayment($payment);
+        } catch (RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
     }

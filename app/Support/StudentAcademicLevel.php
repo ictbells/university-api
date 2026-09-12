@@ -24,6 +24,24 @@ class StudentAcademicLevel
             ->where('study_level', $studyLevel)
             ->where('is_active', true);
 
+        // JUPEB students keep current_level=100 internally. Never resolve them to
+        // a numeric 100-band row — use the JUPEB catalog level (name/code JUPEB).
+        if ($studyLevel === StudyLevel::JUPEB) {
+            $named = (clone $query)
+                ->where(function ($builder) {
+                    $builder->where('code', 'like', 'JUPEB%')
+                        ->orWhere('name', 'like', 'JUPEB%');
+                })
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->first();
+            if ($named) {
+                return $named;
+            }
+
+            return $query->orderBy('sort_order')->orderBy('id')->first();
+        }
+
         if ($code !== '') {
             $matched = (clone $query)
                 ->where(function ($builder) use ($code) {
@@ -36,12 +54,6 @@ class StudentAcademicLevel
             if ($matched) {
                 return $matched;
             }
-        }
-
-        // JUPEB is a single-band track: use the dedicated JUPEB academic level
-        // even when its code is empty and the student band is still stored as 100.
-        if ($studyLevel === StudyLevel::JUPEB) {
-            return $query->orderBy('sort_order')->orderBy('id')->first();
         }
 
         return null;
@@ -110,6 +122,17 @@ class StudentAcademicLevel
 
     public static function label(Student $student): ?string
     {
+        if (StudyLevel::ofStudent($student->loadMissing(['application', 'program'])) === StudyLevel::JUPEB) {
+            $level = self::resolve($student);
+            foreach ([trim((string) ($level?->name ?: '')), trim((string) ($level?->code ?: ''))] as $candidate) {
+                if ($candidate !== '' && ! preg_match('/^\d{2,3}/', $candidate)) {
+                    return $candidate;
+                }
+            }
+
+            return 'JUPEB';
+        }
+
         $level = self::resolve($student);
         if ($level) {
             $name = trim((string) ($level->name ?: ''));
@@ -120,10 +143,6 @@ class StudentAcademicLevel
             if ($code !== '') {
                 return self::formatNumericBand($code) ?? $code;
             }
-        }
-
-        if (StudyLevel::ofStudent($student->loadMissing(['application', 'program'])) === StudyLevel::JUPEB) {
-            return 'JUPEB';
         }
 
         if ($student->current_level !== null && $student->current_level !== '') {

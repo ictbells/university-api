@@ -62,6 +62,51 @@ class PaymentGatewayManager
     }
 
     /**
+     * Re-check a single pending online payment against the gateway.
+     */
+    public function requeryPayment(Payment $payment): Payment
+    {
+        if ($payment->status === 'successful') {
+            return $payment->load('invoice');
+        }
+
+        if ($payment->status !== 'pending') {
+            throw new RuntimeException('Only pending payments can be requeried.');
+        }
+
+        $method = strtolower((string) $payment->method);
+        if (! in_array($method, PaymentGatewaySettings::keys(), true)) {
+            throw new RuntimeException('This payment was not made through an online gateway.');
+        }
+
+        $payment->loadMissing('invoice');
+        if ($payment->invoice && ! $payment->invoice->isPayable()) {
+            $payment->update(['status' => 'abandoned']);
+
+            throw new RuntimeException('This invoice is already settled. The pending payment was abandoned.');
+        }
+
+        $txId = trim((string) $payment->paystack_reference);
+        if ($txId === '' || preg_match('/^(WEMA|PSK|UPG)-/i', $txId) === 1) {
+            $txId = '';
+        }
+
+        $driver = $this->driverFor($payment);
+        $result = $driver instanceof AlatpayService
+            ? $driver->reconcilePayment($payment, $txId !== '' ? $txId : null)
+            : $driver->verify(
+                (string) $payment->reference,
+                $txId !== '' ? $txId : null,
+            );
+
+        if ($result->status !== 'successful') {
+            throw new RuntimeException('Payment is still pending with the gateway.');
+        }
+
+        return $result->load('invoice');
+    }
+
+    /**
      * Re-check pending online payment(s) for a payable invoice against the gateway.
      */
     public function requeryInvoice(Invoice $invoice): Payment
@@ -73,11 +118,7 @@ class PaymentGatewayManager
         $payments = Payment::query()
             ->where('invoice_id', $invoice->id)
             ->where('status', 'pending')
-            ->whereIn('method', [
-                PaymentGatewaySettings::WEMA,
-                PaymentGatewaySettings::PAYSTACK,
-                PaymentGatewaySettings::PAYGATE,
-            ])
+            ->whereIn('method', PaymentGatewaySettings::keys())
             ->latest('id')
             ->get();
 
@@ -88,22 +129,8 @@ class PaymentGatewayManager
         $lastMessage = 'Payment is still pending with the gateway.';
 
         foreach ($payments as $payment) {
-            $txId = trim((string) $payment->paystack_reference);
-            if ($txId === '' || preg_match('/^(WEMA|PSK|UPG)-/i', $txId) === 1) {
-                $txId = '';
-            }
-
             try {
-                $driver = $this->driverFor($payment);
-                $result = $driver instanceof AlatpayService
-                    ? $driver->reconcilePayment($payment, $txId !== '' ? $txId : null)
-                    : $driver->verify(
-                        (string) $payment->reference,
-                        $txId !== '' ? $txId : null,
-                    );
-                if ($result->status === 'successful') {
-                    return $result->load('invoice');
-                }
+                return $this->requeryPayment($payment);
             } catch (RuntimeException $e) {
                 $lastMessage = $e->getMessage();
             }

@@ -29,6 +29,7 @@ use App\Http\Controllers\OfficeApprovalController;
 use App\Http\Controllers\OfficeStructureController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\ProgrammeFeeController;
+use App\Http\Controllers\PublicPayController;
 use App\Http\Controllers\RebateController;
 use App\Http\Controllers\ReceiptVerificationController;
 use App\Http\Controllers\RefereePortalController;
@@ -42,7 +43,6 @@ use App\Http\Controllers\SecuritySettingsController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\StudentImportController;
 use App\Http\Controllers\TranscriptRequestController;
-use App\Http\Controllers\PublicPayController;
 use App\Http\Controllers\TwoFactorController;
 use App\Http\Controllers\UnitLimitController;
 use App\Http\Controllers\UserController;
@@ -245,6 +245,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::get('/payments/verify/{reference}', [PaymentController::class, 'verify']);
     Route::post('/payments/paystack/initialize', [PaymentController::class, 'initialize']);
     Route::get('/payments/paystack/verify/{reference}', [PaymentController::class, 'verify']);
+    Route::post('/payments/{payment}/requery', [PaymentController::class, 'requery']);
     Route::get('/payments/{payment}/receipt', [FinanceController::class, 'paymentReceipt']);
 
     Route::get('/academic/courses', [AcademicController::class, 'courses'])

@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Support\PaymentGatewaySettings;
 use App\Support\PermissionCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -79,6 +80,52 @@ class InvoiceRequeryTest extends TestCase
         $this->assertSame('successful', Payment::query()->where('reference', 'WEMA-REQUERY001')->value('status'));
     }
 
+    public function test_staff_can_requery_a_pending_payment_by_id(): void
+    {
+        $staff = $this->financeStaff();
+        $payer = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
+        $invoice = Invoice::query()->create([
+            'number' => 'BUT/2026/REQUERYPAY',
+            'user_id' => $payer->id,
+            'category' => 'application_fee',
+            'amount' => 7350,
+            'full_amount' => 7350,
+            'balance' => 7350,
+            'status' => 'unpaid',
+            'wallet_allowed' => false,
+        ]);
+        $payment = Payment::query()->create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $payer->id,
+            'method' => 'wema',
+            'amount' => 7350,
+            'status' => 'pending',
+            'reference' => 'WEMA-KOPICE8AZR7M',
+            'paystack_reference' => 'tx-pay-requery-001',
+            'purpose' => 'application_fee',
+        ]);
+
+        Http::fake([
+            'https://apibox.alatpay.ng/alatpaytransaction/api/v1/transactions/tx-pay-requery-001' => Http::response([
+                'status' => true,
+                'data' => [
+                    'id' => 'tx-pay-requery-001',
+                    'status' => 'completed',
+                    'amount' => 7350,
+                    'orderId' => 'BELLSUNIVERSITY-internal',
+                ],
+            ]),
+        ]);
+
+        Sanctum::actingAs($staff);
+        $this->postJson('/api/payments/'.$payment->id.'/requery')
+            ->assertOk()
+            ->assertJsonPath('status', 'successful');
+
+        $this->assertSame('paid', $invoice->fresh()->status);
+        $this->assertSame('successful', $payment->fresh()->status);
+    }
+
     public function test_requery_finds_completed_alatpay_transaction_by_order_reference(): void
     {
         $staff = $this->financeStaff();
@@ -105,7 +152,7 @@ class InvoiceRequeryTest extends TestCase
             'created_at' => now()->subHour(),
         ]);
 
-        Http::fake(function (\Illuminate\Http\Client\Request $request) {
+        Http::fake(function (Request $request) {
             $url = $request->url();
             if (str_contains($url, '/transactions/tx-from-list-001')) {
                 return Http::response([
@@ -176,7 +223,7 @@ class InvoiceRequeryTest extends TestCase
         ]);
 
         $invoiceId = (string) $invoice->id;
-        Http::fake(function (\Illuminate\Http\Client\Request $request) use ($invoiceId) {
+        Http::fake(function (Request $request) use ($invoiceId) {
             $url = $request->url();
             $meta = '{"orderId":"WEMA-AUZ5SBSKX0CY","invoice_id":"'.$invoiceId.'","purpose":"acceptance_fee"}';
             if (str_contains($url, '/transactions/e8d831b2-04dc-4a5c-ba39-ca7c5d97cd98')) {

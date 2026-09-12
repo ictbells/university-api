@@ -247,6 +247,43 @@ class FinanceDashboardTest extends TestCase
             ->assertHeader('content-type', 'application/pdf');
     }
 
+    public function test_payments_index_can_search_by_reference(): void
+    {
+        $staff = $this->financeStaff();
+        $user = User::factory()->create(['status' => 'active']);
+        Payment::query()->create([
+            'user_id' => $user->id,
+            'method' => 'wema',
+            'amount' => 7350,
+            'status' => 'pending',
+            'reference' => 'WEMA-KOPICE8AZR7M',
+            'paystack_reference' => 'WEMA-KOPICE8AZR7M',
+            'purpose' => 'application_fee',
+        ]);
+        Payment::query()->create([
+            'user_id' => $user->id,
+            'method' => 'wema',
+            'amount' => 7350,
+            'status' => 'successful',
+            'reference' => 'WEMA-OTHERREF0001',
+            'paystack_reference' => '3a932c5a-15fc-4bef-940c-5e2bfde317c6',
+            'receipt_no' => 'BUT/2026/0099',
+            'purpose' => 'application_fee',
+        ]);
+
+        Sanctum::actingAs($staff);
+
+        $this->getJson('/api/payments?search=WEMA-KOPICE8AZR7M')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.reference', 'WEMA-KOPICE8AZR7M');
+
+        $this->getJson('/api/payments?search=3a932c5a-15fc')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.reference', 'WEMA-OTHERREF0001');
+    }
+
     private function financeStaff(): User
     {
         foreach (PermissionCatalog::all() as $perm) {
