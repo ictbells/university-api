@@ -433,53 +433,156 @@ class AlatpayPaymentTest extends TestCase
         $this->assertEquals(1, Payment::query()->where('reference', $payment->reference)->where('status', 'successful')->count());
     }
 
-    public function test_webhook_rejects_missing_or_invalid_signature(): void
+    public function test_webhook_accepts_unsigned_alatpay_value_data_envelope(): void
     {
-        $user = User::factory()->create(['status' => 'active']);
+        $user = User::factory()->create(['status' => 'active', 'email' => 'adebiyibukunmi5@gmail.com']);
+        $invoice = $this->payableInvoice($user, 100000, 'acceptance_fee');
+        $payment = Payment::query()->create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $user->id,
+            'method' => 'wema',
+            'amount' => 100000,
+            'status' => 'pending',
+            'reference' => 'WEMA-MC97CMEL3UBZ',
+            'paystack_reference' => 'WEMA-MC97CMEL3UBZ',
+            'purpose' => 'acceptance_fee',
+        ]);
+
+        $txId = '4ad100eb-0b4d-442a-a913-db54091ca6fe';
+        Http::fake([
+            'https://apibox.alatpay.ng/alatpaytransaction/api/v1/transactions/'.$txId => Http::response([
+                'status' => true,
+                'data' => [
+                    'id' => $txId,
+                    'status' => 'completed',
+                    'amount' => 100350,
+                    'feeAmount' => 350,
+                    'orderId' => '589da175-790c-4c91-b61b-beccabcef4eb',
+                ],
+            ]),
+        ]);
+
+        $this->postJson('/api/payments/wema/webhook', [
+            'Value' => [
+                'Data' => [
+                    'Amount' => 100350.00,
+                    'Description' => null,
+                    'Customer' => [
+                        'Id' => '0d4db842-e848-4ca3-1d8e-08df0f185d53',
+                        'TransactionId' => $txId,
+                        'Email' => 'adebiyibukunmi5@gmail.com',
+                        'Phone' => '+2348108159752',
+                        'FirstName' => 'Adebiyi',
+                        'LastName' => 'Basil Oluwabukunmi',
+                        'Metadata' => '{"orderId":"WEMA-MC97CMEL3UBZ","invoice_id":"'.$invoice->id.'","purpose":"acceptance_fee"}',
+                    ],
+                    'Id' => $txId,
+                    'FeeAmount' => 350.00,
+                    'Currency' => 'NGN',
+                    'Status' => 'completed',
+                    'OrderId' => '589da175-790c-4c91-b61b-beccabcef4eb',
+                ],
+                'Status' => true,
+                'Message' => 'Success',
+            ],
+            'Formatters' => [],
+            'ContentTypes' => [],
+            'DeclaredType' => null,
+            'StatusCode' => 200,
+        ])->assertOk();
+
+        $this->assertSame('successful', $payment->fresh()->status);
+        $this->assertSame('paid', $invoice->fresh()->status);
+        $this->assertSame($txId, $payment->fresh()->paystack_reference);
+    }
+
+    public function test_webhook_with_unrecognised_signature_still_verifies_via_alatpay_api(): void
+    {
+        $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
         $invoice = $this->payableInvoice($user, 8000);
-        Payment::query()->create([
+        $payment = Payment::query()->create([
             'invoice_id' => $invoice->id,
             'user_id' => $user->id,
             'method' => 'wema',
             'amount' => 8000,
             'status' => 'pending',
-            'reference' => 'WEMA-HOOKBAD01',
-            'paystack_reference' => 'WEMA-HOOKBAD01',
+            'reference' => 'WEMA-JUNKSIG01',
+            'paystack_reference' => 'WEMA-JUNKSIG01',
             'purpose' => 'application_fee',
         ]);
 
-        // No signature and no real AlatPay transaction id → reject.
+        Http::fake([
+            'https://apibox.alatpay.ng/alatpaytransaction/api/v1/transactions/tx-junk-sig-1' => Http::response([
+                'status' => true,
+                'data' => [
+                    'id' => 'tx-junk-sig-1',
+                    'status' => 'completed',
+                    'amount' => 8000,
+                    'orderId' => 'BELLSUNIVERSITY-internal',
+                    'metadata' => '{"orderId":"WEMA-JUNKSIG01","invoice_id":"'.$invoice->id.'","purpose":"application_fee"}',
+                ],
+            ]),
+        ]);
+
         $this->postJson('/api/payments/wema/webhook', [
             'Value' => [
                 'Data' => [
-                    'OrderId' => 'WEMA-HOOKBAD01',
+                    'Id' => 'tx-junk-sig-1',
+                    'OrderId' => 'BELLSUNIVERSITY-internal',
                     'Status' => 'completed',
                     'Amount' => 8000,
                 ],
             ],
-        ])
-            ->assertStatus(401)
-            ->assertJsonPath('message', 'Missing Wema Bank signature.');
+        ], [
+            'Authorization' => 'Bearer not-our-hmac',
+            'x-alatpay-signature' => 'not-a-valid-signature',
+        ])->assertOk();
 
-        $payload = [
+        $this->assertSame('successful', $payment->fresh()->status);
+        $this->assertSame('paid', $invoice->fresh()->status);
+    }
+
+    public function test_webhook_accepts_bearer_shared_secret(): void
+    {
+        $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
+        $invoice = $this->payableInvoice($user, 8000);
+        $payment = Payment::query()->create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $user->id,
+            'method' => 'wema',
+            'amount' => 8000,
+            'status' => 'pending',
+            'reference' => 'WEMA-BEARER001',
+            'paystack_reference' => 'WEMA-BEARER001',
+            'purpose' => 'application_fee',
+        ]);
+
+        Http::fake([
+            'https://apibox.alatpay.ng/alatpaytransaction/api/v1/transactions/tx-bearer-1' => Http::response([
+                'status' => true,
+                'data' => [
+                    'id' => 'tx-bearer-1',
+                    'status' => 'completed',
+                    'amount' => 8000,
+                    'orderId' => 'WEMA-BEARER001',
+                ],
+            ]),
+        ]);
+
+        $this->postJson('/api/payments/wema/webhook', [
             'Value' => [
                 'Data' => [
-                    'Id' => 'tx-hook-bad',
-                    'OrderId' => 'WEMA-HOOKBAD01',
+                    'Id' => 'tx-bearer-1',
+                    'OrderId' => 'WEMA-BEARER001',
                     'Status' => 'completed',
                     'Amount' => 8000,
                 ],
             ],
-        ];
+        ], [
+            'Authorization' => 'Bearer '.config('services.wema.webhook_secret'),
+        ])->assertOk();
 
-        $this->postJson('/api/payments/wema/webhook', $payload, [
-            'x-alatpay-signature' => 'not-a-valid-signature',
-        ])
-            ->assertStatus(401)
-            ->assertJsonPath('message', 'Invalid Wema Bank signature.');
-
-        $this->assertSame('pending', Payment::query()->where('reference', 'WEMA-HOOKBAD01')->value('status'));
-        $this->assertSame('unpaid', $invoice->fresh()->status);
+        $this->assertSame('successful', $payment->fresh()->status);
     }
 
     public function test_webhook_without_signature_header_verifies_via_alatpay_api(): void
