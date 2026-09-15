@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.47  
+**Version:** 1.50  
 **Effective date:** September 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -96,6 +96,7 @@ When creating or editing a role, tick the permissions that role should grant. Ch
 | `admissions.matriculate` | Matriculate students |
 | `admissions.pg.screen` … `admissions.pg.panel` | Postgraduate-specific review steps |
 | `admissions.import` | Upload JAMB candidate lists and import applicants from another portal |
+| `identity.verify_nin` | Re-verify NIN — resync names and date of birth from the NIN portal after a NIN correction |
 | `registrations.view` | View Registrations (matriculated students with at least 25% current-session tuition paid) |
 
 ### 4.5 Academic setup permissions
@@ -351,7 +352,7 @@ Transfer files include a **credit assessment** step after verification (`admissi
 
 Applicants who are **matriculated and have paid at least 25% of current-session tuition** leave Applications lists and appear under **Registrations**.
 
-Staff can open an application file to review biodata, form answers, documents, eligibility, and (where permitted) update fields. Identity fields stay locked when NIN was verified. NIN lookup fills **phone** and **address** on the user and the application form when Prembly returns them (fields stay editable if those values are missing). JAMB **programme** fields are chosen from the university programme catalogue, not typed freely. Each O’level sitting is limited to **nine** subjects. **Change of programme** is allowed for 100L–300L registered students. If the new programme is in the **same college**, the student stays at the current level, unpassed courses of the new programme (current level and below) remain available to register, and CGPA stays fully cumulative. If the new programme is in a **different college**, the student drops one level band (100L stays 100L). The **transcript and CGPA** then include only old-programme courses **below the new level** (a 300L→200L move keeps old 100L only) plus every later result on the new programme. Old 200L/300L papers are omitted.
+Staff can open an application file to review biodata, form answers, documents, eligibility, and (where permitted) update fields. Staff can correct the **NIN** (11 digits) on the file; a number already linked to another account is rejected. Names, date of birth, gender, and the NIN passport stay locked after verification. After a NIN correction, save the file, then staff with **Re-verify NIN** (`identity.verify_nin`) use **Resync from NIN** to refresh those locked fields from the NIN portal. NIN lookup fills **phone** and **address** on the user and the application form when Prembly returns them (fields stay editable if those values are missing). JAMB **programme** fields are chosen from the university programme catalogue, not typed freely. Each O’level sitting is limited to **nine** subjects. **Change of programme** is allowed for 100L–300L registered students. If the new programme is in the **same college**, the student stays at the current level, unpassed courses of the new programme (current level and below) remain available to register, and CGPA stays fully cumulative. If the new programme is in a **different college**, the student drops one level band (100L stays 100L). The **transcript and CGPA** then include only old-programme courses **below the new level** (a 300L→200L move keeps old 100L only) plus every later result on the new programme. Old 200L/300L papers are omitted.
 
 From the application **Decision** panel, staff can **revert the last decision** (advance or rejection). That returns the file to the previous stage. Matriculated files and files whose acceptance fee has already been paid cannot be reverted. Office-head approval still applies where the office requires it.
 
@@ -376,6 +377,7 @@ Course registration, unit limits, and registration extensions are under **Academ
 | Academic Sessions | Academic sessions, terms, and end-of-session promotion | `academic.sessions.manage`, `academic.sessions.close` |
 | Levels | Study levels (100, 200, …) | `academic.levels.manage` |
 | Graduation | Confirm conferment and start the studentship clock | `academic.graduate` |
+| JUPEB matric numbers | Assign official JUPEB matric numbers (one student or spreadsheet). Each newly assigned student is emailed the number for student-portal sign-in. Password stays the one they registered with. To email numbers already assigned: `php artisan jupeb:email-matric` (preview with `--dry-run`; limit with `--id=`) | `admissions.matriculate` |
 | Import students | Create continuing students with a supplied matric number (`students.import`). Import invoices and wallet history first. Invoice rows also match old application number or JAMB. Login uses matric number. NIN is optional; they must verify NIN after they sign in and do not re-apply. They appear under Registrations only when tuition invoices show at least 25% paid | `students.import` |
 
 #### Catalogue bulk import
@@ -473,7 +475,7 @@ The platform blocks step 5 while any application session on that admission sessi
 
 New applicant **signup** on the student portal requires choosing a specific **application session** first. An open UTME session does not let a postgraduate or transfer applicant create an account. NIN preview and account creation are rejected unless that session is accepting. Successful NIN preview returns names plus **phone** and **address** when the identity provider supplies them, so the register step and later application form can be prefilled. UTME and Direct Entry also require a JAMB number at signup, but **candidate-list membership is not checked at signup or submit**. After submit, `jamb_status` is `validated` if the number is on that session’s uploaded list, otherwise `pending` (screening uses this). Signup then starts the application for the chosen session. If no session is accepting, the API returns *Applications are not open. There is no active application session, so you cannot create an account.* Staff applicant import and existing applicant login are not blocked. A started application cannot be **submitted** after that category’s window closes (Accepting applications off, or outside the open/close dates). Saving progress is still allowed. An open window for a different category does not unlock submit.
 
-A NIN that already belongs to an applicant or student **cannot create a second account**. Signup tells them to sign in with matric number, application number, or JAMB (Forgot password if needed). Enrolled, withdrawn, and alumni students can start a **new application** on the same portal account. NIN biodata (names, date of birth, gender, NIN, NIN passport) stays locked; staff with **Re-verify NIN** use **Resync from NIN** on the file after a NIMC correction. When a later offer’s acceptance fee is paid, the existing student record is reused — **one matric number per person**.
+A NIN that already belongs to an applicant or student **cannot create a second account**. Signup tells them to sign in with matric number, application number, or JAMB (Forgot password if needed). Enrolled, withdrawn, and alumni students can start a **new application** on the same portal account. On the student portal, NIN biodata (names, date of birth, gender, NIN, NIN passport) stays locked. Staff can edit the **NIN** on the application file; after a NIMC correction they save the new number if needed, then staff with **Re-verify NIN** use **Resync from NIN** to refresh the locked identity fields. When a later offer’s acceptance fee is paid, the existing student record is reused — **one matric number per person**.
 
 #### Candidate data
 
@@ -747,6 +749,9 @@ Use the audit trail for compliance reviews and incident investigation.
 | Applicant cannot sign in with email | Student portal does not accept email as login | Use application number, JAMB registration, or matric number |
 | Import skipped a row | Duplicate email/NIN/JAMB, missing required field, unknown programme id, or NIN verify failed | Download failed rows; fix and re-upload |
 | NIN import created no user | Verify NIN was on and Prembly rejected the NIN | Correct NIN or import with verification off |
+| JUPEB student cannot sign in after clearance | No matric assigned yet, or they used email | Assign or upload the JUPEB matric; they receive an email with the number. Sign in with **matric number**, not email |
+| Staff cannot save a NIN | Not 11 digits, or already linked to another account | Enter a unique 11-digit NIN |
+| Names still wrong after a NIN correction | File saved but not resynced | Save the file, then **Resync from NIN** (`identity.verify_nin`) |
 | Action stays pending after approve | Reviewer is not the designated head, or unit-head step still required | Confirm HOD/unit-head assignment; Super Admin can decide any open request |
 | Subunit staff cannot submit | Parent unit has subunits but no unit head | Assign a unit head on Department Setup |
 | “Already waiting for office approval” | Duplicate open request for the same action/subject | Open Approvals and decide or wait for the existing request |
@@ -807,6 +812,9 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.45 | Sep 2026 | Platform team | Applicant import: phone and programme optional; blank old_application_number generates APP/{year}/{#####}; pending invoices match that number or JAMB. Invoice import screen: Posted / Pending / Accounts waiting / N row(s) per key. Candidate list no longer blocks signup or submit. Credentials email requires record update before submit. |
 | 1.46 | Sep 2026 | Platform team | Official Receipt: title and Bursar sign-off; Course/Level on acceptance and tuition (not application fee); Matric preferred; invoice amount only; Particulars; Date paid in Africa/Lagos to match Payments list |
 | 1.47 | Sep 2026 | Platform team | New invoice/receipt numbers use shared serial BUT/{admission year}/{####}; import invoices/wallet keep old numbers |
+| 1.48 | Sep 2026 | Platform team | Staff can correct NIN on the application file; names and date of birth stay locked until Resync from NIN |
+| 1.49 | Sep 2026 | Platform team | Assigning or uploading a JUPEB matric number emails it to the student for portal sign-in |
+| 1.50 | Sep 2026 | Platform team | `php artisan jupeb:email-matric` emails matric numbers already assigned |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

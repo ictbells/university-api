@@ -16,11 +16,13 @@ use App\Models\Role;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\StudentCreationService;
+use App\Mail\JupebMatricIssuedMail;
 use App\Support\JupebMatricColumns;
 use App\Support\PermissionCatalog;
 use App\Support\WorkflowCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Mail;
 use Laravel\Sanctum\Sanctum;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -332,6 +334,7 @@ class JupebAndNabtebAdmissionRulesTest extends TestCase
 
     public function test_staff_can_assign_and_import_jupeb_matric_numbers(): void
     {
+        Mail::fake();
         $application = $this->readyToSubmit('jupeb', $this->jupebCentreProgram);
         $student = app(StudentCreationService::class)->createFromApplication($application);
         Sanctum::actingAs($this->staffUser(['admissions.matriculate']));
@@ -353,6 +356,10 @@ class JupebAndNabtebAdmissionRulesTest extends TestCase
         ])->assertOk()
             ->assertJsonPath('data.matric_number', 'JUPEB/2026/0001');
         $this->assertSame('JUPEB/2026/0001', $student->fresh()->matric_number);
+        Mail::assertQueued(JupebMatricIssuedMail::class, function (JupebMatricIssuedMail $mail) use ($student) {
+            return $mail->hasTo($student->user->email)
+                && $mail->matricNumber === 'JUPEB/2026/0001';
+        });
 
         $this->getJson('/api/jupeb/matric/pending')->assertOk()->assertJsonPath('data', []);
 
@@ -374,6 +381,37 @@ class JupebAndNabtebAdmissionRulesTest extends TestCase
             ->assertJsonPath('data.skipped', 0);
 
         $this->assertSame('JUPEB/2026/0002', $second->fresh()->matric_number);
+        Mail::assertQueued(JupebMatricIssuedMail::class, function (JupebMatricIssuedMail $mail) use ($second) {
+            return $mail->hasTo($second->user->email)
+                && $mail->matricNumber === 'JUPEB/2026/0002';
+        });
+    }
+
+    public function test_command_emails_already_assigned_jupeb_matric_numbers(): void
+    {
+        Mail::fake();
+        $jupeb = app(StudentCreationService::class)->createFromApplication(
+            $this->readyToSubmit('jupeb', $this->jupebCentreProgram),
+        );
+        $jupeb->update(['matric_number' => 'JUPEB/2026/0099']);
+        $utme = app(StudentCreationService::class)->createFromApplication(
+            $this->readyToSubmit('utme', $this->utmeProgram),
+        );
+
+        $this->artisan('jupeb:email-matric', ['--dry-run' => true])
+            ->expectsOutput('Would email 1 JUPEB student.')
+            ->assertSuccessful();
+        Mail::assertNothingQueued();
+
+        $this->artisan('jupeb:email-matric')
+            ->expectsOutput('Queued 1 JUPEB matric email.')
+            ->assertSuccessful();
+        Mail::assertQueued(JupebMatricIssuedMail::class, 1);
+        Mail::assertQueued(JupebMatricIssuedMail::class, function (JupebMatricIssuedMail $mail) use ($jupeb) {
+            return $mail->hasTo($jupeb->user->email)
+                && $mail->matricNumber === 'JUPEB/2026/0099';
+        });
+        $this->assertSame($utme->matric_number, $utme->fresh()->matric_number);
     }
 
     /**

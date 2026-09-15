@@ -37,7 +37,34 @@ class OpenApiGenerator
     private array $operationOverrides = [
         'patch_/api/applications/{application}' => [
             'summary' => 'Update application file (staff)',
-            'description' => 'Staff with `admissions.view` can edit submitted application fields except application number, NIN, and documents. Email and JAMB registration must stay unique. JAMB is checked against uploaded candidate data (`validated` if found, otherwise `pending`). Change of programme is allowed for 100L–300L. Same college: the student keeps the current level, outstanding new-programme courses remain available, and CGPA stays cumulative. Different college: the student drops one band except 100L; the transcript and CGPA keep only old-programme courses below the new level (300L→200L keeps old 100L only) plus results on the new programme.',
+            'description' => 'Staff with `admissions.view` can edit submitted application fields except application number and documents. `nin` may be corrected (11 digits) and is rejected if already linked to another account; omit or leave blank to keep the current NIN. Names, date of birth, gender, and NIN passport stay locked until staff with `identity.verify_nin` call POST `/api/applications/{application}/nin/resync`. Email and JAMB registration must stay unique. JAMB is checked against uploaded candidate data (`validated` if found, otherwise `pending`). Change of programme is allowed for 100L–300L. Same college: the student keeps the current level, outstanding new-programme courses remain available, and CGPA stays cumulative. Different college: the student drops one band except 100L; the transcript and CGPA keep only old-programme courses below the new level (300L→200L keeps old 100L only) plus results on the new programme.',
+            'requestBody' => [
+                'required' => true,
+                'content' => [
+                    'application/json' => [
+                        'schema' => [
+                            'type' => 'object',
+                            'required' => ['email', 'first_name', 'last_name', 'first_choice_program_id'],
+                            'properties' => [
+                                'email' => ['type' => 'string', 'format' => 'email'],
+                                'first_name' => ['type' => 'string'],
+                                'last_name' => ['type' => 'string'],
+                                'nin' => [
+                                    'type' => 'string',
+                                    'maxLength' => 20,
+                                    'description' => 'Optional 11-digit NIN. Staff may correct it. Empty or omitted keeps the current NIN. Must not belong to another applicant or student.',
+                                ],
+                                'first_choice_program_id' => ['type' => 'integer'],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ],
+        'post_/api/applications/{application}/nin/resync' => [
+            'summary' => 'Resync NIN biodata (staff)',
+            'description' => 'Staff with `admissions.view` and `identity.verify_nin` look up the NIN stored on the file and refresh locked names, date of birth, and gender from Prembly. Save a corrected NIN with PATCH `/api/applications/{application}` first. A NIN already linked to another account is rejected.',
+            'requestBody' => null,
         ],
         'get_/api/applications' => [
             'summary' => 'List applications (staff pipeline)',
@@ -117,6 +144,18 @@ class OpenApiGenerator
         'post_/api/applicants/import' => [
             'summary' => 'Import applicants from spreadsheet',
             'description' => 'Create applicant accounts and applications from Excel/CSV. Requires `admissions.import`. Multipart fields: `file`, `intake_id`, `entry_mode`, `verify_nin`, `send_credentials`. Large files and NIN verification are queued.',
+        ],
+        'post_/api/jupeb/matric/assign' => [
+            'summary' => 'Assign JUPEB matric number',
+            'description' => 'Staff with `admissions.matriculate` (or `students.manage`) assign an official JUPEB matric number to a student who does not yet have one. Body: `matric_number` plus `student_id`, or `application_number` / `student_number` / `email` / `nin`. The student is emailed the matric number for student-portal sign-in (existing password).',
+        ],
+        'post_/api/jupeb/matric/import' => [
+            'summary' => 'Import JUPEB matric numbers',
+            'description' => 'Upload an Excel/CSV of JUPEB matric numbers (`file`). Each newly assigned student is emailed the matric number for student-portal sign-in. Requires `admissions.matriculate` or `students.manage`. Download the template from GET `/api/jupeb/matric/template`.',
+        ],
+        'get_/api/jupeb/matric/pending' => [
+            'summary' => 'List JUPEB students without a matric number',
+            'description' => 'Students on the JUPEB track with a blank matric number. Requires `admissions.matriculate` or `students.manage`.',
         ],
     ];
 
@@ -269,7 +308,8 @@ class OpenApiGenerator
             str_starts_with($uri, 'api/registrations') => 'Registrations',
             str_starts_with($uri, 'api/students') => 'Students',
             str_starts_with($uri, 'api/academic'),
-            str_starts_with($uri, 'api/programs') => 'Academic',
+            str_starts_with($uri, 'api/programs'),
+            str_starts_with($uri, 'api/jupeb') => 'Academic',
             str_starts_with($uri, 'api/wallet'),
             str_starts_with($uri, 'api/invoices'),
             str_starts_with($uri, 'api/receipts'),
@@ -350,6 +390,13 @@ class OpenApiGenerator
         }
         if (isset($override['parameters'])) {
             $operation['parameters'] = $override['parameters'];
+        }
+        if (array_key_exists('requestBody', $override)) {
+            if ($override['requestBody'] === null) {
+                unset($operation['requestBody']);
+            } else {
+                $operation['requestBody'] = $override['requestBody'];
+            }
         }
 
         return $operation;

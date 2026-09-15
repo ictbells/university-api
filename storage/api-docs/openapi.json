@@ -1,13 +1,13 @@
 {
     "openapi": "3.0.3",
     "info": {
-        "title": "Bells University of Technology API",
+        "title": "Laravel API",
         "description": "Self-hosted OpenAPI documentation generated from registered Laravel routes. Authenticated endpoints use Laravel Sanctum bearer tokens obtained from `POST /api/login`.",
         "version": "1.0.0"
     },
     "servers": [
         {
-            "url": "http://localhost:8000",
+            "url": "http://localhost",
             "description": "API server"
         }
     ],
@@ -2281,7 +2281,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -2319,7 +2319,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -2367,7 +2367,55 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/academic/results/college-return": {
+            "post": {
+                "operationId": "postResultsCollegeReturn",
+                "summary": "Create College Return",
+                "tags": [
+                    "Academic"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -2415,12 +2463,60 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
                     }
                 ]
+            }
+        },
+        "/api/academic/results/department-submit": {
+            "post": {
+                "operationId": "postResultsDepartmentSubmit",
+                "summary": "Create Department Submit",
+                "tags": [
+                    "Academic"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
             }
         },
         "/api/academic/results/faculty-approve": {
@@ -2453,7 +2549,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -2501,7 +2597,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -2549,7 +2645,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -2585,7 +2681,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -2633,7 +2729,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -2679,7 +2775,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -2717,7 +2813,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -2755,7 +2851,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -2803,7 +2899,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -2819,6 +2915,120 @@
                         }
                     }
                 }
+            }
+        },
+        "/api/academic/results/import-template": {
+            "get": {
+                "operationId": "getResultsImportTemplate",
+                "summary": "Get Import Template",
+                "tags": [
+                    "Academic"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/academic/results/meta": {
+            "get": {
+                "operationId": "getResultsMeta",
+                "summary": "Get Meta",
+                "tags": [
+                    "Academic"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/academic/results/offerings": {
+            "get": {
+                "operationId": "getResultsOfferings",
+                "summary": "Get Offerings",
+                "tags": [
+                    "Academic"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
             }
         },
         "/api/academic/results/release": {
@@ -2851,7 +3061,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -2899,7 +3109,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -2937,7 +3147,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -2975,7 +3185,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -3013,7 +3223,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -3051,7 +3261,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-approvals,results-board,results-release,results-grading-scale)`.",
+                "description": "Requires permission: `academic resource access (results,results-students,results-import,results-department,results-college,results-approvals,results-board,results-release,results-grading-scale)`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -3738,6 +3948,43 @@
                 ]
             }
         },
+        "/api/academic/unsigned-transcript": {
+            "get": {
+                "operationId": "getAcademicUnsignedTranscript",
+                "summary": "Get Unsigned Transcript",
+                "tags": [
+                    "Academic"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/academic/workflow-templates": {
             "get": {
                 "operationId": "getAcademicWorkflowTemplates",
@@ -3774,6 +4021,70 @@
                         "bearerAuth": []
                     }
                 ]
+            }
+        },
+        "/api/admission-guide": {
+            "get": {
+                "operationId": "getAdmissionGuidePublicShow",
+                "summary": "Get Public Show",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
+            }
+        },
+        "/api/admission-guide/print": {
+            "get": {
+                "operationId": "getAdmissionGuidePublicPrint",
+                "summary": "Get Public Print",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
             }
         },
         "/api/announcements": {
@@ -4365,6 +4676,127 @@
                 }
             }
         },
+        "/api/applications/clearance": {
+            "get": {
+                "operationId": "getApplicationClearanceIndex",
+                "summary": "List applicants for physical clearance",
+                "tags": [
+                    "Applications"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "description": "Applicants who have paid acceptance and are waiting to be cleared on campus, or already cleared. Requires `admissions.view` or `admissions.clear`. Query filters match the applications list, plus `status` (`pending` default, or `cleared`).",
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "pending",
+                                "cleared"
+                            ]
+                        },
+                        "description": "Default `pending`."
+                    },
+                    {
+                        "name": "entry_modes",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "academic_session_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ]
+            }
+        },
+        "/api/applications/clearance/bulk": {
+            "post": {
+                "operationId": "postApplicationClearanceBulk",
+                "summary": "Clear admitted applicants in bulk",
+                "tags": [
+                    "Applications"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "description": "Clears eligible applicants by `ids`. Ineligible rows are skipped. Requires `admissions.clear`. Body: `ids` (1\u2013200 application ids)."
+            }
+        },
         "/api/applications/export": {
             "get": {
                 "operationId": "getApplicationExport",
@@ -4516,12 +4948,38 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "type": "object"
+                                "type": "object",
+                                "required": [
+                                    "email",
+                                    "first_name",
+                                    "last_name",
+                                    "first_choice_program_id"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email"
+                                    },
+                                    "first_name": {
+                                        "type": "string"
+                                    },
+                                    "last_name": {
+                                        "type": "string"
+                                    },
+                                    "nin": {
+                                        "type": "string",
+                                        "maxLength": 20,
+                                        "description": "Optional 11-digit NIN. Staff may correct it. Empty or omitted keeps the current NIN. Must not belong to another applicant or student."
+                                    },
+                                    "first_choice_program_id": {
+                                        "type": "integer"
+                                    }
+                                }
                             }
                         }
                     }
                 },
-                "description": "Staff with `admissions.view` can edit submitted application fields except application number, NIN, and documents. Email and JAMB registration must stay unique. JAMB is checked against uploaded candidate data (`validated` if found, otherwise `pending`). Change of programme is allowed for 100L\u2013300L; the student level drops by one band except 100L, which stays 100L."
+                "description": "Staff with `admissions.view` can edit submitted application fields except application number and documents. `nin` may be corrected (11 digits) and is rejected if already linked to another account; omit or leave blank to keep the current NIN. Names, date of birth, gender, and NIN passport stay locked until staff with `identity.verify_nin` call POST `/api/applications/{application}/nin/resync`. Email and JAMB registration must stay unique. JAMB is checked against uploaded candidate data (`validated` if found, otherwise `pending`). Change of programme is allowed for 100L\u2013300L. Same college: the student keeps the current level, outstanding new-programme courses remain available, and CGPA stays cumulative. Different college: the student drops one band except 100L; the transcript and CGPA keep only old-programme courses below the new level (300L\u2192200L keeps old 100L only) plus results on the new programme."
             }
         },
         "/api/applications/{application}/acceptance-fee": {
@@ -4569,6 +5027,54 @@
                         }
                     }
                 }
+            }
+        },
+        "/api/applications/{application}/clear": {
+            "post": {
+                "operationId": "postApplicationClearanceClear",
+                "summary": "Clear one admitted applicant",
+                "tags": [
+                    "Applications"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "description": "Records physical clearance after acceptance payment and creates or reattaches the student record. Requires `admissions.clear`."
             }
         },
         "/api/applications/{application}/documents": {
@@ -4774,6 +5280,44 @@
                         }
                     }
                 }
+            }
+        },
+        "/api/applications/{application}/nin/resync": {
+            "post": {
+                "operationId": "postApplicationResyncNin",
+                "summary": "Resync NIN biodata (staff)",
+                "tags": [
+                    "Applications"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "description": "Staff with `admissions.view` and `identity.verify_nin` look up the NIN stored on the file and refresh locked names, date of birth, and gender from Prembly. Save a corrected NIN with PATCH `/api/applications/{application}` first. A NIN already linked to another account is rejected."
             }
         },
         "/api/applications/{application}/offer-letter": {
@@ -10230,6 +10774,225 @@
                 ]
             }
         },
+        "/api/invoices/{invoice}/requery": {
+            "post": {
+                "operationId": "postFinanceRequeryInvoice",
+                "summary": "Create Requery Invoice",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `finance.invoices.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/jupeb/matric/assign": {
+            "post": {
+                "operationId": "postJupebMatricAssign",
+                "summary": "Assign JUPEB matric number",
+                "tags": [
+                    "Academic"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "description": "Staff with `admissions.matriculate` (or `students.manage`) assign an official JUPEB matric number to a student who does not yet have one. Body: `matric_number` plus `student_id`, or `application_number` / `student_number` / `email` / `nin`. The student is emailed the matric number for student-portal sign-in (existing password)."
+            }
+        },
+        "/api/jupeb/matric/import": {
+            "post": {
+                "operationId": "postJupebMatricImport",
+                "summary": "Import JUPEB matric numbers",
+                "tags": [
+                    "Academic"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "description": "Upload an Excel/CSV of JUPEB matric numbers (`file`). Each newly assigned student is emailed the matric number for student-portal sign-in. Requires `admissions.matriculate` or `students.manage`. Download the template from GET `/api/jupeb/matric/template`."
+            }
+        },
+        "/api/jupeb/matric/pending": {
+            "get": {
+                "operationId": "getJupebMatricPending",
+                "summary": "List JUPEB students without a matric number",
+                "tags": [
+                    "Academic"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "description": "Students on the JUPEB track with a blank matric number. Requires `admissions.matriculate` or `students.manage`."
+            }
+        },
+        "/api/jupeb/matric/template": {
+            "get": {
+                "operationId": "getJupebMatricTemplate",
+                "summary": "Get Template",
+                "tags": [
+                    "Academic"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/lgas": {
             "get": {
                 "operationId": "getLocationLgas",
@@ -10601,6 +11364,43 @@
                 ]
             }
         },
+        "/api/me/hostel/print": {
+            "get": {
+                "operationId": "getHostelMyPrint",
+                "summary": "Get My Print",
+                "tags": [
+                    "Auth"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/me/hostel/select": {
             "post": {
                 "operationId": "postHostelSelect",
@@ -10931,6 +11731,43 @@
                         }
                     }
                 }
+            }
+        },
+        "/api/my-finance-status": {
+            "get": {
+                "operationId": "getFinanceMyFinanceStatus",
+                "summary": "Get My Finance Status",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
             }
         },
         "/api/my-programme-fees": {
@@ -12209,6 +13046,95 @@
                 ]
             }
         },
+        "/api/payments/initialize": {
+            "post": {
+                "operationId": "postPaymentInitialize",
+                "summary": "Create Initialize",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/payments/paygate/webhook": {
+            "post": {
+                "operationId": "postPaymentPaygateWebhook",
+                "summary": "Create Paygate Webhook",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/payments/paystack/initialize": {
             "post": {
                 "operationId": "postPaymentInitialize",
@@ -12335,6 +13261,85 @@
                 }
             }
         },
+        "/api/payments/verify/{reference}": {
+            "get": {
+                "operationId": "getPaymentVerify",
+                "summary": "Get Verify",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/payments/wema/webhook": {
+            "post": {
+                "operationId": "postPaymentWemaWebhook",
+                "summary": "Create Wema Webhook",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/payments/{payment}/receipt": {
             "get": {
                 "operationId": "getFinancePaymentReceipt",
@@ -12370,6 +13375,53 @@
                         "bearerAuth": []
                     }
                 ]
+            }
+        },
+        "/api/payments/{payment}/requery": {
+            "post": {
+                "operationId": "postPaymentRequery",
+                "summary": "Create Requery",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
             }
         },
         "/api/permissions": {
@@ -12981,6 +14033,260 @@
                 }
             }
         },
+        "/api/public-pay": {
+            "post": {
+                "operationId": "postPublicPayStore",
+                "summary": "Create Store",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/public-pay/lookup": {
+            "post": {
+                "operationId": "postPublicPayLookup",
+                "summary": "Create Lookup",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/public-pay/meta": {
+            "get": {
+                "operationId": "getPublicPayMeta",
+                "summary": "Get Meta",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
+            }
+        },
+        "/api/public-pay/{token}": {
+            "get": {
+                "operationId": "getPublicPayShow",
+                "summary": "Get Show",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
+            }
+        },
+        "/api/public-pay/{token}/download": {
+            "get": {
+                "operationId": "getPublicPayDownload",
+                "summary": "Get Download",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
+            }
+        },
+        "/api/public-pay/{token}/pay": {
+            "post": {
+                "operationId": "postPublicPayPay",
+                "summary": "Create Pay",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/public-pay/{token}/verify/{reference}": {
+            "get": {
+                "operationId": "getPublicPayVerify",
+                "summary": "Get Verify",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
+            }
+        },
         "/api/rebate-types": {
             "get": {
                 "operationId": "getRebateTypes",
@@ -13145,6 +14451,58 @@
                 "security": [
                     {
                         "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/receipts/{receipt_no}/verify": {
+            "get": {
+                "operationId": "getReceiptVerificationShow",
+                "summary": "Verify a payment receipt",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Public signed URL encoded in the receipt QR code. Confirms receipt number, payer, amount, date, and PAID status for a successful payment. Unsigned or tampered links return 403. Unknown or unsuccessful receipts return a branded HTML failure page.",
+                "parameters": [
+                    {
+                        "name": "receipt_no",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "signature",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Non-expiring HMAC from Laravel signed URLs."
                     }
                 ]
             }
@@ -14396,6 +15754,90 @@
                 }
             }
         },
+        "/api/security-settings/registrar-signature": {
+            "post": {
+                "operationId": "postSecuritySettingsUploadRegistrarSignature",
+                "summary": "Create Upload Registrar Signature",
+                "tags": [
+                    "Security"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `settings.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "deleteSecuritySettingsDestroyRegistrarSignature",
+                "summary": "Delete Destroy Registrar Signature",
+                "tags": [
+                    "Security"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `settings.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/staff-nav/catalog": {
             "get": {
                 "operationId": "getOfficeStructureNavCatalog",
@@ -14432,6 +15874,649 @@
                         "bearerAuth": []
                     }
                 ]
+            }
+        },
+        "/api/staff/admission-guide": {
+            "get": {
+                "operationId": "getAdmissionGuideShow",
+                "summary": "Get Show",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `admissions.guide`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "put": {
+                "operationId": "putAdmissionGuideUpdate",
+                "summary": "Replace Update",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `admissions.guide`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/staff/admission-guide/print": {
+            "get": {
+                "operationId": "getAdmissionGuidePrint",
+                "summary": "Get Print",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `admissions.guide`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/staff/admission-guide/publish": {
+            "post": {
+                "operationId": "postAdmissionGuidePublish",
+                "summary": "Create Publish",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `admissions.guide`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/staff/admission-guide/unpublish": {
+            "post": {
+                "operationId": "postAdmissionGuideUnpublish",
+                "summary": "Create Unpublish",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `admissions.guide`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/staff/public-pay/offers": {
+            "get": {
+                "operationId": "getPublicPayIndexOffers",
+                "summary": "Get Index Offers",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "operationId": "postPublicPayStoreOffer",
+                "summary": "Create Store Offer",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `public_pay.offers`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/staff/public-pay/offers/{publicPayOffer}": {
+            "put": {
+                "operationId": "putPublicPayUpdateOffer",
+                "summary": "Replace Update Offer",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `public_pay.offers`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "deletePublicPayDestroyOffer",
+                "summary": "Delete Destroy Offer",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `public_pay.offers`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/staff/public-pay/requests": {
+            "get": {
+                "operationId": "getPublicPayIndex",
+                "summary": "Get Index",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `public_pay.view`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/staff/public-pay/requests/{publicPayRequest}": {
+            "get": {
+                "operationId": "getPublicPayStaffShow",
+                "summary": "Get Staff Show",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `public_pay.view`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/staff/public-pay/requests/{publicPayRequest}/download": {
+            "get": {
+                "operationId": "getPublicPayStaffDownload",
+                "summary": "Get Staff Download",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `public_pay.view`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/staff/public-pay/requests/{publicPayRequest}/ready": {
+            "post": {
+                "operationId": "postPublicPayReady",
+                "summary": "Create Ready",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `public_pay.process`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/staff/public-pay/requests/{publicPayRequest}/reject": {
+            "post": {
+                "operationId": "postPublicPayReject",
+                "summary": "Create Reject",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `public_pay.process`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/staff/public-pay/requests/{publicPayRequest}/start": {
+            "post": {
+                "operationId": "postPublicPayStart",
+                "summary": "Create Start",
+                "tags": [
+                    "Public"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `public_pay.process`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
             }
         },
         "/api/staff/transcript-requests": {
@@ -14956,6 +17041,43 @@
                 ]
             }
         },
+        "/api/students/term-meta": {
+            "get": {
+                "operationId": "getStudentTermMeta",
+                "summary": "Get Term Meta",
+                "tags": [
+                    "Students"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/students/{student}": {
             "get": {
                 "operationId": "getStudentShow",
@@ -15084,6 +17206,174 @@
                     }
                 },
                 "description": "Late senate conferment; final year is not required. Requires `academic.graduate`. Body: `graduated_at`."
+            }
+        },
+        "/api/students/{student}/term-remarks": {
+            "post": {
+                "operationId": "postStudentStoreTermRemark",
+                "summary": "Create Store Term Remark",
+                "tags": [
+                    "Students"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/students/{student}/term-remarks/{remark}": {
+            "delete": {
+                "operationId": "deleteStudentDestroyTermRemark",
+                "summary": "Delete Destroy Term Remark",
+                "tags": [
+                    "Students"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/students/{student}/term-sanctions": {
+            "post": {
+                "operationId": "postStudentStoreTermSanction",
+                "summary": "Create Store Term Sanction",
+                "tags": [
+                    "Students"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/students/{student}/term-sanctions/{sanction}": {
+            "delete": {
+                "operationId": "deleteStudentDestroyTermSanction",
+                "summary": "Delete Destroy Term Sanction",
+                "tags": [
+                    "Students"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
             }
         },
         "/api/terms": {

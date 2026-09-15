@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Application;
+use App\Models\NinVerification;
 use App\Models\Program;
 use App\Models\Student;
 use App\Models\StudentProgrammeChange;
@@ -18,7 +19,7 @@ use Illuminate\Validation\ValidationException;
 
 class ApplicationStaffUpdateService
 {
-    public function __construct(private AuditWriter $audit) {}
+    public function __construct(private AuditWriter $audit, private PremblyService $prembly) {}
 
     /**
      * @param  array<string, mixed>  $data
@@ -49,6 +50,7 @@ class ApplicationStaffUpdateService
         if ($jamb) {
             $this->assertUniqueJamb($user, $application, $jamb);
         }
+        $data = $this->normalizeStaffNin($application, $user, $data);
 
         if (($application->entry_mode ?? '') === 'utme' && array_key_exists('utme', $data)) {
             $nested = Request::create('/', 'POST', ['payload' => ['utme' => $data['utme']]]);
@@ -99,6 +101,7 @@ class ApplicationStaffUpdateService
 
             $this->writeSteps($application, $data, $jamb);
             $this->syncStudentProfile($student, $data, $nextProgramId);
+            $this->persistStaffNin($user, $data['nin'] ?? null);
         });
 
         $this->audit->record(
@@ -301,9 +304,16 @@ class ApplicationStaffUpdateService
      */
     private function writeSteps(Application $application, array $data, ?string $jamb): void
     {
-        $this->mergeStep($application, 'biodata', [
+        $biodataUpdates = [
             'phone' => $application->user?->phone,
-        ], ['nin', 'photo_path', 'nin_locked', 'first_name', 'middle_name', 'last_name', 'date_of_birth', 'gender']);
+        ];
+        $biodataPreserve = ['photo_path', 'nin_locked', 'first_name', 'middle_name', 'last_name', 'date_of_birth', 'gender'];
+        if (! empty($data['nin'])) {
+            $biodataUpdates['nin'] = $data['nin'];
+        } else {
+            $biodataPreserve[] = 'nin';
+        }
+        $this->mergeStep($application, 'biodata', $biodataUpdates, $biodataPreserve);
 
         $this->mergeStep($application, 'personal_details', [
             'marital_status' => $data['marital_status'] ?? null,
@@ -450,7 +460,7 @@ class ApplicationStaffUpdateService
         }
         $student->loadMissing('medicalProfile');
 
-        $student->update([
+        $profile = [
             'marital_status' => $data['marital_status'] ?? $student->marital_status,
             'religion' => $data['religion'] ?? $student->religion,
             'country' => $data['country'] ?? $student->country,
@@ -470,7 +480,11 @@ class ApplicationStaffUpdateService
             'sponsor_email' => $data['sponsor_email'] ?? $student->sponsor_email,
             'sponsor_address' => $data['sponsor_address'] ?? $student->sponsor_address,
             'program_id' => $programId ?: $student->program_id,
-        ]);
+        ];
+        if (! empty($data['nin'])) {
+            $profile['nin'] = $data['nin'];
+        }
+        $student->update($profile);
 
         $medical = [
             'blood_type' => $data['blood_group'] ?? $student->medicalProfile?->blood_type,
@@ -549,5 +563,59 @@ class ApplicationStaffUpdateService
         $payload = $application->steps()->where('step_key', $stepKey)->first()?->payload;
 
         return is_array($payload) ? ($payload[$field] ?? null) : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function normalizeStaffNin(Application $application, User $user, array $data): array
+    {
+        if (! array_key_exists('nin', $data) || ! filled($data['nin'])) {
+            unset($data['nin']);
+
+            return $data;
+        }
+
+        $nin = $this->prembly->normalizeNin((string) $data['nin']);
+        $current = $this->currentNin($application, $user);
+        if ($nin !== $current) {
+            $this->prembly->assertNinAvailable($nin, $user->id);
+        }
+        $data['nin'] = $nin;
+
+        return $data;
+    }
+
+    private function currentNin(Application $application, User $user): ?string
+    {
+        $biodata = $application->steps->firstWhere('step_key', 'biodata')?->payload ?? [];
+        $fromStep = trim((string) ($biodata['nin'] ?? ''));
+        if ($fromStep !== '') {
+            return $this->digitsOrNull($fromStep);
+        }
+
+        $fromStudent = trim((string) ($user->student?->nin ?: $application->student?->nin ?: ''));
+
+        return $fromStudent !== '' ? $this->digitsOrNull($fromStudent) : null;
+    }
+
+    private function digitsOrNull(string $value): ?string
+    {
+        $digits = preg_replace('/\D/', '', $value) ?: '';
+
+        return $digits !== '' ? $digits : null;
+    }
+
+    private function persistStaffNin(User $user, mixed $nin): void
+    {
+        if (! is_string($nin) || $nin === '') {
+            return;
+        }
+
+        $record = NinVerification::query()->where('user_id', $user->id)->latest('id')->first();
+        if ($record && $record->nin !== $nin) {
+            $record->update(['nin' => $nin]);
+        }
     }
 }

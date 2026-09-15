@@ -20,6 +20,7 @@ use App\Models\Staff;
 use App\Models\Student;
 use App\Models\User;
 use App\Services\ApplicationAdmissionService;
+use App\Services\ApplicationStaffUpdateService;
 use App\Support\PermissionCatalog;
 use App\Support\Studentship;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -27,6 +28,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -291,6 +293,63 @@ class ReturningStudentApplicationTest extends TestCase
         $student = $user->student->fresh();
         $this->assertSame('Chinedu', $student->first_name);
         $this->assertSame('Okafor', $student->last_name);
+    }
+
+    public function test_staff_can_change_locked_nin_on_the_application_file(): void
+    {
+        [$user, $application] = $this->matriculatedStudentWithOpenPgIntake();
+        $application->update(['jamb_registration' => '12345678AB']);
+        $user->update(['jamb_registration' => '12345678AB']);
+
+        app(ApplicationStaffUpdateService::class)->update($application, [
+            'email' => $user->email,
+            'first_name' => 'Adaeze',
+            'last_name' => 'Okoye',
+            'jamb_registration' => '12345678AB',
+            'first_choice_program_id' => $application->program_id,
+            'nin' => '98765432109',
+        ]);
+
+        $fresh = $application->fresh(['steps', 'student']);
+        $biodata = $fresh->steps->firstWhere('step_key', 'biodata')?->payload ?? [];
+        $this->assertSame('98765432109', $biodata['nin'] ?? null);
+        $this->assertTrue((bool) ($biodata['nin_locked'] ?? false));
+        $this->assertSame('Adaeze', $biodata['first_name'] ?? null);
+        $this->assertSame('98765432109', $fresh->student?->nin);
+        $this->assertSame(
+            '98765432109',
+            NinVerification::query()->where('user_id', $user->id)->latest('id')->first()?->nin,
+        );
+    }
+
+    public function test_staff_cannot_assign_a_nin_already_linked_to_another_account(): void
+    {
+        [$user, $application] = $this->matriculatedStudentWithOpenPgIntake();
+        $application->update(['jamb_registration' => '12345678AB']);
+        $user->update(['jamb_registration' => '12345678AB']);
+        $other = User::factory()->create();
+        NinVerification::query()->create([
+            'user_id' => $other->id,
+            'nin' => '11122233344',
+            'mapped_fields' => [],
+            'verified_at' => now(),
+        ]);
+
+        try {
+            app(ApplicationStaffUpdateService::class)->update($application, [
+                'email' => $user->email,
+                'first_name' => 'Adaeze',
+                'last_name' => 'Okoye',
+                'jamb_registration' => '12345678AB',
+                'first_choice_program_id' => $application->program_id,
+                'nin' => '11122233344',
+            ]);
+            $this->fail('Expected a NIN uniqueness validation error.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('nin', $exception->errors());
+        }
+
+        $this->assertSame('12345678901', $user->student->fresh()->nin);
     }
 
     /**

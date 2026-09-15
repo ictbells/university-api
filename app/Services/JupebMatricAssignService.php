@@ -2,11 +2,14 @@
 
 namespace App\Services;
 
+use App\Mail\JupebMatricIssuedMail;
 use App\Models\Student;
 use App\Support\JupebMatricColumns;
 use App\Support\NinCipher;
 use App\Support\SpreadsheetImport;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -80,18 +83,54 @@ class JupebMatricAssignService
             ['matric_number' => $before],
             ['matric_number' => $matric],
         );
-        if ($student->user) {
+        $fresh = $student->fresh(['user', 'application', 'program']);
+        if ($fresh?->user) {
             $this->notifier->send(
-                $student->user,
+                $fresh->user,
                 'student_created',
                 'JUPEB matric number issued',
                 'Your JUPEB matric number is '.$matric.'. Use it to sign in.',
                 'sis',
-                $student->id,
+                $fresh->id,
             );
+            $this->emailMatric($fresh, $matric);
         }
 
-        return ['student' => $this->serialize($student->fresh(['user', 'application', 'program'])), 'created' => true];
+        return ['student' => $this->serialize($fresh ?? $student), 'created' => true];
+    }
+
+    /**
+     * Email the stored JUPEB matric number to students who already have one.
+     *
+     * @param  list<int>  $ids
+     * @return array{sent: int, skipped: int}
+     */
+    public function emailAssigned(array $ids = [], bool $dryRun = false): array
+    {
+        $query = $this->jupebStudents()
+            ->with(['user', 'application'])
+            ->whereNotNull('matric_number')
+            ->where('matric_number', '!=', '');
+        if ($ids !== []) {
+            $query->whereIn('id', $ids);
+        }
+
+        $sent = 0;
+        $skipped = 0;
+        foreach ($query->orderBy('id')->cursor() as $student) {
+            $matric = trim((string) $student->matric_number);
+            $email = trim((string) ($student->user?->email ?? ''));
+            if ($matric === '' || $email === '') {
+                $skipped++;
+                continue;
+            }
+            if (! $dryRun) {
+                $this->emailMatric($student, $matric);
+            }
+            $sent++;
+        }
+
+        return ['sent' => $sent, 'skipped' => $skipped];
     }
 
     /**
@@ -257,5 +296,22 @@ class JupebMatricAssignService
             'headers' => ['application_number', 'student_number', 'email', 'name', 'programme'],
             'rows' => $rows,
         ];
+    }
+
+    private function emailMatric(Student $student, string $matric): void
+    {
+        $email = trim((string) ($student->user?->email ?? ''));
+        if ($email === '') {
+            return;
+        }
+
+        try {
+            Mail::to($email)->send(new JupebMatricIssuedMail($student, $matric));
+        } catch (\Throwable $exception) {
+            Log::warning('student.jupeb_matric_email_failed', [
+                'student_id' => $student->id,
+                'message' => $exception->getMessage(),
+            ]);
+        }
     }
 }

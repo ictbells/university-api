@@ -47,6 +47,7 @@ class JupebMatricColumns
             '3. Only JUPEB students without a matric number (or with the same number already) are updated.',
             '4. Copy identifiers from the Pending students lookup sheet. Do not paste data into Instructions or lookup sheets.',
             '5. Duplicate matric numbers are skipped.',
+            '6. Each newly assigned student is emailed the matric number for student-portal sign-in.',
             '',
             'Required columns: '.implode(', ', self::required()),
         ];
