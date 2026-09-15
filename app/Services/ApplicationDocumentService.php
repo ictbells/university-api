@@ -121,38 +121,73 @@ class ApplicationDocumentService
         $session = $application->intake?->term?->session_label
             ?: Setting::getValue('current_session_label', now()->format('Y').'/'.(now()->format('Y') + 1));
 
-        $studyLevel = $application->program?->study_level === 'postgraduate'
+        $isPostgraduate = $this->isPostgraduateApplication($application);
+        $studyLevel = $isPostgraduate
             ? 'POSTGRADUATE DEGREE PROGRAMME'
             : 'UNDERGRADUATE DEGREE PROGRAMME';
 
-        $programmeKind = $application->program?->study_level === 'postgraduate'
+        $programmeKind = $isPostgraduate
             ? 'Postgraduate Degree Programme'
             : 'Bachelor Degree Programme';
 
         $registrar = TranscriptRequestSettings::all();
         $view = (string) $application->entry_mode === 'jupeb'
             ? 'documents.admission-letter-jupeb'
-            : 'documents.admission-letter';
+            : ($isPostgraduate ? 'documents.admission-letter-pg' : 'documents.admission-letter');
+
+        $institution = $this->institution();
+        if ($isPostgraduate) {
+            $institution['office'] = (string) Setting::getValue(
+                'pg_admission_office_title',
+                'College of Postgraduate Studies',
+            );
+        }
+
+        $lastName = trim((string) ($biodata['last_name'] ?? ''));
+        if ($lastName === '') {
+            $parts = preg_split('/\s+/', trim($fullName)) ?: [];
+            $lastName = (string) (end($parts) ?: $firstName);
+        }
+
+        $givenNames = trim(collect([
+            $biodata['first_name'] ?? $firstName,
+            $biodata['middle_name'] ?? null,
+        ])->filter()->map(fn ($part) => Str::title(Str::lower((string) $part)))->implode(' '));
+        $recipientName = trim(Str::upper($lastName).($givenNames !== '' ? ' '.$givenNames : ''));
+
+        $address = $contact['address'] ?? $biodata['address'] ?? null;
+        $acceptanceWords = NairaWords::phrase($amount, only: false);
 
         return view($view, [
-            'institution' => $this->institution(),
+            'institution' => $institution,
             'institution_with_city' => $this->institutionNameWithOta(),
             'letterhead_name' => $this->letterheadName(),
             'logo_data_uri' => InstitutionLogo::dataUri(),
-            'signature_data_uri' => RegistrarSignature::dataUri(),
+            'signature_data_uri' => $isPostgraduate ? null : RegistrarSignature::dataUri(),
             'registrar_name' => $registrar['registrar_name'] !== ''
                 ? $registrar['registrar_name']
                 : 'Lamidi S. Tafa (Mr.)',
             'registrar_title' => $registrar['registrar_title'],
+            'signatory_name' => $isPostgraduate
+                ? (string) Setting::getValue('pg_admission_signatory_name', 'Olugbenga A. Adelowo')
+                : ($registrar['registrar_name'] !== '' ? $registrar['registrar_name'] : 'Lamidi S. Tafa (Mr.)'),
+            'signatory_title' => $isPostgraduate
+                ? (string) Setting::getValue('pg_admission_signatory_title', 'Secretary, College of Postgraduate Studies')
+                : $registrar['registrar_title'],
             'application' => $application,
             'entry_mode' => (string) $application->entry_mode,
             'is_direct_entry' => (string) $application->entry_mode === 'de',
             'full_name' => Str::upper($fullName),
+            'recipient_name' => $recipientName !== '' ? $recipientName : Str::upper($fullName),
             'salutation_name' => Str::title(Str::lower((string) $firstName)),
-            'address' => $contact['address'] ?? $biodata['address'] ?? null,
+            'salutation_surname' => Str::upper($lastName),
+            'honorific' => $this->pgHonorific($biodata),
+            'address' => $address,
+            'address_lines' => $this->addressLines(is_string($address) ? $address : null),
             'college' => $application->program?->department?->faculty?->name ?: 'College',
-            'department' => $application->program?->department?->name,
+            'department' => $application->program?->department?->name ?: 'the Department',
             'programme' => $application->program?->name ?: 'your chosen programme',
+            'programme_pursuit' => $this->pgProgrammePursuit($application),
             'programme_label' => $this->jupebProgrammeLabel($application),
             'programme_kind' => $programmeKind,
             'session' => $session,
@@ -161,7 +196,8 @@ class ApplicationDocumentService
             'offer_reference' => $this->formatOfferReference($application),
             'letter_date' => $issuedAt->format('jS F, Y'),
             'acceptance_amount' => $amount,
-            'acceptance_amount_words' => NairaWords::phrase($amount, only: false),
+            'acceptance_amount_words' => $acceptanceWords,
+            'acceptance_amount_words_lower' => Str::lower($acceptanceWords),
             'show_jamb_documents' => in_array((string) $application->entry_mode, AdmissionEntryRules::JAMB_ENTRY_MODES, true),
             'portal_url' => (string) Setting::getValue(
                 'application_portal_url',
@@ -198,12 +234,18 @@ class ApplicationDocumentService
         $application->loadMissing(['user', 'intake.term', 'program.department.faculty']);
         if ((string) $application->entry_mode === 'jupeb') {
             $year = $this->sessionEndYear((string) ($application->intake?->term?->session_label ?? ''));
-            $serial = $this->jupebOfferSerial($application);
+            $serial = $this->offerSerial($application, 4);
 
             return 'BUT/AD/JFS/'.$year.'/JU/'.$serial;
         }
 
         $code = $this->offerCollegeCode($application);
+        if ($this->isPostgraduateApplication($application)) {
+            $year = str_pad(substr($this->offerReferenceYear($application), -3), 3, '0', STR_PAD_LEFT);
+
+            return 'BUT/COLPGS.'.$this->offerSerial($application, 5).'/'.$code.'/'.$year;
+        }
+
         $year = substr($this->offerReferenceYear($application), -2);
         $suffix = $this->offerReferenceSuffix($application);
 
@@ -224,14 +266,106 @@ class ApplicationDocumentService
         return $application->program?->study_level === 'postgraduate' ? 'PG' : 'UG';
     }
 
-    private function jupebOfferSerial(Application $application): string
+    private function isPostgraduateApplication(Application $application): bool
+    {
+        return (string) $application->entry_mode === 'pg'
+            || $application->program?->study_level === 'postgraduate';
+    }
+
+    private function offerSerial(Application $application, int $width = 5): string
     {
         $source = (string) ($application->application_number ?: $application->id);
         if (preg_match('/(\d+)\s*$/', $source, $matches)) {
-            return str_pad($matches[1], 4, '0', STR_PAD_LEFT);
+            return str_pad($matches[1], $width, '0', STR_PAD_LEFT);
         }
 
-        return str_pad((string) $application->id, 4, '0', STR_PAD_LEFT);
+        return str_pad((string) $application->id, $width, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * @param  array<string, mixed>  $biodata
+     */
+    private function pgHonorific(array $biodata): string
+    {
+        $title = trim((string) ($biodata['title'] ?? $biodata['honorific'] ?? ''));
+        if ($title !== '') {
+            $normalized = Str::title(Str::lower(rtrim($title, '.')));
+
+            return in_array($normalized, ['Mr', 'Mrs', 'Ms', 'Dr', 'Prof'], true)
+                ? $normalized.'.'
+                : $normalized;
+        }
+
+        $gender = strtolower(trim((string) ($biodata['gender'] ?? '')));
+        if (in_array($gender, ['female', 'f', 'woman'], true)) {
+            $marital = strtolower(trim((string) ($biodata['marital_status'] ?? '')));
+
+            return in_array($marital, ['single', 'unmarried'], true) ? 'Miss' : 'Mrs.';
+        }
+
+        return 'Mr.';
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function addressLines(?string $address): array
+    {
+        $text = trim((string) $address);
+        if ($text === '') {
+            return [];
+        }
+
+        $lines = preg_split('/\r\n|\n|\r/', $text) ?: [];
+
+        return array_values(array_filter(array_map('trim', $lines), fn ($line) => $line !== ''));
+    }
+
+    private function pgProgrammePursuit(Application $application): string
+    {
+        $name = trim((string) ($application->program?->name ?: 'your chosen programme'));
+        $award = strtoupper(trim((string) ($application->program?->award_type ?: '')));
+        $expanded = $this->expandPgAwardLabel($award, $name);
+        if ($expanded !== '' && strcasecmp($expanded, $name) !== 0) {
+            return $expanded.' ('.$name.')';
+        }
+
+        return $name;
+    }
+
+    private function expandPgAwardLabel(string $award, string $name): string
+    {
+        $labels = [
+            'PGD' => 'Postgraduate Diploma',
+            'PGDE' => 'Postgraduate Diploma in Education',
+            'M.SC' => 'Master of Science',
+            'MSC' => 'Master of Science',
+            'M.ENG' => 'Master of Engineering',
+            'MENG' => 'Master of Engineering',
+            'MBA' => 'Master of Business Administration',
+            'M.PHIL' => 'Master of Philosophy',
+            'MPHIL' => 'Master of Philosophy',
+            'PH.D' => 'Doctor of Philosophy',
+            'PHD' => 'Doctor of Philosophy',
+        ];
+        $label = $labels[$award] ?? '';
+        if ($label === '') {
+            return '';
+        }
+        if (stripos($name, $label) === 0) {
+            return $name;
+        }
+
+        $stripped = trim((string) preg_replace(
+            '/^(PGD|PGDE|M\.?\s*Sc|M\.?\s*Eng|MBA|M\.?\s*Phil|Ph\.?\s*D)\s+/i',
+            '',
+            $name,
+        ));
+        if ($stripped === '' || strcasecmp($stripped, $name) === 0) {
+            return $label.' in '.$name;
+        }
+
+        return $label.' in '.$stripped;
     }
 
     private function jupebProgrammeLabel(Application $application): string

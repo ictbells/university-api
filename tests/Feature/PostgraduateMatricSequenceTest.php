@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Mail\StudentMatricIssuedMail;
 use App\Models\AcademicSession;
 use App\Models\AcademicTerm;
 use App\Models\Application;
@@ -15,6 +16,7 @@ use App\Models\User;
 use App\Services\MatricSequence;
 use App\Services\StudentCreationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 class PostgraduateMatricSequenceTest extends TestCase
@@ -56,6 +58,49 @@ class PostgraduateMatricSequenceTest extends TestCase
         $this->assertSame('2026/000006', $student->matric_number);
         $this->assertSame('2026/000006', $student->student_number);
         $this->assertSame('2026/000006', Setting::getValue(MatricSequence::PG_SETTING_KEY));
+    }
+
+    public function test_student_creation_emails_postgraduate_matric(): void
+    {
+        Mail::fake();
+        config([
+            'sis.pg_matric_last' => '2026/000005',
+            'sis.pg_matric_year' => '2026',
+            'sis.matric_digits' => 6,
+        ]);
+
+        $application = $this->application('pg', 'postgraduate');
+        $student = app(StudentCreationService::class)->createFromApplication($application);
+
+        Mail::assertQueued(StudentMatricIssuedMail::class, function (StudentMatricIssuedMail $mail) use ($student) {
+            return $mail->hasTo($student->user->email)
+                && $mail->matricNumber === '2026/000006'
+                && $mail->isPostgraduate();
+        });
+    }
+
+    public function test_command_can_email_only_postgraduate_matrics(): void
+    {
+        config([
+            'sis.matric_last' => '2026/000100',
+            'sis.pg_matric_last' => '2026/000020',
+            'sis.matric_year' => '2026',
+            'sis.pg_matric_year' => '2026',
+            'sis.matric_digits' => 6,
+        ]);
+        $pg = app(StudentCreationService::class)->createFromApplication($this->application('pg', 'postgraduate'));
+        app(StudentCreationService::class)->createFromApplication($this->application('utme', 'undergraduate'));
+        Mail::fake();
+
+        $this->artisan('students:email-matric', ['--entry-mode' => 'pg'])
+            ->expectsOutput('Queued 1 matric email.')
+            ->assertSuccessful();
+        Mail::assertQueued(StudentMatricIssuedMail::class, 1);
+        Mail::assertQueued(StudentMatricIssuedMail::class, function (StudentMatricIssuedMail $mail) use ($pg) {
+            return $mail->hasTo($pg->user->email)
+                && $mail->matricNumber === $pg->matric_number
+                && $mail->isPostgraduate();
+        });
     }
 
     public function test_undergraduate_entry_mode_uses_matric_last_not_pg_even_if_program_tagged_pg(): void

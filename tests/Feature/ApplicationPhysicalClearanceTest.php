@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Mail\StudentMatricIssuedMail;
 use App\Models\AcademicSession;
 use App\Models\AcademicTerm;
 use App\Models\Application;
@@ -21,6 +22,7 @@ use App\Services\ApplicationAdmissionService;
 use App\Support\PermissionCatalog;
 use App\Support\WorkflowCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -62,6 +64,7 @@ class ApplicationPhysicalClearanceTest extends TestCase
 
     public function test_staff_can_clear_one_applicant_and_create_the_student(): void
     {
+        Mail::fake();
         $application = $this->paidApplicant();
         Sanctum::actingAs($this->officer);
 
@@ -69,12 +72,40 @@ class ApplicationPhysicalClearanceTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.stage', 'matriculated');
 
-        $application = $application->fresh();
+        $application = $application->fresh(['student', 'user']);
         $this->assertSame('matriculated', $application->stage);
         $this->assertNotNull($application->student_id);
         $this->assertNotNull($application->physically_cleared_at);
         $this->assertSame($this->officer->id, $application->physically_cleared_by);
         $this->assertSame(1, Student::query()->count());
+        $this->assertNotEmpty($application->student?->matric_number);
+        Mail::assertQueued(StudentMatricIssuedMail::class, function (StudentMatricIssuedMail $mail) use ($application) {
+            return $mail->hasTo($application->user->email)
+                && $mail->matricNumber === $application->student->matric_number;
+        });
+    }
+
+    public function test_command_emails_already_issued_undergraduate_matric_numbers(): void
+    {
+        Mail::fake();
+        $application = $this->paidApplicant();
+        Sanctum::actingAs($this->officer);
+        $this->postJson("/api/applications/{$application->id}/clear")->assertOk();
+        Mail::fake();
+
+        $student = $application->fresh(['student.user'])->student;
+        $this->artisan('students:email-matric', ['--dry-run' => true])
+            ->expectsOutput('Would email 1 student.')
+            ->assertSuccessful();
+        Mail::assertNothingQueued();
+
+        $this->artisan('students:email-matric')
+            ->expectsOutput('Queued 1 matric email.')
+            ->assertSuccessful();
+        Mail::assertQueued(StudentMatricIssuedMail::class, function (StudentMatricIssuedMail $mail) use ($student) {
+            return $mail->hasTo($student->user->email)
+                && $mail->matricNumber === $student->matric_number;
+        });
     }
 
     public function test_staff_can_bulk_clear_eligible_applicants(): void

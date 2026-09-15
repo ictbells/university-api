@@ -4794,7 +4794,7 @@
                         }
                     }
                 },
-                "description": "Clears eligible applicants by `ids`. Ineligible rows are skipped. Requires `admissions.clear`. Body: `ids` (1\u2013200 application ids)."
+                "description": "Clears eligible applicants by `ids`. Ineligible rows are skipped. Newly created undergraduate, DE, transfer, and postgraduate students are emailed their matric number. Requires `admissions.clear`. Body: `ids` (1\u2013200 application ids)."
             }
         },
         "/api/applications/export": {
@@ -5074,7 +5074,7 @@
                         }
                     }
                 },
-                "description": "Records physical clearance after acceptance payment and creates or reattaches the student record. Requires `admissions.clear`."
+                "description": "Records physical clearance after acceptance payment and creates or reattaches the student record. Undergraduate, DE, transfer, and postgraduate students are emailed their matric number for student-portal sign-in. Requires `admissions.clear`."
             }
         },
         "/api/applications/{application}/documents": {
@@ -5323,7 +5323,7 @@
         "/api/applications/{application}/offer-letter": {
             "get": {
                 "operationId": "getApplicationOfferLetter",
-                "summary": "Get Offer Letter",
+                "summary": "Print admission letter",
                 "tags": [
                     "Applications"
                 ],
@@ -5354,7 +5354,8 @@
                     {
                         "bearerAuth": []
                     }
-                ]
+                ],
+                "description": "Returns the official HTML admission letter for an issued offer. Undergraduate letters use the Registry wording. JUPEB letters use the Foundation Programme wording. Postgraduate letters use College of Postgraduate Studies provisional-admission wording (COLPGS reference, 50%/50% fee split, Secretary sign-off)."
             }
         },
         "/api/applications/{application}/passport": {

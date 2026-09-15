@@ -296,6 +296,37 @@ class OfferAcceptancePortalTest extends TestCase
         $this->assertStringNotContainsString('Admission letter as issued by JAMB', $html);
     }
 
+    public function test_pg_admission_letter_uses_college_of_postgraduate_studies_wording(): void
+    {
+        $user = $this->pgApplicantWithOffer();
+        Sanctum::actingAs($user);
+        $application = $user->latestApplication;
+
+        $html = $this->get("/api/applications/{$application->id}/offer-letter")
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('PROVISIONAL ADMISSION INTO POSTGRADUATE PROGRAMME FOR 2026/2027 ACADEMIC SESSION', $html);
+        $this->assertStringContainsString('College of Postgraduate Studies', $html);
+        $this->assertStringContainsString('Postgraduate Diploma in Human Resource Management (PGD Human Resource Management)', $html);
+        $this->assertStringContainsString('Department of Business Administration', $html);
+        $this->assertStringContainsString('College of Management Sciences', $html);
+        $this->assertStringContainsString('Dear Mr. BAKIA', $html);
+        $this->assertStringContainsString('BAKIA Epey Adolf', $html);
+        $this->assertStringContainsString('Block B6 Flat 1', $html);
+        $this->assertStringContainsString('two equal installments', $html);
+        $this->assertStringContainsString('50% at the commencement of the Semester and before the First Semester Examinations', $html);
+        $this->assertStringContainsString('ICT Resource Centre', $html);
+        $this->assertStringContainsString('one hundred thousand naira (N100,000) only', $html);
+        $this->assertStringContainsString('Olugbenga A. Adelowo', $html);
+        $this->assertStringContainsString('Secretary, College of Postgraduate Studies', $html);
+        $this->assertStringContainsString('BUT/COLPGS.00408/COLMANS/026', $html);
+        $this->assertStringContainsString('Only the best is good for Bells', $html);
+        $this->assertStringNotContainsString('UNDERGRADUATE DEGREE PROGRAMME', $html);
+        $this->assertStringNotContainsString('Admission letter as issued by JAMB', $html);
+        $this->assertStringNotContainsString('Lamidi S. Tafa', $html);
+    }
+
     public function test_jupeb_admission_letter_prints_uploaded_registrar_signature(): void
     {
         $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
@@ -411,6 +442,80 @@ class OfferAcceptancePortalTest extends TestCase
             'entry_mode' => 'jupeb',
             'stage' => 'offer_issued',
             'offer_reference' => 'BUT/AD/JFS/2027/JU/0100',
+        ]);
+
+        return $user->fresh(['latestApplication']);
+    }
+
+    private function pgApplicantWithOffer(): User
+    {
+        $role = Role::query()->firstOrCreate(
+            ['slug' => 'applicant'],
+            ['name' => 'Applicant', 'is_system' => true, 'is_active' => true],
+        );
+        $user = User::factory()->create(['name' => 'Epey Adolf Bakia']);
+        $user->roles()->attach($role->id);
+
+        $campus = Campus::query()->create(['name' => 'Main', 'is_active' => true]);
+        $faculty = Faculty::query()->create([
+            'campus_id' => $campus->id,
+            'name' => 'College of Management Sciences',
+            'code' => 'COLMANS',
+        ]);
+        $department = Department::query()->create(['faculty_id' => $faculty->id, 'name' => 'Business Administration']);
+        $program = Program::query()->create([
+            'department_id' => $department->id,
+            'name' => 'PGD Human Resource Management',
+            'code' => 'PGD-HRM',
+            'award_type' => 'PGD',
+            'study_level' => 'postgraduate',
+            'entry_modes' => ['pg'],
+            'duration_years' => 1,
+            'is_active' => true,
+        ]);
+        $session = AcademicSession::query()->firstOrCreate(['label' => '2026/2027']);
+        $term = AcademicTerm::query()->firstOrCreate(
+            ['academic_session_id' => $session->id, 'name' => 'First'],
+            ['session_label' => '2026/2027', 'is_current' => true],
+        );
+        if ($term->session_label !== '2026/2027') {
+            $term->update(['session_label' => '2026/2027']);
+        }
+        $intake = Intake::query()->create([
+            'academic_term_id' => $term->id,
+            'name' => 'PG 2026',
+            'entry_mode' => 'pg',
+            'is_open' => true,
+            'application_fee_amount' => 10000,
+            'acceptance_fee_amount' => 100000,
+            'opens_on' => now()->subDay()->toDateString(),
+            'closes_on' => now()->addMonth()->toDateString(),
+        ]);
+        $application = Application::query()->create([
+            'application_number' => 'APP/2026/00408',
+            'user_id' => $user->id,
+            'intake_id' => $intake->id,
+            'program_id' => $program->id,
+            'entry_mode' => 'pg',
+            'stage' => 'admission',
+            'offer_reference' => 'BUT/COLPGS.00408/COLMANS/026',
+        ]);
+        $application->steps()->create([
+            'step_key' => 'biodata',
+            'status' => 'saved',
+            'payload' => [
+                'first_name' => 'Epey',
+                'middle_name' => 'Adolf',
+                'last_name' => 'Bakia',
+                'gender' => 'male',
+            ],
+        ]);
+        $application->steps()->create([
+            'step_key' => 'application_form',
+            'status' => 'saved',
+            'payload' => [
+                'address' => "Block B6 Flat 1\nCanancity Canaanland, Ota\nOgun State.",
+            ],
         ]);
 
         return $user->fresh(['latestApplication']);

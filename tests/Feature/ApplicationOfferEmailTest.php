@@ -94,10 +94,25 @@ class ApplicationOfferEmailTest extends TestCase
         $this->assertSame('BUT/AD/JFS/2027/JU/0100', $application->fresh()->offer_reference);
     }
 
+    public function test_pg_offer_reference_uses_colpgs_serial(): void
+    {
+        Mail::fake();
+
+        [$application] = $this->approvedApplication(jamb: null, pg: true);
+        Sanctum::actingAs($this->staffUser(['admissions.offer']));
+
+        $this->postJson("/api/applications/{$application->id}/transition", [
+            'to_stage' => 'admission',
+            'acceptance_fee_amount' => 100000,
+        ])->assertOk();
+
+        $this->assertSame('BUT/COLPGS.01001/COLMANS/026', $application->fresh()->offer_reference);
+    }
+
     /**
      * @return array{0: Application, 1: User}
      */
-    private function approvedApplication(?string $jamb = '20261234567AB', bool $jupeb = false): array
+    private function approvedApplication(?string $jamb = '20261234567AB', bool $jupeb = false, bool $pg = false): array
     {
         foreach (PermissionCatalog::all() as $perm) {
             Permission::query()->updateOrCreate(['key' => $perm['key']], $perm);
@@ -107,21 +122,26 @@ class ApplicationOfferEmailTest extends TestCase
         $campus = Campus::query()->create(['name' => 'Main', 'is_active' => true]);
         $faculty = Faculty::query()->create([
             'campus_id' => $campus->id,
-            'name' => 'College of Natural Sciences',
-            'code' => 'COLNAS',
+            'name' => $pg ? 'College of Management Sciences' : 'College of Natural Sciences',
+            'code' => $pg ? 'COLMANS' : 'COLNAS',
             'is_jupeb_centre' => $jupeb,
         ]);
-        $department = Department::query()->create(['faculty_id' => $faculty->id, 'name' => $jupeb ? 'Biological Sciences' : 'Computer Science']);
+        $department = Department::query()->create([
+            'faculty_id' => $faculty->id,
+            'name' => $pg ? 'Business Administration' : ($jupeb ? 'Biological Sciences' : 'Computer Science'),
+        ]);
         $program = Program::query()->create([
             'department_id' => $department->id,
-            'name' => $jupeb ? 'JUPEB SCIENCE' : 'B.Sc Computer Science',
-            'code' => $jupeb ? 'JUPEB-SCI' : 'BSC-CS',
-            'award_type' => $jupeb ? 'JUPEB' : 'B.Sc',
-            'study_level' => $jupeb ? 'jupeb' : 'undergraduate',
-            'entry_modes' => $jupeb ? ['jupeb'] : ['utme'],
-            'duration_years' => $jupeb ? 1 : 4,
+            'name' => $pg ? 'PGD Human Resource Management' : ($jupeb ? 'JUPEB SCIENCE' : 'B.Sc Computer Science'),
+            'code' => $pg ? 'PGD-HRM' : ($jupeb ? 'JUPEB-SCI' : 'BSC-CS'),
+            'award_type' => $pg ? 'PGD' : ($jupeb ? 'JUPEB' : 'B.Sc'),
+            'study_level' => $pg ? 'postgraduate' : ($jupeb ? 'jupeb' : 'undergraduate'),
+            'entry_modes' => $pg ? ['pg'] : ($jupeb ? ['jupeb'] : ['utme']),
+            'duration_years' => ($pg || $jupeb) ? 1 : 4,
             'is_active' => true,
-            'workflow_template_id' => WorkflowCatalog::idByCode(WorkflowCatalog::UG_STANDARD),
+            'workflow_template_id' => WorkflowCatalog::idByCode(
+                $pg ? WorkflowCatalog::PG_TAUGHT : WorkflowCatalog::UG_STANDARD
+            ),
         ]);
         $session = AcademicSession::query()->create(['label' => '2026/2027']);
         $term = AcademicTerm::query()->create([
@@ -132,11 +152,11 @@ class ApplicationOfferEmailTest extends TestCase
         ]);
         $intake = Intake::query()->create([
             'academic_term_id' => $term->id,
-            'name' => $jupeb ? 'JUPEB 2026' : 'UTME 2026',
-            'entry_mode' => $jupeb ? 'jupeb' : 'utme',
+            'name' => $pg ? 'PG 2026' : ($jupeb ? 'JUPEB 2026' : 'UTME 2026'),
+            'entry_mode' => $pg ? 'pg' : ($jupeb ? 'jupeb' : 'utme'),
             'is_open' => true,
-            'application_fee_amount' => 5000,
-            'acceptance_fee_amount' => $jupeb ? 100000 : 25000,
+            'application_fee_amount' => $pg ? 10000 : 5000,
+            'acceptance_fee_amount' => ($pg || $jupeb) ? 100000 : 25000,
             'opens_on' => now()->subDay()->toDateString(),
             'closes_on' => now()->addMonth()->toDateString(),
         ]);
@@ -150,9 +170,9 @@ class ApplicationOfferEmailTest extends TestCase
             'user_id' => $applicant->id,
             'intake_id' => $intake->id,
             'program_id' => $program->id,
-            'entry_mode' => $jupeb ? 'jupeb' : 'utme',
+            'entry_mode' => $pg ? 'pg' : ($jupeb ? 'jupeb' : 'utme'),
             'jamb_registration' => $jamb,
-            'stage' => 'approved',
+            'stage' => $pg ? 'approval' : 'approved',
         ]);
 
         return [$application, $applicant];

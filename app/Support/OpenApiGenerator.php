@@ -75,6 +75,10 @@ class OpenApiGenerator
                 ['name' => 'entry_modes', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Comma-separated entry modes for channel views.'],
             ],
         ],
+        'get_/api/applications/{application}/offer-letter' => [
+            'summary' => 'Print admission letter',
+            'description' => 'Returns the official HTML admission letter for an issued offer. Undergraduate letters use the Registry wording. JUPEB letters use the Foundation Programme wording. Postgraduate letters use College of Postgraduate Studies provisional-admission wording (COLPGS reference, 50%/50% fee split, Secretary sign-off).',
+        ],
         'get_/api/applications/clearance' => [
             'summary' => 'List applicants for physical clearance',
             'description' => 'Applicants who have paid acceptance and are waiting to be cleared on campus, or already cleared. Requires `admissions.view` or `admissions.clear`. Query filters match the applications list, plus `status` (`pending` default, or `cleared`).',
@@ -87,11 +91,11 @@ class OpenApiGenerator
         ],
         'post_/api/applications/{application}/clear' => [
             'summary' => 'Clear one admitted applicant',
-            'description' => 'Records physical clearance after acceptance payment and creates or reattaches the student record. Requires `admissions.clear`.',
+            'description' => 'Records physical clearance after acceptance payment and creates or reattaches the student record. Undergraduate, DE, transfer, and postgraduate students are emailed their matric number for student-portal sign-in. Requires `admissions.clear`.',
         ],
         'post_/api/applications/clearance/bulk' => [
             'summary' => 'Clear admitted applicants in bulk',
-            'description' => 'Clears eligible applicants by `ids`. Ineligible rows are skipped. Requires `admissions.clear`. Body: `ids` (1–200 application ids).',
+            'description' => 'Clears eligible applicants by `ids`. Ineligible rows are skipped. Newly created undergraduate, DE, transfer, and postgraduate students are emailed their matric number. Requires `admissions.clear`. Body: `ids` (1–200 application ids).',
         ],
         'get_/api/registrations' => [
             'summary' => 'List registrations',

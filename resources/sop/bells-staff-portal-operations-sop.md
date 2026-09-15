@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.50  
+**Version:** 1.53  
 **Effective date:** September 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -344,9 +344,9 @@ Staff advance complete files through:
 
 `submitted` → `screening` → `verification` → `shortlisting` → `recommended` → `approved` → `offer_issued` → acceptance payment → **physical clearance** → matriculation
 
-When staff issue the offer (`offer_issued`, or postgraduate `admission`), the applicant is emailed at the address on their account. The message includes the programme, session, offer reference, acceptance-fee amount when known, and a link to the student portal to pay within two weeks and print the admission letter. A mail failure is logged and does not block the offer.
+When staff issue the offer (`offer_issued`, or postgraduate `admission`), the applicant is emailed at the address on their account. The message includes the programme, session, offer reference, acceptance-fee amount when known, and a link to the student portal to pay within two weeks and print the admission letter. Undergraduate letters use Registry wording; JUPEB letters use Foundation Programme wording; postgraduate letters use College of Postgraduate Studies provisional-admission wording (reference `BUT/COLPGS.{serial}/{college}/{year}`, 50%/50% fee split after the acceptance fee, signed by the Secretary, College of Postgraduate Studies). A mail failure is logged and does not block the offer.
 
-After the applicant pays acceptance, the file waits at `acceptance_paid`. They come to campus with original documents. Admissions staff clear them **individually** or in **bulk** on the matching **Applications → Physical clearance** channel page (or the Clear action on that channel's pipeline). Clearing records the visit and creates (or reattaches) the student record. Already-matriculated files from before this step are treated as already cleared.
+After the applicant pays acceptance, the file waits at `acceptance_paid`. They come to campus with original documents. Admissions staff clear them **individually** or in **bulk** on the matching **Applications → Physical clearance** channel page (or the Clear action on that channel's pipeline). Clearing records the visit and creates (or reattaches) the student record. Undergraduate, Direct Entry, transfer, and postgraduate students are issued a matric number immediately and **emailed that number** — they must then sign in with matric (application number and JAMB no longer work). JUPEB students get a student record without a matric until staff assign one on **Academic → JUPEB matric numbers** (that assignment is emailed separately). Already-matriculated files from before this step are treated as already cleared. To email matric numbers already issued before this mail existed: `php artisan students:email-matric` (preview with `--dry-run`; postgraduate only: `--entry-mode=pg`; JUPEB: `php artisan jupeb:email-matric`).
 
 Transfer files include a **credit assessment** step after verification (`admissions.credit_assess`). Postgraduate files may include extra PG review steps.
 
@@ -815,6 +815,9 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.48 | Sep 2026 | Platform team | Staff can correct NIN on the application file; names and date of birth stay locked until Resync from NIN |
 | 1.49 | Sep 2026 | Platform team | Assigning or uploading a JUPEB matric number emails it to the student for portal sign-in |
 | 1.50 | Sep 2026 | Platform team | `php artisan jupeb:email-matric` emails matric numbers already assigned |
+| 1.51 | Sep 2026 | Platform team | Physical clearance emails the undergraduate (and DE/PG/transfer) matric number; `php artisan students:email-matric` backfills already cleared students |
+| 1.52 | Sep 2026 | Platform team | Postgraduate matric email is explicit; `php artisan students:email-matric --entry-mode=pg` backfills PG only |
+| 1.53 | Sep 2026 | Platform team | Postgraduate admission letters use College of Postgraduate Studies provisional-admission wording and `BUT/COLPGS.{serial}/{college}/{year}` references |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

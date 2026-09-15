@@ -389,7 +389,6 @@ class JupebAndNabtebAdmissionRulesTest extends TestCase
 
     public function test_command_emails_already_assigned_jupeb_matric_numbers(): void
     {
-        Mail::fake();
         $jupeb = app(StudentCreationService::class)->createFromApplication(
             $this->readyToSubmit('jupeb', $this->jupebCentreProgram),
         );
@@ -397,7 +396,7 @@ class JupebAndNabtebAdmissionRulesTest extends TestCase
         $utme = app(StudentCreationService::class)->createFromApplication(
             $this->readyToSubmit('utme', $this->utmeProgram),
         );
-
+        Mail::fake();
         $this->artisan('jupeb:email-matric', ['--dry-run' => true])
             ->expectsOutput('Would email 1 JUPEB student.')
             ->assertSuccessful();

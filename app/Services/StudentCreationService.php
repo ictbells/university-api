@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Mail\StudentMatricIssuedMail;
 use App\Models\Application;
 use App\Models\MedicalProfile;
 use App\Models\PgRecord;
@@ -14,6 +15,8 @@ use App\Support\ProgrammeEligibility;
 use App\Support\StudyLevel;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class StudentCreationService
 {
@@ -26,7 +29,7 @@ class StudentCreationService
 
     public function createFromApplication(Application $application): Student
     {
-        return DB::transaction(function () use ($application) {
+        $student = DB::transaction(function () use ($application) {
             $application->load(['user', 'program', 'steps', 'academicSession', 'intake.term.session']);
             $biodata = $application->mergedProfilePayload();
             $contact = $application->steps()->where('step_key', 'application_form')->first()?->payload ?? [];
@@ -140,8 +143,11 @@ class StudentCreationService
                 }
             }
 
-            return $student->fresh(['wallet', 'program', 'user']);
+            return $student->fresh(['wallet', 'program', 'user', 'application']);
         });
+        $this->emailIssuedMatric($student);
+
+        return $student;
     }
 
     public function attachExistingStudent(Application $application, Student $student): Student
@@ -440,5 +446,79 @@ class StudentCreationService
         }
 
         return $n < 100 ? $n * 100 : $n;
+    }
+
+    /**
+     * Email stored (non-JUPEB) matric numbers so students can sign in.
+     *
+     * @param  list<int>  $ids
+     * @return array{sent: int, skipped: int}
+     */
+    public function emailAssigned(array $ids = [], bool $dryRun = false, ?string $entryMode = null): array
+    {
+        $query = $this->autoMatricStudents()
+            ->with(['user', 'application'])
+            ->whereNotNull('matric_number')
+            ->where('matric_number', '!=', '');
+        if ($ids !== []) {
+            $query->whereIn('id', $ids);
+        }
+        $mode = strtolower(trim((string) $entryMode));
+        if ($mode === 'pg') {
+            $query->where(function ($builder) {
+                $builder->where('study_level', StudyLevel::POSTGRADUATE)
+                    ->orWhereHas('application', fn ($applications) => $applications->where('entry_mode', 'pg'));
+            });
+        } elseif ($mode !== '') {
+            $query->whereHas('application', fn ($applications) => $applications->where('entry_mode', $mode));
+        }
+
+        $sent = 0;
+        $skipped = 0;
+        foreach ($query->orderBy('id')->cursor() as $student) {
+            $matric = trim((string) $student->matric_number);
+            $email = trim((string) ($student->user?->email ?? ''));
+            if ($matric === '' || $email === '') {
+                $skipped++;
+                continue;
+            }
+            if (! $dryRun) {
+                $this->emailIssuedMatric($student);
+            }
+            $sent++;
+        }
+
+        return ['sent' => $sent, 'skipped' => $skipped];
+    }
+
+    private function autoMatricStudents()
+    {
+        return Student::query()
+            ->where(function ($query) {
+                $query->whereNull('study_level')->orWhere('study_level', '!=', 'jupeb');
+            })
+            ->whereDoesntHave('application', fn ($applications) => $applications->where('entry_mode', 'jupeb'));
+    }
+
+    private function emailIssuedMatric(?Student $student): void
+    {
+        if (! $student) {
+            return;
+        }
+        $student->loadMissing(['user', 'application']);
+        $matric = trim((string) $student->matric_number);
+        $email = trim((string) ($student->user?->email ?? ''));
+        if ($matric === '' || $email === '') {
+            return;
+        }
+
+        try {
+            Mail::to($email)->send(new StudentMatricIssuedMail($student, $matric));
+        } catch (\Throwable $exception) {
+            Log::warning('student.matric_email_failed', [
+                'student_id' => $student->id,
+                'message' => $exception->getMessage(),
+            ]);
+        }
     }
 }
