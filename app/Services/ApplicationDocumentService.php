@@ -10,6 +10,7 @@ use App\Support\AdmissionEntryRules;
 use App\Support\ApplicantPassport;
 use App\Support\InstitutionLogo;
 use App\Support\NairaWords;
+use App\Support\PgAdmissionSignature;
 use App\Support\RegistrarSignature;
 use App\Support\TranscriptRequestSettings;
 use Illuminate\Support\Str;
@@ -163,16 +164,20 @@ class ApplicationDocumentService
             'institution_with_city' => $this->institutionNameWithOta(),
             'letterhead_name' => $this->letterheadName(),
             'logo_data_uri' => InstitutionLogo::dataUri(),
-            'signature_data_uri' => $isPostgraduate ? null : RegistrarSignature::dataUri(),
+            'signature_data_uri' => $isPostgraduate
+                ? PgAdmissionSignature::dataUri()
+                : RegistrarSignature::dataUri(),
             'registrar_name' => $registrar['registrar_name'] !== ''
                 ? $registrar['registrar_name']
                 : 'Lamidi S. Tafa (Mr.)',
             'registrar_title' => $registrar['registrar_title'],
             'signatory_name' => $isPostgraduate
-                ? (string) Setting::getValue('pg_admission_signatory_name', 'Olugbenga A. Adelowo')
+                ? ($registrar['pg_signatory_name'] !== ''
+                    ? $registrar['pg_signatory_name']
+                    : 'Olugbenga A. Adelowo')
                 : ($registrar['registrar_name'] !== '' ? $registrar['registrar_name'] : 'Lamidi S. Tafa (Mr.)'),
             'signatory_title' => $isPostgraduate
-                ? (string) Setting::getValue('pg_admission_signatory_title', 'Secretary, College of Postgraduate Studies')
+                ? $registrar['pg_signatory_title']
                 : $registrar['registrar_title'],
             'application' => $application,
             'entry_mode' => (string) $application->entry_mode,

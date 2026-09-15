@@ -75,9 +75,27 @@ class OpenApiGenerator
                 ['name' => 'entry_modes', 'in' => 'query', 'schema' => ['type' => 'string'], 'description' => 'Comma-separated entry modes for channel views.'],
             ],
         ],
+        'delete_/api/applications/{application}' => [
+            'summary' => 'Delete application file (staff)',
+            'description' => 'Staff with `admissions.delete` soft-delete one application without removing the shared applicant account. Use this when the same person bought more than one form (for example postgraduate and UTME) and those files share email, phone, and JAMB. Paid invoices are kept; unpaid invoices for this file are cancelled. Blocked after an offer is issued, acceptance is paid, physical clearance, or a student record exists. Requires a reason. Office delete-approval still applies where configured.',
+            'requestBody' => [
+                'required' => true,
+                'content' => [
+                    'application/json' => [
+                        'schema' => [
+                            'type' => 'object',
+                            'required' => ['reason'],
+                            'properties' => [
+                                'reason' => ['type' => 'string', 'minLength' => 5, 'maxLength' => 500],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ],
         'get_/api/applications/{application}/offer-letter' => [
             'summary' => 'Print admission letter',
-            'description' => 'Returns the official HTML admission letter for an issued offer. Undergraduate letters use the Registry wording. JUPEB letters use the Foundation Programme wording. Postgraduate letters use College of Postgraduate Studies provisional-admission wording (COLPGS reference, 50%/50% fee split, Secretary sign-off).',
+            'description' => 'Returns the official HTML admission letter for an issued offer. Undergraduate letters use the Registry wording. JUPEB letters use the Foundation Programme wording. Postgraduate letters use College of Postgraduate Studies provisional-admission wording (COLPGS reference, 50%/50% fee split). Signatory name, title, and signature come from Application settings (registrar for UG/JUPEB; postgraduate signatory for PG).',
         ],
         'get_/api/applications/clearance' => [
             'summary' => 'List applicants for physical clearance',

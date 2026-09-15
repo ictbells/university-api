@@ -57,6 +57,11 @@ class ApplicationStartService
             422,
             Studentship::INCOMPLETE_PROGRAMME_MESSAGE,
         );
+        abort_unless(
+            ! Application::userHasOpenApplication($user->id),
+            422,
+            Application::OPEN_APPLICATION_MESSAGE,
+        );
         $previousApplicationNumber = $student?->application_id
             ? Application::query()->whereKey($student->application_id)->value('application_number')
             : null;

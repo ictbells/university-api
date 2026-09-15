@@ -327,6 +327,50 @@ class OfferAcceptancePortalTest extends TestCase
         $this->assertStringNotContainsString('Lamidi S. Tafa', $html);
     }
 
+    public function test_pg_admission_letter_uses_application_settings_signatory(): void
+    {
+        \App\Support\TranscriptRequestSettings::update([
+            'pg_signatory_name' => 'Jane Secretary',
+            'pg_signatory_title' => 'Acting Secretary, College of Postgraduate Studies',
+        ]);
+
+        $user = $this->pgApplicantWithOffer();
+        Sanctum::actingAs($user);
+
+        $html = $this->get("/api/applications/{$user->latestApplication->id}/offer-letter")
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('Jane Secretary', $html);
+        $this->assertStringContainsString('Acting Secretary, College of Postgraduate Studies', $html);
+        $this->assertStringNotContainsString('Olugbenga A. Adelowo', $html);
+    }
+
+    public function test_pg_admission_letter_prints_uploaded_signatory_signature(): void
+    {
+        $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
+        $path = sys_get_temp_dir().'/pg-signatory-'.uniqid().'.png';
+        file_put_contents($path, $png);
+        \App\Support\PgAdmissionSignature::store(new \Illuminate\Http\UploadedFile(
+            $path,
+            'pg-signatory.png',
+            'image/png',
+            null,
+            true,
+        ));
+
+        $user = $this->pgApplicantWithOffer();
+        Sanctum::actingAs($user);
+
+        $html = $this->get("/api/applications/{$user->latestApplication->id}/offer-letter")
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('data:image/png;base64,', $html);
+        $this->assertStringContainsString('Postgraduate signatory signature', $html);
+        $this->assertStringNotContainsString('Registrar signature', $html);
+    }
+
     public function test_jupeb_admission_letter_prints_uploaded_registrar_signature(): void
     {
         $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');

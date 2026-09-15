@@ -5355,7 +5355,7 @@
                         "bearerAuth": []
                     }
                 ],
-                "description": "Returns the official HTML admission letter for an issued offer. Undergraduate letters use the Registry wording. JUPEB letters use the Foundation Programme wording. Postgraduate letters use College of Postgraduate Studies provisional-admission wording (COLPGS reference, 50%/50% fee split, Secretary sign-off)."
+                "description": "Returns the official HTML admission letter for an issued offer. Undergraduate letters use the Registry wording. JUPEB letters use the Foundation Programme wording. Postgraduate letters use College of Postgraduate Studies provisional-admission wording (COLPGS reference, 50%/50% fee split). Signatory name, title, and signature come from Application settings (registrar for UG/JUPEB; postgraduate signatory for PG)."
             }
         },
         "/api/applications/{application}/passport": {
@@ -15753,6 +15753,90 @@
                         }
                     }
                 }
+            }
+        },
+        "/api/security-settings/pg-signatory-signature": {
+            "post": {
+                "operationId": "postSecuritySettingsUploadPgSignatorySignature",
+                "summary": "Create Upload Pg Signatory Signature",
+                "tags": [
+                    "Security"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `settings.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "deleteSecuritySettingsDestroyPgSignatorySignature",
+                "summary": "Delete Destroy Pg Signatory Signature",
+                "tags": [
+                    "Security"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Requires permission: `settings.manage`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
             }
         },
         "/api/security-settings/registrar-signature": {

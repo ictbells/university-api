@@ -129,6 +129,57 @@ class AdmissionsContactTest extends TestCase
             ->assertJsonPath('registrar_signature_data_uri', null);
     }
 
+    public function test_staff_can_update_pg_admission_signatory(): void
+    {
+        Sanctum::actingAs($this->staffUser(['settings.manage']));
+
+        $this->putJson('/api/security-settings', [
+            'pg_signatory_name' => 'Olugbenga A. Adelowo',
+            'pg_signatory_title' => 'Secretary, College of Postgraduate Studies',
+        ])
+            ->assertOk()
+            ->assertJsonPath('pg_signatory_name', 'Olugbenga A. Adelowo')
+            ->assertJsonPath('pg_signatory_title', 'Secretary, College of Postgraduate Studies');
+
+        $this->getJson('/api/security-settings')
+            ->assertOk()
+            ->assertJsonPath('pg_signatory_name', 'Olugbenga A. Adelowo')
+            ->assertJsonPath('pg_signatory_title', 'Secretary, College of Postgraduate Studies');
+    }
+
+    public function test_staff_can_upload_and_remove_pg_admission_signature(): void
+    {
+        Sanctum::actingAs($this->staffUser(['settings.manage']));
+
+        $this->getJson('/api/security-settings')
+            ->assertOk()
+            ->assertJsonPath('pg_signatory_has_signature', false);
+
+        $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
+        $path = sys_get_temp_dir().'/pg-signatory-'.uniqid().'.png';
+        file_put_contents($path, $png);
+        $file = new UploadedFile($path, 'pg-signatory.png', 'image/png', null, true);
+
+        $this->post('/api/security-settings/pg-signatory-signature', [
+            'file' => $file,
+        ], ['Accept' => 'application/json'])
+            ->assertOk()
+            ->assertJsonPath('pg_signatory_has_signature', true);
+
+        $this->getJson('/api/security-settings')
+            ->assertOk()
+            ->assertJsonPath('pg_signatory_has_signature', true);
+        $this->assertStringStartsWith(
+            'data:image',
+            (string) $this->getJson('/api/security-settings')->json('pg_signatory_signature_data_uri'),
+        );
+
+        $this->deleteJson('/api/security-settings/pg-signatory-signature')
+            ->assertOk()
+            ->assertJsonPath('pg_signatory_has_signature', false)
+            ->assertJsonPath('pg_signatory_signature_data_uri', null);
+    }
+
     /**
      * @param  list<string>  $permissions
      */

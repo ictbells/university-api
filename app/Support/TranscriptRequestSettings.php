@@ -21,6 +21,10 @@ class TranscriptRequestSettings
 
     public const REGISTRAR_TITLE = 'registrar_title';
 
+    public const PG_SIGNATORY_NAME = 'pg_signatory_name';
+
+    public const PG_SIGNATORY_TITLE = 'pg_signatory_title';
+
     public static function defaults(): array
     {
         return [
@@ -31,6 +35,8 @@ class TranscriptRequestSettings
             'transcript_collect_instructions' => 'Please collect your official transcript from the Registry during office hours. Bring a valid ID and your request reference.',
             'registrar_name' => '',
             'registrar_title' => 'Registrar',
+            'pg_signatory_name' => '',
+            'pg_signatory_title' => 'Secretary, College of Postgraduate Studies',
         ];
     }
 
@@ -50,6 +56,9 @@ class TranscriptRequestSettings
             'registrar_name' => trim((string) Setting::getValue(self::REGISTRAR_NAME, $defaults['registrar_name'])),
             'registrar_title' => trim((string) Setting::getValue(self::REGISTRAR_TITLE, $defaults['registrar_title']))
                 ?: $defaults['registrar_title'],
+            'pg_signatory_name' => trim((string) Setting::getValue(self::PG_SIGNATORY_NAME, $defaults['pg_signatory_name'])),
+            'pg_signatory_title' => trim((string) Setting::getValue(self::PG_SIGNATORY_TITLE, $defaults['pg_signatory_title']))
+                ?: $defaults['pg_signatory_title'],
         ];
     }
 
@@ -108,6 +117,13 @@ class TranscriptRequestSettings
             $title = trim((string) $data['registrar_title']);
             $current['registrar_title'] = $title !== '' ? $title : self::defaults()['registrar_title'];
         }
+        if (array_key_exists('pg_signatory_name', $data)) {
+            $current['pg_signatory_name'] = trim((string) $data['pg_signatory_name']);
+        }
+        if (array_key_exists('pg_signatory_title', $data)) {
+            $title = trim((string) $data['pg_signatory_title']);
+            $current['pg_signatory_title'] = $title !== '' ? $title : self::defaults()['pg_signatory_title'];
+        }
 
         if (
             $current['transcript_requests_enabled']
@@ -125,6 +141,8 @@ class TranscriptRequestSettings
         Setting::setValue(self::COLLECT_INSTRUCTIONS, $current['transcript_collect_instructions']);
         Setting::setValue(self::REGISTRAR_NAME, $current['registrar_name']);
         Setting::setValue(self::REGISTRAR_TITLE, $current['registrar_title']);
+        Setting::setValue(self::PG_SIGNATORY_NAME, $current['pg_signatory_name']);
+        Setting::setValue(self::PG_SIGNATORY_TITLE, $current['pg_signatory_title']);
 
         return self::all();
     }

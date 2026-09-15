@@ -121,6 +121,36 @@ class Application extends BaseModel
     ];
 
     /**
+     * Stages at or after an issued offer — deleting would drop letters, acceptance, and studentship.
+     *
+     * @var list<string>
+     */
+    public const DELETE_BLOCKED_STAGES = [
+        'offer_issued',
+        'admission',
+        'awaiting_acceptance_fee',
+        'acceptance_paid',
+        'matriculated',
+    ];
+
+    /** Finished files that do not block starting a different admission category. */
+    public const CLOSED_STAGES = [
+        'withdrawn',
+        'rejected',
+        'matriculated',
+    ];
+
+    public const OPEN_APPLICATION_MESSAGE = 'You already have an open application. Finish or withdraw it before applying for another admission category.';
+
+    public static function userHasOpenApplication(int $userId): bool
+    {
+        return static::query()
+            ->where('user_id', $userId)
+            ->whereNotIn('stage', self::CLOSED_STAGES)
+            ->exists();
+    }
+
+    /**
      * @return array<string, string>
      */
     public static function staffStagesFor(?string $entryMode): array
@@ -311,6 +341,27 @@ class Application extends BaseModel
     public function student(): BelongsTo
     {
         return $this->belongsTo(Student::class);
+    }
+
+    public function deletionBlockReason(): ?string
+    {
+        $this->loadMissing(['acceptanceFeeInvoice', 'student']);
+
+        if ($this->student_id || $this->student
+            || Student::query()->where('application_id', $this->id)->exists()) {
+            return 'This file has a student record and cannot be deleted.';
+        }
+        if ($this->physically_cleared_at) {
+            return 'This applicant has been physically cleared and the file cannot be deleted.';
+        }
+        if (in_array($this->acceptanceFeeInvoice?->status, ['paid', 'partial'], true)) {
+            return 'Acceptance fee has been paid on this file, so it cannot be deleted.';
+        }
+        if (in_array((string) $this->stage, self::DELETE_BLOCKED_STAGES, true)) {
+            return 'This file has progressed to an offer (or further) and cannot be deleted. Revert the last decision first if it was a mistake.';
+        }
+
+        return null;
     }
 
     public function ninVerified(): bool

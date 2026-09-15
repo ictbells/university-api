@@ -188,6 +188,8 @@ class User extends Authenticatable
             'is_student' => $this->isStudent(),
             'student_status' => $student?->status,
             'can_apply_again' => \App\Support\Studentship::canApplyForAnotherProgramme($student),
+            'can_start_application' => \App\Support\Studentship::canApplyForAnotherProgramme($student)
+                && ! $this->applications()->whereNotIn('stage', Application::CLOSED_STAGES)->exists(),
             'is_staff' => $this->isStaffPortalUser(),
             'portal_access' => $portal || $this->isStudent() || $this->staff()->exists() || $this->hasPermission('users.manage'),
             'unpaid_application_fee' => $unpaidAppFee,

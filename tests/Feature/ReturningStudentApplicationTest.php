@@ -52,6 +52,55 @@ class ReturningStudentApplicationTest extends TestCase
         $this->assertSame($prior->id, Application::query()->value('id'));
     }
 
+    public function test_applicant_cannot_start_a_second_category_while_another_form_is_open(): void
+    {
+        [$user, $pg, $utmeIntake] = $this->applicantWithPgAndUtmeIntake('submitted');
+        Sanctum::actingAs($user);
+
+        $this->assertFalse($user->portalAccess()['can_start_application']);
+
+        $this->postJson('/api/applications', [
+            'entry_mode' => 'utme',
+            'intake_id' => $utmeIntake->id,
+            'jamb_registration' => '20261234567AB',
+        ])->assertStatus(422)
+            ->assertJsonPath('message', Application::OPEN_APPLICATION_MESSAGE);
+
+        $this->assertSame(1, Application::query()->count());
+        $this->assertSame($pg->id, Application::query()->value('id'));
+    }
+
+    public function test_applicant_can_start_another_category_after_the_open_form_is_withdrawn(): void
+    {
+        [$user, , $utmeIntake] = $this->applicantWithPgAndUtmeIntake('withdrawn');
+        Sanctum::actingAs($user);
+
+        $this->assertTrue($user->portalAccess()['can_start_application']);
+
+        $this->postJson('/api/applications', [
+            'entry_mode' => 'utme',
+            'intake_id' => $utmeIntake->id,
+            'jamb_registration' => '20261234567AB',
+        ])->assertOk()
+            ->assertJsonPath('entry_mode', 'utme');
+
+        $this->assertSame(2, Application::query()->count());
+    }
+
+    public function test_starting_the_same_open_session_returns_the_existing_file(): void
+    {
+        [$user, $pg, , $pgIntake] = $this->applicantWithPgAndUtmeIntake('form_in_progress');
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/applications', [
+            'entry_mode' => 'pg',
+            'intake_id' => $pgIntake->id,
+        ])->assertOk()
+            ->assertJsonPath('id', $pg->id);
+
+        $this->assertSame(1, Application::query()->count());
+    }
+
     public function test_student_can_start_a_new_application_that_is_prefilled_and_nin_biodata_stays_locked(): void
     {
         [$user, $prior, $pgIntake] = $this->matriculatedStudentWithOpenPgIntake();
@@ -350,6 +399,55 @@ class ReturningStudentApplicationTest extends TestCase
         }
 
         $this->assertSame('12345678901', $user->student->fresh()->nin);
+    }
+
+    /**
+     * @return array{0: User, 1: Application, 2: Intake, 3: Intake}
+     */
+    private function applicantWithPgAndUtmeIntake(string $pgStage): array
+    {
+        $session = AcademicSession::query()->create(['label' => '2026/2027']);
+        $term = AcademicTerm::query()->create([
+            'academic_session_id' => $session->id,
+            'name' => 'First',
+            'session_label' => '2026/2027',
+            'is_current' => true,
+        ]);
+        $utmeIntake = Intake::query()->create([
+            'academic_term_id' => $term->id,
+            'name' => 'UTME 2026',
+            'entry_mode' => 'utme',
+            'is_open' => true,
+            'application_fee_amount' => 5000,
+            'opens_on' => now()->subDay()->toDateString(),
+            'closes_on' => now()->addMonth()->toDateString(),
+        ]);
+        $pgIntake = Intake::query()->create([
+            'academic_term_id' => $term->id,
+            'name' => 'PG 2026',
+            'entry_mode' => 'pg',
+            'is_open' => true,
+            'application_fee_amount' => 15000,
+            'opens_on' => now()->subDay()->toDateString(),
+            'closes_on' => now()->addMonth()->toDateString(),
+        ]);
+
+        $this->seedApplicantRole();
+        $applicantRole = Role::query()->where('slug', 'applicant')->firstOrFail();
+        $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
+        $user->roles()->attach($applicantRole->id);
+
+        $pg = Application::query()->create([
+            'application_number' => 'APP/2026/PG001',
+            'user_id' => $user->id,
+            'intake_id' => $pgIntake->id,
+            'academic_session_id' => $session->id,
+            'program_id' => $this->programme('M.Sc Computer Science', 'postgraduate', ['pg'])->id,
+            'entry_mode' => 'pg',
+            'stage' => $pgStage,
+        ]);
+
+        return [$user, $pg, $utmeIntake, $pgIntake];
     }
 
     /**

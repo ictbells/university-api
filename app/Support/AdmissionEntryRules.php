@@ -288,6 +288,18 @@ class AdmissionEntryRules
         return $index === false ? PHP_INT_MAX : $index;
     }
 
+    public static function entryModeLabel(?string $entryMode): string
+    {
+        return match ($entryMode) {
+            'utme' => 'UTME',
+            'de' => 'Direct Entry',
+            'jupeb' => 'JUPEB',
+            'transfer' => 'Transfer',
+            'pg' => 'Postgraduate',
+            default => $entryMode ? strtoupper($entryMode) : 'Application',
+        };
+    }
+
     public static function allowsSecondProgramme(string $entryMode): bool
     {
         return $entryMode !== 'jupeb';

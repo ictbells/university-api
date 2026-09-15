@@ -35,6 +35,8 @@ class SecuritySettings
             ...PublicPaySettings::all(),
             'registrar_has_signature' => RegistrarSignature::exists(),
             'registrar_signature_data_uri' => RegistrarSignature::dataUri(),
+            'pg_signatory_has_signature' => PgAdmissionSignature::exists(),
+            'pg_signatory_signature_data_uri' => PgAdmissionSignature::dataUri(),
             ...PgResearchWordLimits::all(),
             ...PaymentGatewaySettings::all(),
         ];
@@ -93,6 +95,8 @@ class SecuritySettings
             || array_key_exists('transcript_collect_instructions', $data)
             || array_key_exists('registrar_name', $data)
             || array_key_exists('registrar_title', $data)
+            || array_key_exists('pg_signatory_name', $data)
+            || array_key_exists('pg_signatory_title', $data)
         ) {
             TranscriptRequestSettings::update($data);
         }

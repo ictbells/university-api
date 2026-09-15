@@ -11,6 +11,7 @@ use App\Models\FeeItem;
 use App\Models\Intake;
 use App\Models\Program;
 use App\Models\RefereeInvite;
+use App\Services\ApplicationDeletionService;
 use App\Services\ApplicationDocumentService;
 use App\Services\ApplicationExportService;
 use App\Services\ApplicationStaffUpdateService;
@@ -54,6 +55,7 @@ class ApplicationController extends Controller
         private WorkflowEngine $workflows,
         private RefereeInviteService $referees,
         private ApplicationStartService $applicationStart,
+        private ApplicationDeletionService $deletions,
     ) {}
 
     public function index(Request $request)
@@ -184,6 +186,26 @@ class ApplicationController extends Controller
         $this->ensureAcceptanceInvoiceIfOffered($application);
 
         return $this->decorateFile($this->staffUpdates->freshFile($application));
+    }
+
+    public function destroy(Request $request, Application $application)
+    {
+        abort_unless($request->user()?->hasPermission('admissions.delete'), 403);
+        $this->authorizeStaffEdit($request, $application);
+
+        $data = $request->validate([
+            'reason' => 'required|string|min:5|max:500',
+        ]);
+        $this->deletions->assertCanDelete($application);
+
+        return $this->officeGate(
+            'admissions.destroy',
+            $application,
+            ['application_id' => $application->id, 'reason' => $data['reason']],
+            'Delete application file '.($application->application_number ?: '#'.$application->id),
+            fn () => response()->json($this->deletions->delete($application, $data['reason'])),
+            \App\Support\OfficeApprovalCatalog::admissionsNavKey($application->entry_mode ?? $application->channel ?? null),
+        );
     }
 
     public function staffUpdate(Request $request, Application $application)
@@ -1041,6 +1063,10 @@ class ApplicationController extends Controller
 
         $application->setAttribute('pg_word_limits', PgResearchWordLimits::all());
         $application->setAttribute('application_window_open', $application->applicationWindowOpen());
+        $application->setAttribute('linked_applications', $this->linkedApplications($application));
+        $blocked = $application->deletionBlockReason();
+        $application->setAttribute('can_delete', $blocked === null);
+        $application->setAttribute('delete_blocked_reason', $blocked);
 
         $application->loadMissing([
             'applicationFeeInvoice.payments',
@@ -1106,6 +1132,31 @@ class ApplicationController extends Controller
             $prefix.'.results.*.subject_name' => 'nullable|string|max:120',
             $prefix.'.results.*.grade' => 'nullable|string|max:10',
         ];
+    }
+
+    /**
+     * @return list<array{id: int, application_number: ?string, entry_mode: string, entry_mode_label: string, stage: ?string}>
+     */
+    private function linkedApplications(Application $application): array
+    {
+        if (! $application->user_id) {
+            return [];
+        }
+
+        return Application::query()
+            ->where('user_id', $application->user_id)
+            ->whereKeyNot($application->id)
+            ->orderBy('id')
+            ->get(['id', 'application_number', 'entry_mode', 'stage'])
+            ->map(fn (Application $row) => [
+                'id' => $row->id,
+                'application_number' => $row->application_number,
+                'entry_mode' => $row->entry_mode,
+                'entry_mode_label' => AdmissionEntryRules::entryModeLabel($row->entry_mode),
+                'stage' => $row->stage,
+            ])
+            ->values()
+            ->all();
     }
 
     private function authorizeOwner(Request $request, Application $application): void

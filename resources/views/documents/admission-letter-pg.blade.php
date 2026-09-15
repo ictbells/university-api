@@ -109,7 +109,15 @@
     ol.roman li { margin: 0 0 2px; text-align: justify; }
     .closing { margin-top: 8px; }
     .signatory { margin-top: 14px; }
-    .yours { margin: 0 0 28px; }
+    .yours { margin: 0 0 4px; }
+    .signatory img {
+      display: block;
+      max-height: 42px;
+      max-width: 140px;
+      margin: 0 0 2px;
+      object-fit: contain;
+    }
+    .sign-space { height: 28px; }
     .sign-name, .sign-title { font-weight: 700; margin: 0; }
     .letter-footer {
       margin-top: 14px;
@@ -236,13 +244,20 @@
 
       <div class="signatory">
         <p class="yours">Yours faithfully,</p>
+        @if (!empty($signature_data_uri))
+          <img src="{{ $signature_data_uri }}" alt="Postgraduate signatory signature">
+        @else
+          <div class="sign-space"></div>
+        @endif
         @if (!empty($signatory_name))
           <p class="sign-name">{{ $signatory_name }}</p>
         @endif
         <p class="sign-title">{{ $signatory_title }}</p>
       </div>
 
-      
+      <div class="letter-footer">
+        <p class="motto">‘Only the best is good for Bells’</p>
+      </div>
     </div>
   </div>
 </body>

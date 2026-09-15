@@ -185,6 +185,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
     Route::post('/applications', [ApplicationController::class, 'start']);
     Route::get('/applications/{application}', [ApplicationController::class, 'show']);
     Route::patch('/applications/{application}', [ApplicationController::class, 'staffUpdate']);
+    Route::delete('/applications/{application}', [ApplicationController::class, 'destroy']);
     Route::get('/applications/{application}/form-print', [ApplicationController::class, 'formPrint']);
     Route::get('/applications/{application}/offer-letter', [ApplicationController::class, 'offerLetter']);
     Route::post('/applications/{application}/steps', [ApplicationController::class, 'saveStep']);
@@ -294,6 +295,8 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::put('/security-settings', [SecuritySettingsController::class, 'update']);
         Route::post('/security-settings/registrar-signature', [SecuritySettingsController::class, 'uploadRegistrarSignature']);
         Route::delete('/security-settings/registrar-signature', [SecuritySettingsController::class, 'destroyRegistrarSignature']);
+        Route::post('/security-settings/pg-signatory-signature', [SecuritySettingsController::class, 'uploadPgSignatorySignature']);
+        Route::delete('/security-settings/pg-signatory-signature', [SecuritySettingsController::class, 'destroyPgSignatorySignature']);
     });
 
     Route::middleware('permission:resources.view')->group(function () {

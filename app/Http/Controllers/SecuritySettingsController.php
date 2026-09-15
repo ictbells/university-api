@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\PgAdmissionSignature;
 use App\Support\RegistrarSignature;
 use App\Support\SecuritySettings;
 use Illuminate\Http\JsonResponse;
@@ -52,6 +53,42 @@ class SecuritySettingsController extends Controller
         );
     }
 
+    public function uploadPgSignatorySignature(Request $request): JsonResponse
+    {
+        $request->validate([
+            'file' => 'required|image|mimes:png,jpg,jpeg,webp|max:2048',
+        ]);
+
+        return $this->officeGate(
+            'settings.upload_pg_signatory_signature',
+            null,
+            $this->persistApprovalUpload($request),
+            'Upload postgraduate admission signature',
+            function () use ($request) {
+                $file = $request->file('file');
+                abort_unless($file, 422, 'Choose a signature image to upload.');
+                PgAdmissionSignature::store($file);
+
+                return response()->json(SecuritySettings::all());
+            },
+        );
+    }
+
+    public function destroyPgSignatorySignature(): JsonResponse
+    {
+        return $this->officeGate(
+            'settings.delete_pg_signatory_signature',
+            null,
+            [],
+            'Remove postgraduate admission signature',
+            function () {
+                PgAdmissionSignature::delete();
+
+                return response()->json(SecuritySettings::all());
+            },
+        );
+    }
+
     public function update(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -80,6 +117,8 @@ class SecuritySettingsController extends Controller
             'public_pay_collect_instructions' => 'sometimes|nullable|string|max:2000',
             'registrar_name' => 'sometimes|nullable|string|max:120',
             'registrar_title' => 'sometimes|nullable|string|max:80',
+            'pg_signatory_name' => 'sometimes|nullable|string|max:120',
+            'pg_signatory_title' => 'sometimes|nullable|string|max:120',
             'pg_research_interest_min_words' => 'sometimes|integer|min:0|max:5000',
             'pg_research_interest_max_words' => 'sometimes|integer|min:0|max:5000',
             'pg_statement_of_purpose_min_words' => 'sometimes|integer|min:0|max:5000',
