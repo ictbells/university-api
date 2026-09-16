@@ -40,6 +40,7 @@ class HostelController extends Controller
             'categories' => $this->hostels->categories(),
             'stats' => $this->hostels->hostelStats(),
             'current_term_id' => $this->hostels->currentTermId(),
+            'academic_levels' => $this->hostels->academicLevelsByCategory(),
         ];
     }
 
@@ -48,7 +49,10 @@ class HostelController extends Controller
         $counts = $this->hostels->hostelBedCounts();
 
         return Hostel::query()
-            ->with(['blocks' => fn ($query) => $query->withCount('rooms')->orderBy('name')])
+            ->with([
+                'academicLevels',
+                'blocks' => fn ($query) => $query->withCount('rooms')->orderBy('name'),
+            ])
             ->orderBy('category')
             ->orderBy('name')
             ->get()
@@ -58,24 +62,35 @@ class HostelController extends Controller
     public function store(Request $request)
     {
         $data = $this->validatedHostel($request, true);
+        $levelIds = $data['academic_level_ids'] ?? [];
+        unset($data['academic_level_ids']);
 
-        return $this->officeGate('hostel.store', null, $data, 'Create hostel '.$data['name'], function () use ($data) {
+        return $this->officeGate('hostel.store', null, ['academic_level_ids' => $levelIds, ...$data], 'Create hostel '.$data['name'], function () use ($data, $levelIds) {
             $hostel = Hostel::query()->create($data);
+            $this->hostels->syncHostelLevels($hostel, $levelIds);
             $this->audit->record('hostel.created', 'Hostel created', 'hostel', 'hostel', $hostel->id, null, $hostel);
 
-            return $this->formatHostel($hostel->load(['blocks' => fn ($query) => $query->withCount('rooms')->orderBy('name')]));
+            return $this->formatHostel($hostel->load(['academicLevels', 'blocks' => fn ($query) => $query->withCount('rooms')->orderBy('name')]));
         });
     }
 
     public function update(Request $request, Hostel $hostel)
     {
         $data = $this->validatedHostel($request, false);
+        $hasLevels = array_key_exists('academic_level_ids', $data);
+        $levelIds = $data['academic_level_ids'] ?? [];
+        unset($data['academic_level_ids']);
 
-        return $this->officeGate('hostel.update', $hostel, ['hostel_id' => $hostel->id, ...$data], 'Update hostel '.$hostel->name, function () use ($data, $hostel) {
+        return $this->officeGate('hostel.update', $hostel, $hasLevels
+            ? ['hostel_id' => $hostel->id, 'academic_level_ids' => $levelIds, ...$data]
+            : ['hostel_id' => $hostel->id, ...$data], 'Update hostel '.$hostel->name, function () use ($data, $hostel, $hasLevels, $levelIds) {
             $before = $hostel->toArray();
             $hostel->update($data);
+            if ($hasLevels) {
+                $this->hostels->syncHostelLevels($hostel, $levelIds);
+            }
             $this->audit->record('hostel.updated', 'Hostel updated', 'hostel', 'hostel', $hostel->id, $before, $hostel->fresh());
-            $hostel = $hostel->fresh(['blocks' => fn ($query) => $query->withCount('rooms')->orderBy('name')]);
+            $hostel = $hostel->fresh(['academicLevels', 'blocks' => fn ($query) => $query->withCount('rooms')->orderBy('name')]);
 
             return $this->formatHostel($hostel, $this->hostels->hostelBedCounts()->get($hostel->id));
         });
@@ -196,12 +211,10 @@ class HostelController extends Controller
         $bed = HostelBed::query()->findOrFail($data['hostel_bed_id']);
         $termId = $data['academic_term_id'] ?? $this->hostels->currentTermId();
 
-        $student = $this->hostels
-            ->eligibleStudentsQuery($data['category'], $termId)
-            ->first();
+        $student = $this->hostels->nextEligibleStudentForBed($bed, $data['category'], $termId);
 
         if (! $student) {
-            return response()->json(['message' => 'No eligible student in the priority queue for this category.'], 422);
+            return response()->json(['message' => 'No eligible student in the priority queue for this category and room level.'], 422);
         }
 
         return $this->allocate(new Request([
@@ -284,7 +297,7 @@ class HostelController extends Controller
         ]);
 
         return HostelRoom::query()
-            ->with(['block.hostel', 'beds'])
+            ->with(['block.hostel.academicLevels', 'beds', 'academicLevels'])
             ->withCount([
                 'beds as bed_count',
                 'beds as occupied_beds' => fn ($query) => $query->where('status', 'occupied'),
@@ -375,13 +388,22 @@ class HostelController extends Controller
             'bedding_type' => 'nullable|in:single,bunk',
             'gender' => 'nullable|in:male,female',
             'is_active' => 'boolean',
+            'academic_level_ids' => 'nullable|array',
+            'academic_level_ids.*' => 'integer|exists:academic_levels,id',
         ]);
+        $levelIds = $data['academic_level_ids'] ?? null;
+        unset($data['academic_level_ids']);
 
-        return $this->officeGate('hostel.store_room', $hostelBlock, ['hostel_block_id' => $hostelBlock->id, ...$data], 'Create hostel room', function () use ($hostelBlock, $data) {
+        return $this->officeGate('hostel.store_room', $hostelBlock, $levelIds !== null
+            ? ['hostel_block_id' => $hostelBlock->id, 'academic_level_ids' => $levelIds, ...$data]
+            : ['hostel_block_id' => $hostelBlock->id, ...$data], 'Create hostel room', function () use ($hostelBlock, $data, $levelIds) {
             $room = $this->rooms->storeRoom($hostelBlock, $data);
+            if ($levelIds !== null) {
+                $this->hostels->syncRoomLevels($room, $levelIds);
+            }
             $this->audit->record('hostel.room.created', 'Hostel room created', 'hostel', 'hostel_room', $room->id, null, $room);
 
-            return $this->rooms->formatRoom($room, true);
+            return $this->rooms->formatRoom($room->load('academicLevels'), true);
         });
     }
 
@@ -396,14 +418,24 @@ class HostelController extends Controller
             'is_active' => 'boolean',
             'is_reserved' => 'boolean',
             'reserve_note' => 'nullable|string|max:255',
+            'academic_level_ids' => 'sometimes|array',
+            'academic_level_ids.*' => 'integer|exists:academic_levels,id',
         ]);
+        $hasLevels = array_key_exists('academic_level_ids', $data);
+        $levelIds = $data['academic_level_ids'] ?? [];
+        unset($data['academic_level_ids']);
 
-        return $this->officeGate('hostel.update_room', $hostelRoom, ['hostel_room_id' => $hostelRoom->id, ...$data], 'Update hostel room', function () use ($hostelRoom, $data) {
+        return $this->officeGate('hostel.update_room', $hostelRoom, $hasLevels
+            ? ['hostel_room_id' => $hostelRoom->id, 'academic_level_ids' => $levelIds, ...$data]
+            : ['hostel_room_id' => $hostelRoom->id, ...$data], 'Update hostel room', function () use ($hostelRoom, $data, $hasLevels, $levelIds) {
             $before = $hostelRoom->toArray();
             $room = $this->rooms->updateRoom($hostelRoom, $data);
+            if ($hasLevels) {
+                $this->hostels->syncRoomLevels($room, $levelIds);
+            }
             $this->audit->record('hostel.room.updated', 'Hostel room updated', 'hostel', 'hostel_room', $room->id, $before, $room->toArray());
 
-            return $this->rooms->formatRoom($room, true);
+            return $this->rooms->formatRoom($room->load('academicLevels'), true);
         });
     }
 
@@ -555,9 +587,13 @@ class HostelController extends Controller
 
     private function formatHostel(Hostel $hostel, mixed $counts = null): array
     {
-        $hostel->loadMissing(['blocks' => fn ($query) => $query->withCount('rooms')->orderBy('name')]);
+        $hostel->loadMissing([
+            'academicLevels',
+            'blocks' => fn ($query) => $query->withCount('rooms')->orderBy('name'),
+        ]);
         $totalBeds = (int) ($counts?->total_beds ?? 0);
         $availableBeds = (int) ($counts?->available_beds ?? 0);
+        $levels = $this->hostels->formatAcademicLevels($hostel->academicLevels);
 
         return [
             'id' => $hostel->id,
@@ -568,6 +604,8 @@ class HostelController extends Controller
             'is_active' => (bool) $hostel->is_active,
             'due_required' => (bool) $hostel->due_required,
             'due_amount' => $hostel->due_amount !== null ? (float) $hostel->due_amount : null,
+            'academic_level_ids' => collect($levels)->pluck('id')->values()->all(),
+            'academic_levels' => $levels,
             'total_beds' => $totalBeds,
             'available_beds' => $availableBeds,
             'occupied_beds' => $totalBeds - $availableBeds,
@@ -647,6 +685,8 @@ class HostelController extends Controller
             'is_active' => 'boolean',
             'due_required' => 'boolean',
             'due_amount' => 'nullable|numeric|min:0',
+            'academic_level_ids' => ($creating ? 'nullable' : 'sometimes').'|array',
+            'academic_level_ids.*' => 'integer|exists:academic_levels,id',
         ]);
 
         $data['due_required'] = $request->boolean('due_required');

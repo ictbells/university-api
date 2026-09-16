@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Hostel extends BaseModel
@@ -43,5 +44,11 @@ class Hostel extends BaseModel
     public function blocks(): HasMany
     {
         return $this->hasMany(HostelBlock::class);
+    }
+
+    public function academicLevels(): BelongsToMany
+    {
+        return $this->belongsToMany(AcademicLevel::class, 'hostel_academic_level')
+            ->orderBy('sort_order');
     }
 }

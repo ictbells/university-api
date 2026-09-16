@@ -45,6 +45,106 @@ class HostelService
         ];
     }
 
+    /**
+     * @return array<string, list<array{id: int, name: string, code: ?string, study_level: string}>>
+     */
+    public function academicLevelsByCategory(): array
+    {
+        $levels = AcademicLevel::query()
+            ->where('is_active', true)
+            ->orderBy('study_level')
+            ->orderBy('sort_order')
+            ->get(['id', 'name', 'code', 'study_level']);
+
+        $grouped = [];
+        foreach ($this->categories() as $category) {
+            $studyLevel = $this->studyLevelForCategory($category['key']);
+            $grouped[$category['key']] = $levels
+                ->where('study_level', $studyLevel)
+                ->values()
+                ->map(fn (AcademicLevel $level) => $this->formatAcademicLevel($level))
+                ->all();
+        }
+
+        return $grouped;
+    }
+
+    /**
+     * @param  list<int|string>  $ids
+     */
+    public function syncHostelLevels(Hostel $hostel, array $ids): void
+    {
+        $hostel->academicLevels()->sync($this->validatedLevelIds($ids, $hostel->category, null));
+    }
+
+    /**
+     * @param  list<int|string>  $ids
+     */
+    public function syncRoomLevels(HostelRoom $room, array $ids): void
+    {
+        $room->loadMissing('block.hostel.academicLevels');
+        $hostel = $room->block?->hostel;
+        $hostelLevelIds = $hostel?->academicLevels->pluck('id')->map(fn ($id) => (int) $id)->all() ?? [];
+
+        $room->academicLevels()->sync($this->validatedLevelIds(
+            $ids,
+            $hostel?->category,
+            $hostelLevelIds !== [] ? $hostelLevelIds : null,
+        ));
+    }
+
+    /**
+     * @return list<array{id: int, name: string, code: ?string, study_level: string}>
+     */
+    public function formatAcademicLevels(iterable $levels): array
+    {
+        return collect($levels)
+            ->map(fn (AcademicLevel $level) => $this->formatAcademicLevel($level))
+            ->values()
+            ->all();
+    }
+
+    public function roomAllowsStudentLevel(Student $student, HostelRoom $room, ?Hostel $hostel = null): bool
+    {
+        $room->loadMissing(['academicLevels', 'block.hostel.academicLevels']);
+        $hostel ??= $room->block?->hostel;
+        $assigned = $room->academicLevels;
+        if ($assigned->isNotEmpty()) {
+            return $this->levelsIncludeStudent($assigned, $student, $hostel?->category);
+        }
+
+        return $this->hostelAllowsStudentLevel($student, $hostel);
+    }
+
+    public function hostelAllowsStudentLevel(Student $student, ?Hostel $hostel): bool
+    {
+        if (! $hostel) {
+            return false;
+        }
+
+        $hostel->loadMissing('academicLevels');
+        if ($hostel->academicLevels->isEmpty()) {
+            return true;
+        }
+
+        return $this->levelsIncludeStudent($hostel->academicLevels, $student, $hostel->category);
+    }
+
+    public function nextEligibleStudentForBed(HostelBed $bed, string $category, ?int $termId = null): ?Student
+    {
+        $bed->loadMissing(['room.academicLevels', 'room.block.hostel.academicLevels']);
+        $room = $bed->room;
+        $hostel = $room?->block?->hostel;
+        if (! $room || ! $hostel) {
+            return null;
+        }
+
+        return $this->eligibleStudentsQuery($category, $termId)
+            ->limit(200)
+            ->get()
+            ->first(fn (Student $student) => $this->roomAllowsStudentLevel($student, $room, $hostel));
+    }
+
     public function currentTermId(): ?int
     {
         $live = AcademicTerm::query()->where('is_current', true)->value('id');
@@ -269,6 +369,12 @@ class HostelService
         }
 
         $this->rooms->assertRoomGenderMatch($student, $room, $hostel);
+
+        if (! $this->roomAllowsStudentLevel($student, $room, $hostel)) {
+            throw ValidationException::withMessages([
+                'hostel_bed_id' => 'This room is not assigned to the student\'s level ('.StudentAcademicLevel::label($student).').',
+            ]);
+        }
     }
 
     public function assertTuitionPaid(Student $student): void
@@ -508,7 +614,7 @@ class HostelService
         $gender = strtolower((string) $student->gender);
 
         $hostels = Hostel::query()
-            ->with(['blocks.rooms.beds'])
+            ->with(['academicLevels', 'blocks.rooms.beds', 'blocks.rooms.academicLevels'])
             ->where('is_active', true)
             ->where('category', $category)
             ->when($gender !== '', function (Builder $query) use ($gender) {
@@ -527,39 +633,41 @@ class HostelService
 
                 return strtoupper($block->name);
             })->values()->map(function (HostelBlock $block) use ($student, $hostel) {
-                $rooms = $block->rooms->map(function (HostelRoom $room) use ($student, $hostel, $block) {
-                    $formatted = $this->rooms->formatRoom($room, true);
-                    $genderOk = true;
-                    try {
-                        $this->rooms->assertRoomGenderMatch($student, $room, $hostel);
-                    } catch (ValidationException) {
-                        $genderOk = false;
-                    }
+                $rooms = $block->rooms
+                    ->filter(fn (HostelRoom $room) => $this->roomAllowsStudentLevel($student, $room, $hostel))
+                    ->map(function (HostelRoom $room) use ($student, $hostel, $block) {
+                        $formatted = $this->rooms->formatRoom($room, true);
+                        $genderOk = true;
+                        try {
+                            $this->rooms->assertRoomGenderMatch($student, $room, $hostel);
+                        } catch (ValidationException) {
+                            $genderOk = false;
+                        }
 
-                    $occupied = (int) ($formatted['available_beds'] ?? 0) === 0;
-                    $reserved = (bool) $room->is_reserved;
-                    $inactive = ! (bool) $room->is_active;
-                    $selectable = $genderOk && ! $occupied && ! $reserved && ! $inactive;
-                    $disabledReason = null;
-                    if ($inactive) {
-                        $disabledReason = 'Disabled';
-                    } elseif ($reserved) {
-                        $disabledReason = 'Reserved';
-                    } elseif (! $genderOk) {
-                        $disabledReason = 'Not available for your gender';
-                    } elseif ($occupied) {
-                        $disabledReason = 'Occupied';
-                    }
+                        $occupied = (int) ($formatted['available_beds'] ?? 0) === 0;
+                        $reserved = (bool) $room->is_reserved;
+                        $inactive = ! (bool) $room->is_active;
+                        $selectable = $genderOk && ! $occupied && ! $reserved && ! $inactive;
+                        $disabledReason = null;
+                        if ($inactive) {
+                            $disabledReason = 'Disabled';
+                        } elseif ($reserved) {
+                            $disabledReason = 'Reserved';
+                        } elseif (! $genderOk) {
+                            $disabledReason = 'Not available for your gender';
+                        } elseif ($occupied) {
+                            $disabledReason = 'Occupied';
+                        }
 
-                    return [
-                        ...$formatted,
-                        'block_id' => $block->id,
-                        'code' => $this->roomCode($block->name, (string) $room->number),
-                        'occupied' => $occupied,
-                        'selectable' => $selectable,
-                        'disabled_reason' => $disabledReason,
-                    ];
-                })->sortBy(function (array $room) {
+                        return [
+                            ...$formatted,
+                            'block_id' => $block->id,
+                            'code' => $this->roomCode($block->name, (string) $room->number),
+                            'occupied' => $occupied,
+                            'selectable' => $selectable,
+                            'disabled_reason' => $disabledReason,
+                        ];
+                    })->sortBy(function (array $room) {
                     if (preg_match('/(\d+)/', (string) ($room['code'] ?? $room['number'] ?? ''), $match)) {
                         return (int) $match[1];
                     }
@@ -574,7 +682,7 @@ class HostelService
                     'available_rooms' => $rooms->where('selectable', true)->count(),
                     'rooms' => $rooms->all(),
                 ];
-            });
+            })->filter(fn (array $block) => $block['room_count'] > 0)->values();
 
             return [
                 'id' => $hostel->id,
@@ -583,9 +691,11 @@ class HostelService
                 'category' => $hostel->category,
                 'due_required' => (bool) $hostel->due_required,
                 'due_amount' => $hostel->chargesDue() ? (float) $hostel->due_amount : null,
+                'levels' => $this->formatAcademicLevels($hostel->academicLevels),
+                'available_rooms' => $blocks->sum('available_rooms'),
                 'blocks' => $blocks->all(),
             ];
-        })->values()->all();
+        })->filter(fn (array $hostel) => $hostel['blocks'] !== [])->values()->all();
     }
 
     public function studentSnapshot(Student $student): array
@@ -870,6 +980,65 @@ class HostelService
             Hostel::CATEGORY_JUPEB => 'jupeb',
             default => 'undergraduate',
         };
+    }
+
+    /**
+     * @return array{id: int, name: string, code: ?string, study_level: string}
+     */
+    private function formatAcademicLevel(AcademicLevel $level): array
+    {
+        return [
+            'id' => (int) $level->id,
+            'name' => $level->name,
+            'code' => $level->code,
+            'study_level' => $level->study_level,
+        ];
+    }
+
+    /**
+     * @param  list<int|string>  $ids
+     * @param  list<int>|null  $subsetOf
+     * @return list<int>
+     */
+    private function validatedLevelIds(array $ids, ?string $category, ?array $subsetOf): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $query = AcademicLevel::query()->whereIn('id', $ids);
+        if ($category) {
+            $query->where('study_level', $this->studyLevelForCategory($category));
+        }
+
+        $valid = $query->pluck('id')->map(fn ($id) => (int) $id)->all();
+        if (count($valid) !== count($ids)) {
+            throw ValidationException::withMessages([
+                'academic_level_ids' => 'Choose academic levels that match this hostel category.',
+            ]);
+        }
+
+        if ($subsetOf !== null && array_diff($ids, $subsetOf) !== []) {
+            throw ValidationException::withMessages([
+                'academic_level_ids' => 'Room levels must be among the levels assigned to this hostel.',
+            ]);
+        }
+
+        return $ids;
+    }
+
+    private function levelsIncludeStudent(iterable $levels, Student $student, ?string $category): bool
+    {
+        $level = $this->academicLevelForStudent(
+            $category ?: $this->studentCategory($student),
+            $student,
+        );
+        if (! $level) {
+            return false;
+        }
+
+        return collect($levels)->contains(fn (AcademicLevel $row) => (int) $row->id === (int) $level->id);
     }
 
     private function resolvedLevelWindow(string $category, int $academicLevelId, ?int $termId = null): ?HostelLevelWindow

@@ -165,6 +165,40 @@ class PgFormWorkflowTest extends TestCase
         ])->assertOk();
     }
 
+    public function test_pg_background_accepts_legacy_nysc_alias_and_rejects_blank_status_clearly(): void
+    {
+        $application = $this->pgApplication();
+        Sanctum::actingAs($application->user);
+
+        $blank = $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'pg_background',
+            'payload' => array_merge($this->backgroundPayload('second_lower'), [
+                'nysc_status' => null,
+            ]),
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['payload.nysc_status']);
+
+        $this->assertSame(
+            'Select your NYSC status.',
+            $blank->json('errors')['payload.nysc_status'][0] ?? null,
+        );
+
+        $legacy = $this->backgroundPayload('second_lower');
+        unset($legacy['nysc_status']);
+        $legacy['nysc'] = 'completed';
+
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'pg_background',
+            'payload' => $legacy,
+        ])->assertOk();
+
+        $this->assertSame(
+            'completed',
+            $application->fresh()->steps()->where('step_key', 'pg_background')->value('payload')['nysc_status'] ?? null,
+        );
+    }
+
     public function test_nysc_certificate_number_cannot_exceed_twelve_characters(): void
     {
         $application = $this->pgApplication();

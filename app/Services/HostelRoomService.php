@@ -14,7 +14,7 @@ class HostelRoomService
 {
     public function formatRoom(HostelRoom $room, bool $includeBeds = false): array
     {
-        $room->loadMissing(['block.hostel']);
+        $room->loadMissing(['block.hostel', 'academicLevels']);
 
         $occupied = (int) ($room->occupied_beds ?? 0);
         $available = (int) ($room->available_beds ?? 0);
@@ -57,6 +57,17 @@ class HostelRoomService
             'available_beds' => $available,
             'effective_gender' => $effectiveGender,
             'gender_label' => $effectiveGender ? ucfirst($effectiveGender) : 'Unassigned',
+            'academic_level_ids' => $room->relationLoaded('academicLevels')
+                ? $room->academicLevels->pluck('id')->map(fn ($id) => (int) $id)->values()->all()
+                : [],
+            'academic_levels' => $room->relationLoaded('academicLevels')
+                ? $room->academicLevels->map(fn ($level) => [
+                    'id' => (int) $level->id,
+                    'name' => $level->name,
+                    'code' => $level->code,
+                    'study_level' => $level->study_level,
+                ])->values()->all()
+                : [],
             'available_bunk_summary' => null,
         ];
 

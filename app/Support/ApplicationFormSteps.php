@@ -275,6 +275,11 @@ class ApplicationFormSteps
      */
     public static function validatePgBackground(Request $request, array $payload): array
     {
+        if (! filled($payload['nysc_status'] ?? null) && filled($payload['nysc'] ?? null)) {
+            $payload['nysc_status'] = $payload['nysc'];
+        }
+        unset($payload['nysc']);
+
         $request->merge(['payload' => $payload]);
         $payload = $request->validate([
             'payload.prior_degrees' => 'required|array|min:1',
@@ -295,6 +300,9 @@ class ApplicationFormSteps
             'payload.professional_qualifications.*.year' => 'nullable|string|max:10',
             'payload.professional_qualifications.*.membership_no' => 'nullable|string|max:80',
             'payload.other_qualifications' => 'nullable|string|max:2000',
+        ], [
+            'payload.nysc_status.required' => 'Select your NYSC status.',
+            'payload.nysc_status.in' => 'Select a valid NYSC status (completed, exempted, or not applicable).',
         ])['payload'] + $payload;
 
         if (in_array($payload['nysc_status'], ['completed', 'exempted'], true)

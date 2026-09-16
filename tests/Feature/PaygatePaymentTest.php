@@ -170,6 +170,97 @@ class PaygatePaymentTest extends TestCase
             ->assertJsonPath('message', 'Unauthorized (code 401)');
     }
 
+    public function test_initialize_rotates_reference_when_pending_payment_reused(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Ada Okoye',
+            'email' => 'ada@example.com',
+            'phone' => '08031234567',
+            'status' => 'active',
+        ]);
+        $invoice = $this->payableInvoice($user, 7350);
+        $existing = Payment::query()->create([
+            'invoice_id' => $invoice->id,
+            'user_id' => $user->id,
+            'method' => 'paygate',
+            'amount' => 7350,
+            'status' => 'pending',
+            'reference' => 'UPG-OLDREF000001',
+            'paystack_reference' => 'UPG-OLDREF000001',
+            'purpose' => 'application_fee',
+        ]);
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'https://thirdparty.paygate.upperlink.ng/api/v1/client/integration/transaction/payment' => Http::response([
+                'code' => '200',
+                'description' => 'Successful',
+                'data' => [
+                    'payGateRef' => 'UPG-NEWREF000001',
+                    'checkOutUrl' => 'https://checkout.paygate.upperlink.ng/payment/link/abc/new',
+                ],
+            ]),
+        ]);
+
+        $reference = $this->postJson('/api/payments/initialize', [
+            'invoice_id' => $invoice->id,
+            'portal' => 'student',
+        ])->assertOk()->json('reference');
+
+        $this->assertNotSame('UPG-OLDREF000001', $reference);
+        $this->assertSame($existing->id, Payment::query()->where('invoice_id', $invoice->id)->value('id'));
+        $this->assertSame($reference, $existing->fresh()->reference);
+
+        Http::assertSent(function ($request) {
+            $body = $request->data();
+
+            return ($body['payGateRef'] ?? null) !== 'UPG-OLDREF000001'
+                && str_contains($request->url(), '/transaction/payment');
+        });
+    }
+
+    public function test_initialize_retries_with_new_ref_on_paygate_409(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Ada Okoye',
+            'email' => 'ada@example.com',
+            'phone' => '08031234567',
+            'status' => 'active',
+        ]);
+        $invoice = $this->payableInvoice($user, 7350);
+        Sanctum::actingAs($user);
+
+        Http::fake(function ($request) {
+            static $calls = 0;
+            $calls++;
+            if ($calls === 1) {
+                return Http::response([
+                    'code' => '409',
+                    'description' => 'Transaction ref already exist for this merchant',
+                    'data' => null,
+                ]);
+            }
+
+            return Http::response([
+                'code' => '200',
+                'description' => 'Successful',
+                'data' => [
+                    'payGateRef' => 'UPG-RETRYREF0001',
+                    'checkOutUrl' => 'https://checkout.paygate.upperlink.ng/payment/link/abc/retry',
+                ],
+            ]);
+        });
+
+        $this->postJson('/api/payments/initialize', [
+            'invoice_id' => $invoice->id,
+            'portal' => 'student',
+        ])
+            ->assertOk()
+            ->assertJsonPath('authorization_url', 'https://checkout.paygate.upperlink.ng/payment/link/abc/retry');
+
+        Http::assertSentCount(2);
+    }
+
     public function test_verify_fulfills_invoice_after_paygate_success(): void
     {
         $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);

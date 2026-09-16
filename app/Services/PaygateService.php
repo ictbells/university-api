@@ -38,6 +38,7 @@ class PaygateService implements PaymentGateway
             $invoice->id,
             $invoice->category,
         );
+        $payment = $this->ensureFreshPaygateReference($payment, $reference);
 
         return $this->checkoutPayload(
             $user,
@@ -63,6 +64,7 @@ class PaygateService implements PaymentGateway
             null,
             'wallet_topup',
         );
+        $payment = $this->ensureFreshPaygateReference($payment, $reference);
 
         return $this->checkoutPayload(
             $user,
@@ -153,9 +155,8 @@ class PaygateService implements PaymentGateway
 
         $customer = $this->fulfillment->customer($user);
         $address = $this->payerAddress($user);
-        $base = rtrim((string) config('services.paygate.base'), '/');
 
-        $response = $this->paygateHttp()->post($base.'/api/v1/client/integration/transaction/payment', [
+        $response = $this->postPaygatePayment($payment, [
             'amount' => (string) round($amount, 2),
             'countryCode' => (string) config('services.paygate.country_code', 'NG'),
             'currency' => (string) config('services.paygate.currency', 'NGN'),
@@ -175,7 +176,7 @@ class PaygateService implements PaymentGateway
             ]),
         ]);
 
-        if (! $response->successful()) {
+        if (! $response->successful() || $this->isDuplicatePaygateRef($response)) {
             throw new RuntimeException($this->paygateErrorMessage($response->json(), 'PayGate initialize failed.'));
         }
 
@@ -189,6 +190,7 @@ class PaygateService implements PaymentGateway
             throw new RuntimeException($this->paygateErrorMessage($response->json(), 'PayGate did not return a checkout URL.'));
         }
 
+        $payment->refresh();
         $gatewayRef = (string) ($response->json('data.payGateRef') ?: $payment->reference);
         if ($gatewayRef !== '' && $gatewayRef !== $payment->reference) {
             $payment->update(['paystack_reference' => $gatewayRef]);
@@ -201,6 +203,45 @@ class PaygateService implements PaymentGateway
             'payment_id' => $payment->id,
             'provider' => $this->key(),
         ];
+    }
+
+    /**
+     * Call PayGate payment init; on duplicate merchant ref, mint a new reference once and retry.
+     *
+     * @return \Illuminate\Http\Client\Response
+     */
+    private function postPaygatePayment(Payment $payment, array $payload): \Illuminate\Http\Client\Response
+    {
+        $base = rtrim((string) config('services.paygate.base'), '/');
+        $url = $base.'/api/v1/client/integration/transaction/payment';
+        $response = $this->paygateHttp()->post($url, $payload);
+
+        if ($this->isDuplicatePaygateRef($response)) {
+            $reference = 'UPG-'.Str::upper(Str::random(12));
+            $payment->update([
+                'reference' => $reference,
+                'paystack_reference' => $reference,
+            ]);
+            $payload['payGateRef'] = $reference;
+            $response = $this->paygateHttp()->post($url, $payload);
+        }
+
+        return $response;
+    }
+
+    /**
+     * @param  \Illuminate\Http\Client\Response  $response
+     */
+    private function isDuplicatePaygateRef($response): bool
+    {
+        $code = trim((string) ($response->json('code') ?? ''));
+        $description = strtolower(trim((string) ($response->json('description') ?? $response->json('message') ?? '')));
+        if ($code === '409' || $response->status() === 409) {
+            return true;
+        }
+
+        return str_contains($description, 'ref already exist')
+            || str_contains($description, 'reference already exist');
     }
 
     private function assertPaygateSuccess(Payment $payment, string $lookup): void
@@ -261,6 +302,24 @@ class PaygateService implements PaymentGateway
     private function credentialsReady(): bool
     {
         return PaymentGatewaySettings::paygateConfigured();
+    }
+
+    /**
+     * PayGate rejects reused payGateRef (code 409). Pending-payment reuse keeps the old
+     * reference for other gateways; only PayGate forces a fresh ref on each initialize.
+     */
+    private function ensureFreshPaygateReference(Payment $payment, string $reference): Payment
+    {
+        if ($payment->reference === $reference && $payment->paystack_reference === $reference) {
+            return $payment;
+        }
+
+        $payment->update([
+            'reference' => $reference,
+            'paystack_reference' => $reference,
+        ]);
+
+        return $payment->fresh();
     }
 
     /**

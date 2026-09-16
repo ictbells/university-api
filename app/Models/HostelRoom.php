@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class HostelRoom extends BaseModel
@@ -86,5 +87,11 @@ class HostelRoom extends BaseModel
     public function beds(): HasMany
     {
         return $this->hasMany(HostelBed::class);
+    }
+
+    public function academicLevels(): BelongsToMany
+    {
+        return $this->belongsToMany(AcademicLevel::class, 'hostel_room_academic_level')
+            ->orderBy('sort_order');
     }
 }
