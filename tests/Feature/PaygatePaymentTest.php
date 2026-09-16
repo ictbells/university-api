@@ -20,8 +20,6 @@ class PaygatePaymentTest extends TestCase
         parent::setUp();
         config([
             'services.paygate.merchant_id' => 'BELLSMERCH',
-            'services.paygate.username' => 'paygate_user',
-            'services.paygate.password' => 'paygate_pass',
             'services.paygate.secret' => 'paygate_secret',
             'services.paygate.base' => 'https://thirdparty.paygate.upperlink.ng',
             'services.paystack.allow_demo_fulfill' => false,

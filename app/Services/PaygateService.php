@@ -155,10 +155,7 @@ class PaygateService implements PaymentGateway
         $address = $this->payerAddress($user);
         $base = rtrim((string) config('services.paygate.base'), '/');
 
-        $response = Http::withBasicAuth(
-            (string) config('services.paygate.username'),
-            (string) config('services.paygate.password'),
-        )->acceptJson()->asJson()->post($base.'/api/v1/client/integration/transaction/payment', [
+        $response = Http::acceptJson()->asJson()->post($base.'/api/v1/client/integration/transaction/payment', [
             'amount' => (string) round($amount, 2),
             'countryCode' => (string) config('services.paygate.country_code', 'NG'),
             'currency' => (string) config('services.paygate.currency', 'NGN'),
@@ -209,10 +206,7 @@ class PaygateService implements PaymentGateway
     private function assertPaygateSuccess(Payment $payment, string $lookup): void
     {
         $base = rtrim((string) config('services.paygate.base'), '/');
-        $response = Http::withBasicAuth(
-            (string) config('services.paygate.username'),
-            (string) config('services.paygate.password'),
-        )->acceptJson()->get($base.'/api/v1/client/integration/transaction/query', [
+        $response = Http::acceptJson()->get($base.'/api/v1/client/integration/transaction/query', [
             'merchantId' => (string) config('services.paygate.merchant_id'),
             'ref' => $lookup,
         ]);

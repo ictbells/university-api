@@ -79,8 +79,8 @@ class ProductionCheck extends Command
                 $failures[] = 'WEMA_ALATPAY_WEBHOOK_SECRET must be set so Wema webhooks can be authenticated.';
             }
         } elseif ($activeGateway === PaymentGatewaySettings::PAYGATE) {
-            if (! config('services.paygate.merchant_id') || ! config('services.paygate.username') || ! config('services.paygate.password') || ! config('services.paygate.secret')) {
-                $failures[] = 'PAYGATE_MERCHANT_ID, PAYGATE_USERNAME, PAYGATE_PASSWORD, and PAYGATE_SECRET_KEY must be set.';
+            if (! config('services.paygate.merchant_id') || ! config('services.paygate.secret')) {
+                $failures[] = 'PAYGATE_MERCHANT_ID and PAYGATE_SECRET_KEY must be set.';
             }
         } else {
             if (! config('services.paystack.secret') || ! config('services.paystack.public')) {

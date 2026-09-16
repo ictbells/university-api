@@ -50,8 +50,6 @@ class PaymentGatewaySettingsTest extends TestCase
     {
         config([
             'services.paygate.merchant_id' => 'BELLSMERCH',
-            'services.paygate.username' => 'user',
-            'services.paygate.password' => 'pass',
             'services.paygate.secret' => 'secret',
         ]);
         Sanctum::actingAs($this->staffUser(['settings.manage']));
@@ -64,6 +62,22 @@ class PaymentGatewaySettingsTest extends TestCase
             ->assertJsonPath('payment_gateways.paygate.configured', true);
 
         $this->assertSame('paygate', PaymentGatewaySettings::active());
+    }
+
+    public function test_paygate_is_configured_without_username_or_password(): void
+    {
+        config([
+            'services.paygate.merchant_id' => 'BELLSMERCH',
+            'services.paygate.username' => '',
+            'services.paygate.password' => '',
+            'services.paygate.secret' => 'secret',
+        ]);
+        Sanctum::actingAs($this->staffUser(['settings.manage']));
+
+        $this->getJson('/api/security-settings')
+            ->assertOk()
+            ->assertJsonPath('payment_gateways.paygate.configured', true)
+            ->assertJsonPath('payment_gateways.paygate.missing', []);
     }
 
     public function test_cannot_select_wema_when_keys_are_missing(): void
@@ -98,7 +112,7 @@ class PaymentGatewaySettingsTest extends TestCase
             'payment_gateway' => 'paygate',
         ])
             ->assertStatus(422)
-            ->assertJsonPath('message', 'PayGate is not configured. Add PAYGATE_MERCHANT_ID, PAYGATE_USERNAME, PAYGATE_PASSWORD, PAYGATE_SECRET_KEY in the server environment first.');
+            ->assertJsonPath('message', 'PayGate is not configured. Add PAYGATE_MERCHANT_ID, PAYGATE_SECRET_KEY in the server environment first.');
 
         $this->assertSame('paystack', PaymentGatewaySettings::active());
     }

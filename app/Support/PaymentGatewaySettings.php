@@ -127,12 +127,6 @@ class PaymentGatewaySettings
         if ((string) config('services.paygate.merchant_id') === '') {
             $missing[] = 'PAYGATE_MERCHANT_ID';
         }
-        if ((string) config('services.paygate.username') === '') {
-            $missing[] = 'PAYGATE_USERNAME';
-        }
-        if ((string) config('services.paygate.password') === '') {
-            $missing[] = 'PAYGATE_PASSWORD';
-        }
         if ((string) config('services.paygate.secret') === '') {
             $missing[] = 'PAYGATE_SECRET_KEY';
         }

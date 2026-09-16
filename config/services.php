@@ -53,6 +53,7 @@ return [
 
     'paygate' => [
         'merchant_id' => env('PAYGATE_MERCHANT_ID'),
+        // Username/password are not required by PayGate hosted checkout.
         'username' => env('PAYGATE_USERNAME'),
         'password' => env('PAYGATE_PASSWORD'),
         'secret' => env('PAYGATE_SECRET_KEY'),
