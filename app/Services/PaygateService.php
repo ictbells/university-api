@@ -155,7 +155,7 @@ class PaygateService implements PaymentGateway
         $address = $this->payerAddress($user);
         $base = rtrim((string) config('services.paygate.base'), '/');
 
-        $response = Http::acceptJson()->asJson()->post($base.'/api/v1/client/integration/transaction/payment', [
+        $response = $this->paygateHttp()->post($base.'/api/v1/client/integration/transaction/payment', [
             'amount' => (string) round($amount, 2),
             'countryCode' => (string) config('services.paygate.country_code', 'NG'),
             'currency' => (string) config('services.paygate.currency', 'NGN'),
@@ -176,7 +176,7 @@ class PaygateService implements PaymentGateway
         ]);
 
         if (! $response->successful()) {
-            throw new RuntimeException($response->json('description') ?: $response->json('message') ?: 'PayGate initialize failed.');
+            throw new RuntimeException($this->paygateErrorMessage($response->json(), 'PayGate initialize failed.'));
         }
 
         $checkoutUrl = (string) (
@@ -186,7 +186,7 @@ class PaygateService implements PaymentGateway
             ?: ''
         );
         if ($checkoutUrl === '') {
-            throw new RuntimeException('PayGate did not return a checkout URL.');
+            throw new RuntimeException($this->paygateErrorMessage($response->json(), 'PayGate did not return a checkout URL.'));
         }
 
         $gatewayRef = (string) ($response->json('data.payGateRef') ?: $payment->reference);
@@ -206,13 +206,13 @@ class PaygateService implements PaymentGateway
     private function assertPaygateSuccess(Payment $payment, string $lookup): void
     {
         $base = rtrim((string) config('services.paygate.base'), '/');
-        $response = Http::acceptJson()->get($base.'/api/v1/client/integration/transaction/query', [
+        $response = $this->paygateHttp()->get($base.'/api/v1/client/integration/transaction/query', [
             'merchantId' => (string) config('services.paygate.merchant_id'),
             'ref' => $lookup,
         ]);
 
         if (! $response->successful()) {
-            throw new RuntimeException($response->json('description') ?: $response->json('message') ?: 'Payment has not been confirmed by PayGate.');
+            throw new RuntimeException($this->paygateErrorMessage($response->json(), 'Payment has not been confirmed by PayGate.'));
         }
 
         $data = $response->json();
@@ -261,6 +261,36 @@ class PaygateService implements PaymentGateway
     private function credentialsReady(): bool
     {
         return PaymentGatewaySettings::paygateConfigured();
+    }
+
+    /**
+     * Prefer merchantId + secret. Always send HTTP Basic Auth (username/password may be empty) —
+     * PayGate previously worked with an empty Basic header; omitting the header returns no checkout URL.
+     */
+    private function paygateHttp(): \Illuminate\Http\Client\PendingRequest
+    {
+        return Http::withBasicAuth(
+            (string) config('services.paygate.username'),
+            (string) config('services.paygate.password'),
+        )->acceptJson()->asJson();
+    }
+
+    /**
+     * @param  mixed  $body
+     */
+    private function paygateErrorMessage($body, string $fallback): string
+    {
+        if (! is_array($body)) {
+            return $fallback;
+        }
+
+        $description = trim((string) ($body['description'] ?? $body['message'] ?? ''));
+        $code = trim((string) ($body['code'] ?? ''));
+        if ($description !== '' && $code !== '' && ! str_contains($description, $code)) {
+            return $description.' (code '.$code.')';
+        }
+
+        return $description !== '' ? $description : $fallback;
     }
 
     /**

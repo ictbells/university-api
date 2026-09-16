@@ -66,6 +66,110 @@ class PaygatePaymentTest extends TestCase
         $this->assertStringStartsWith('UPG-', $payment->reference);
     }
 
+    public function test_initialize_sends_basic_auth_header_even_when_username_blank(): void
+    {
+        config([
+            'services.paygate.username' => '',
+            'services.paygate.password' => '',
+        ]);
+
+        $user = User::factory()->create([
+            'name' => 'Ada Okoye',
+            'email' => 'ada@example.com',
+            'phone' => '08031234567',
+            'status' => 'active',
+        ]);
+        $invoice = $this->payableInvoice($user, 7350);
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'https://thirdparty.paygate.upperlink.ng/api/v1/client/integration/transaction/payment' => Http::response([
+                'code' => '200',
+                'description' => 'Successful',
+                'data' => [
+                    'payGateRef' => 'UPG-TESTREF0001',
+                    'amount' => '7350',
+                    'checkOutUrl' => 'https://checkout.paygate.upperlink.ng/payment/link/abc/UPG-TESTREF0001',
+                ],
+            ]),
+        ]);
+
+        $this->postJson('/api/payments/initialize', [
+            'invoice_id' => $invoice->id,
+            'portal' => 'student',
+        ])->assertOk();
+
+        Http::assertSent(function ($request) {
+            return $request->hasHeader('Authorization', 'Basic '.base64_encode(':'))
+                && str_contains($request->url(), '/transaction/payment');
+        });
+    }
+
+    public function test_initialize_sends_basic_auth_when_username_and_password_set(): void
+    {
+        config([
+            'services.paygate.username' => 'paygate_user',
+            'services.paygate.password' => 'paygate_pass',
+        ]);
+
+        $user = User::factory()->create([
+            'name' => 'Ada Okoye',
+            'email' => 'ada@example.com',
+            'phone' => '08031234567',
+            'status' => 'active',
+        ]);
+        $invoice = $this->payableInvoice($user, 7350);
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'https://thirdparty.paygate.upperlink.ng/api/v1/client/integration/transaction/payment' => Http::response([
+                'code' => '200',
+                'description' => 'Successful',
+                'data' => [
+                    'payGateRef' => 'UPG-TESTREF0001',
+                    'amount' => '7350',
+                    'checkOutUrl' => 'https://checkout.paygate.upperlink.ng/payment/link/abc/UPG-TESTREF0001',
+                ],
+            ]),
+        ]);
+
+        $this->postJson('/api/payments/initialize', [
+            'invoice_id' => $invoice->id,
+            'portal' => 'student',
+        ])->assertOk();
+
+        Http::assertSent(function ($request) {
+            return $request->hasHeader('Authorization', 'Basic '.base64_encode('paygate_user:paygate_pass'))
+                && str_contains($request->url(), '/transaction/payment');
+        });
+    }
+
+    public function test_initialize_surfaces_paygate_description_when_checkout_url_missing(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Ada Okoye',
+            'email' => 'ada@example.com',
+            'status' => 'active',
+        ]);
+        $invoice = $this->payableInvoice($user, 7350);
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'https://thirdparty.paygate.upperlink.ng/api/v1/client/integration/transaction/payment' => Http::response([
+                'code' => '401',
+                'description' => 'Unauthorized',
+                'data' => null,
+            ]),
+        ]);
+
+        $this->postJson('/api/payments/initialize', [
+            'invoice_id' => $invoice->id,
+            'portal' => 'student',
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Unauthorized (code 401)');
+    }
+
     public function test_verify_fulfills_invoice_after_paygate_success(): void
     {
         $user = User::factory()->create(['name' => 'Ada Okoye', 'status' => 'active']);
