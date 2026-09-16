@@ -59,11 +59,15 @@ class WorkflowEngine
 
     public function nextAdmissionStage(Application $application): ?WorkflowTemplateStage
     {
+        if ($application->formNotSubmitted()) {
+            return null;
+        }
+
         $stages = $this->admissionStages($application);
         $current = $application->stage;
         $currentIndex = $stages->search(fn (WorkflowTemplateStage $stage) => $stage->key === $current);
         if ($currentIndex === false) {
-            return $stages->first(fn (WorkflowTemplateStage $stage) => $stage->is_wired && $stage->key !== 'submitted');
+            return null;
         }
 
         return $stages->slice($currentIndex + 1)->first(fn (WorkflowTemplateStage $stage) => $stage->is_wired);
@@ -84,6 +88,7 @@ class WorkflowEngine
             'template_code' => $template?->code,
             'template_name' => $template?->name,
             'current_stage' => $application->stage,
+            'form_submitted' => ! $application->formNotSubmitted(),
             'next_stage' => $next?->key,
             'next_label' => $next?->label,
             'next_permission' => $next?->permission_key,
@@ -126,6 +131,12 @@ class WorkflowEngine
 
     public function advanceApplication(Application $application, string $to, User $actor, ?string $decision = null, ?string $reason = null): Application
     {
+        if ($application->formNotSubmitted()) {
+            throw ValidationException::withMessages([
+                'to_stage' => [Application::NOT_SUBMITTED_MESSAGE],
+            ]);
+        }
+
         if ($decision === 'rejected') {
             $to = 'rejected';
         }

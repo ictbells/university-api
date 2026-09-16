@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.57  
+**Version:** 1.58  
 **Effective date:** September 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -344,6 +344,8 @@ The **Applications** section is the active admissions pipeline, split by entry c
 Staff advance complete files through:
 
 `submitted` → `screening` → `verification` → `shortlisting` → `recommended` → `approved` → `offer_issued` → acceptance payment → **physical clearance** → matriculation
+
+Staff cannot screen, reject, or otherwise process a file while it is still being filled in (`started`, awaiting application fee, fee paid, or form in progress). The applicant must **submit** from the student portal first. Staff may still open the file to review or correct records.
 
 When staff issue the offer (`offer_issued`, or postgraduate `admission`), the applicant is emailed at the address on their account. The message includes the programme, session, offer reference, acceptance-fee amount when known, and a link to the student portal to pay within two weeks and print the admission letter. Undergraduate letters use Registry wording; JUPEB letters use Foundation Programme wording; postgraduate letters use College of Postgraduate Studies provisional-admission wording (reference `BUT/COLPGS.{serial}/{college}/{year}`, 50%/50% fee split after the acceptance fee). The postgraduate signatory name, title, and signature come from **System → Application settings**. A mail failure is logged and does not block the offer.
 
@@ -823,6 +825,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.55 | Sep 2026 | Platform team | Staff can delete one application file when the same login holds more than one form (email/phone/JAMB stay shared until the extra form is removed) |
 | 1.56 | Sep 2026 | Platform team | Applicants cannot start a second admission category while an application is still open |
 | 1.57 | Sep 2026 | Platform team | Report downloads (PDF/Excel/Word) write Naira columns as Excel numbers, include an automatic Total row, and generate PDF as a downloadable file |
+| 1.58 | Sep 2026 | Platform team | Staff cannot process (screen, reject, or advance) applicants who have not submitted their form |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

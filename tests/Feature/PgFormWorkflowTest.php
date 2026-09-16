@@ -401,6 +401,36 @@ class PgFormWorkflowTest extends TestCase
             ->assertStatus(422);
     }
 
+    public function test_staff_cannot_process_unsubmitted_applications(): void
+    {
+        $unsubmitted = $this->pgApplication($this->taught);
+        $this->assertSame('form_in_progress', $unsubmitted->stage);
+        $this->assertNull($unsubmitted->submitted_at);
+
+        $staff = $this->staffUser([
+            'admissions.view', 'admissions.screen', 'admissions.pg.screen',
+        ], ['home', 'admissions-postgraduate']);
+        Sanctum::actingAs($staff);
+
+        $this->getJson("/api/applications/{$unsubmitted->id}")
+            ->assertOk()
+            ->assertJsonPath('workflow.form_submitted', false)
+            ->assertJsonPath('workflow.next_stage', null);
+
+        $this->postJson("/api/applications/{$unsubmitted->id}/transition", ['to_stage' => 'screening'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['to_stage']);
+
+        $this->postJson("/api/applications/{$unsubmitted->id}/transition", [
+            'to_stage' => 'rejected',
+            'decision' => 'rejected',
+            'reason' => 'Incomplete file',
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors(['to_stage']);
+
+        $this->assertSame('form_in_progress', $unsubmitted->fresh()->stage);
+    }
+
     public function test_staff_can_revert_the_last_application_decision(): void
     {
         $ug = $this->ugApplication();

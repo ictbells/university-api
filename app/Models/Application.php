@@ -89,6 +89,16 @@ class Application extends BaseModel
         'application_form',
     ];
 
+    /** Applicant is still filling the form; staff must not screen, reject, or otherwise process the file. */
+    public const UNSUBMITTED_STAGES = [
+        'started',
+        'awaiting_application_fee',
+        'fee_paid',
+        'form_in_progress',
+    ];
+
+    public const NOT_SUBMITTED_MESSAGE = 'This applicant has not submitted their form yet. Process the file only after they submit from the student portal.';
+
     public const STAFF_STAGES = [
         'submitted' => 'screening',
         'screening' => 'verification',
@@ -156,6 +166,11 @@ class Application extends BaseModel
     public static function staffStagesFor(?string $entryMode): array
     {
         return $entryMode === 'transfer' ? self::TRANSFER_STAFF_STAGES : self::STAFF_STAGES;
+    }
+
+    public function formNotSubmitted(): bool
+    {
+        return in_array((string) $this->stage, self::UNSUBMITTED_STAGES, true);
     }
 
     public function ensureFormSteps(): void
