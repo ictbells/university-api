@@ -18,6 +18,7 @@
         tr:nth-child(even) td { background: #f8fafc; }
         .footer { margin-top: 8pt; font-size: 7.5pt; color: #64748b; text-align: right; }
         .num { text-align: right; }
+        .total td { background: #e0f2fe; font-weight: bold; color: #0c4a6e; }
     </style>
 </head>
 <body>
@@ -63,8 +64,8 @@
                     <td>{{ $row['category'] }}</td>
                     <td>{{ $row['programme'] }}</td>
                     <td>{{ $row['college'] }}</td>
-                    <td class="num">{{ $row['amount'] }}</td>
-                    <td class="num">{{ $row['balance'] }}</td>
+                    <td class="num">{{ number_format((float) $row['amount'], 2) }}</td>
+                    <td class="num">{{ number_format((float) $row['balance'], 2) }}</td>
                     <td>{{ $row['status'] }}</td>
                     <td>{{ $row['date'] }}</td>
                 </tr>
@@ -74,6 +75,23 @@
                 </tr>
             @endforelse
         </tbody>
+        @if (!empty($totals))
+            <tfoot>
+                <tr class="total">
+                    <td>Total</td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td class="num">{{ number_format((float) $totals['amount'], 2) }}</td>
+                    <td class="num">{{ number_format((float) $totals['balance'], 2) }}</td>
+                    <td></td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        @endif
     </table>
     <div class="footer">{{ $institution['name'] }} · Invoices report</div>
 </body>

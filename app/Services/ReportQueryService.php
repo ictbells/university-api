@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\User;
+use App\Support\ExportNumbers;
 use App\Support\Reports\ReportColumn;
 use App\Support\Reports\ReportDataset;
 use App\Support\Reports\ReportDatasetCatalog;
@@ -64,12 +65,11 @@ class ReportQueryService
             ->limit($perPage)
             ->get();
 
-        $keys = array_column($prepared['headers'], 'key');
-
         return [
             'dataset' => $prepared['dataset']->key,
             'columns' => $prepared['headers'],
-            'rows' => $rows->map(fn ($row) => $this->presentRow($row, $keys))->values()->all(),
+            'rows' => $rows->map(fn ($row) => $this->presentRow($row, $prepared['headers']))->values()->all(),
+            'totals' => $this->computeTotals($prepared),
             'meta' => [
                 'current_page' => $page,
                 'per_page' => $perPage,
@@ -84,18 +84,19 @@ class ReportQueryService
 
     /**
      * @param  array<string, mixed>  $definition
-     * @return array{headers: list<array{key: string, label: string}>, rows: list<array<string, string>>, filter_summary: list<string>, title: string, truncated: bool, total: int}
+     * @return array{headers: list<array{key: string, label: string, type: string, aggregatable: bool}>, rows: list<array<string, mixed>>, totals: array<string, float>, filter_summary: list<string>, title: string, truncated: bool, total: int}
      */
     public function exportRows(User $user, array $definition, string $title = ''): array
     {
         $prepared = $this->prepare($user, $definition);
         $total = $this->count($prepared['query'], $prepared['grouped']);
         $rows = (clone $prepared['query'])->limit(self::MAX_ROWS)->get();
-        $keys = array_column($prepared['headers'], 'key');
+        $presented = $rows->map(fn ($row) => $this->presentRow($row, $prepared['headers']))->values()->all();
 
         return [
             'headers' => $prepared['headers'],
-            'rows' => $rows->map(fn ($row) => $this->presentRow($row, $keys))->values()->all(),
+            'rows' => $presented,
+            'totals' => $this->totalsFromRows($prepared['headers'], $presented),
             'filter_summary' => $this->filterSummary($prepared['dataset'], $prepared['definition']),
             'title' => $title !== '' ? $title : $prepared['dataset']->label,
             'truncated' => $total > self::MAX_ROWS,
@@ -357,7 +358,7 @@ class ReportQueryService
 
     /**
      * @param  array<string, mixed>  $definition
-     * @return list<array{key: string, label: string}>
+     * @return list<array{key: string, label: string, type: string, aggregatable: bool}>
      */
     private function headers(ReportDataset $dataset, array $definition, bool $grouped): array
     {
@@ -365,41 +366,126 @@ class ReportQueryService
             return array_map(function (string $key) use ($dataset) {
                 $column = $dataset->column($key);
 
-                return ['key' => $key, 'label' => $column?->label ?? $key];
+                return [
+                    'key' => $key,
+                    'label' => $column?->label ?? $key,
+                    'type' => $column?->type ?? 'string',
+                    'aggregatable' => (bool) ($column?->aggregatable && $this->autoTotalColumn($column)),
+                ];
             }, $definition['columns']);
         }
 
         $headers = [];
         foreach ($definition['group_by'] as $key) {
-            $headers[] = ['key' => $key, 'label' => $dataset->column($key)?->label ?? $key];
+            $column = $dataset->column($key);
+            $headers[] = [
+                'key' => $key,
+                'label' => $column?->label ?? $key,
+                'type' => $column?->type ?? 'string',
+                'aggregatable' => false,
+            ];
         }
         foreach ($definition['aggregations'] as $aggregation) {
+            $source = $aggregation['field'] === '*' ? null : $dataset->column($aggregation['field']);
             $fieldLabel = $aggregation['field'] === '*'
                 ? 'Records'
-                : ($dataset->column($aggregation['field'])?->label ?? $aggregation['field']);
+                : ($source?->label ?? $aggregation['field']);
+            $summable = in_array($aggregation['fn'], ['count', 'sum'], true);
             $headers[] = [
                 'key' => $aggregation['as'],
                 'label' => ucfirst($aggregation['fn']).' of '.$fieldLabel,
+                'type' => 'number',
+                'aggregatable' => $summable,
             ];
         }
 
         return $headers;
     }
 
+    private function autoTotalColumn(?ReportColumn $column): bool
+    {
+        if (! $column || $column->type !== 'number' || ! $column->aggregatable) {
+            return false;
+        }
+
+        return ExportNumbers::isMoneyField($column->key, $column->label);
+    }
+
     /**
-     * @param  list<string>  $keys
-     * @return array<string, string>
+     * @param  array{dataset: ReportDataset, definition: array<string, mixed>, headers: list<array{key: string, label: string, type: string, aggregatable: bool}>, query: Builder, grouped: bool}  $prepared
+     * @return array<string, float>
      */
-    private function presentRow(mixed $row, array $keys): array
+    private function computeTotals(array $prepared): array
+    {
+        $keys = [];
+        foreach ($prepared['headers'] as $header) {
+            if (($header['type'] ?? '') === 'number' && ($header['aggregatable'] ?? false)) {
+                $keys[] = $header['key'];
+            }
+        }
+        if ($keys === []) {
+            return [];
+        }
+
+        $base = (clone $prepared['query'])->toBase();
+        $base->orders = null;
+        $base->limit = null;
+        $base->offset = null;
+
+        $selects = array_map(fn (string $key) => 'SUM(`'.$key.'`) as `'.$key.'`', $keys);
+        $row = DB::query()->fromSub($base, 'report_totals')->selectRaw(implode(', ', $selects))->first();
+        if (! $row) {
+            return array_fill_keys($keys, 0.0);
+        }
+
+        $totals = [];
+        $data = (array) $row;
+        foreach ($keys as $key) {
+            $totals[$key] = round((float) ($data[$key] ?? 0), 2);
+        }
+
+        return $totals;
+    }
+
+    /**
+     * @param  list<array{key: string, label: string, type: string, aggregatable: bool}>  $headers
+     * @param  list<array<string, mixed>>  $rows
+     * @return array<string, float>
+     */
+    private function totalsFromRows(array $headers, array $rows): array
+    {
+        $totals = [];
+        foreach ($headers as $header) {
+            if (($header['type'] ?? '') !== 'number' || ! ($header['aggregatable'] ?? false)) {
+                continue;
+            }
+            $sum = 0.0;
+            foreach ($rows as $row) {
+                $sum += ExportNumbers::toNumber($row[$header['key']] ?? null) ?? 0.0;
+            }
+            $totals[$header['key']] = round($sum, 2);
+        }
+
+        return $totals;
+    }
+
+    /**
+     * @param  list<array{key: string, label: string, type: string, aggregatable: bool}>  $headers
+     * @return array<string, mixed>
+     */
+    private function presentRow(mixed $row, array $headers): array
     {
         $array = $row instanceof Model
             ? $row->getAttributes()
             : (array) $row;
         $out = [];
-        foreach ($keys as $key) {
+        foreach ($headers as $header) {
+            $key = $header['key'];
             $value = $array[$key] ?? null;
             if ($value instanceof \DateTimeInterface) {
                 $out[$key] = $value->format('Y-m-d H:i:s');
+            } elseif (($header['type'] ?? '') === 'number') {
+                $out[$key] = ExportNumbers::toNumber($value);
             } elseif (is_bool($value)) {
                 $out[$key] = $value ? 'Yes' : 'No';
             } elseif ($value === null || $value === '') {

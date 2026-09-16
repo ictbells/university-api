@@ -1111,10 +1111,10 @@ class FinanceController extends Controller
                 'programme' => $row['program'] ?: '—',
                 'college' => $row['college'] ?: '—',
                 'level' => $row['level_label'] ?: ($row['current_level'] ? $row['current_level'].'L' : '—'),
-                'wallet' => number_format((float) $row['wallet_balance'], 2),
-                'billed' => number_format((float) $row['billed'], 2),
-                'paid' => number_format((float) $row['paid'], 2),
-                'outstanding' => number_format((float) $row['outstanding'], 2),
+                'wallet' => round((float) $row['wallet_balance'], 2),
+                'billed' => round((float) $row['billed'], 2),
+                'paid' => round((float) $row['paid'], 2),
+                'outstanding' => round((float) $row['outstanding'], 2),
                 'clearance' => $row['clearance'] === 'cleared' ? 'Cleared' : 'Outstanding',
             ];
         })->values();

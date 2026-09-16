@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.56  
+**Version:** 1.57  
 **Effective date:** September 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -647,7 +647,7 @@ On **Services → Hostel → Rooms**, download the **template**, fill the **Room
 ### 8.9 System
 
 - **Audit** — Activity log (`audit.view`)
-- **Reports** — Summary and custom reports (`reports.view`; building or sharing saved reports also needs `reports.manage`)
+- **Reports** — Summary and custom reports (`reports.view`; building or sharing saved reports also needs `reports.manage`). Generate from **System → Reports**. Downloads are **PDF**, **Excel**, and **Word**. Naira and other numeric columns export to Excel as numbers (not text) so they can be added in the spreadsheet. Every generated report includes an automatic **Total** row for amount columns.
 - **Announcements** — Campus communications
 - **Integrations** — External endpoints including Prembly / NIN (`integrations.view`)
 - **Application settings** — Global security policies (`settings.manage`)
@@ -822,6 +822,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.54 | Sep 2026 | Platform team | Postgraduate admission letter signatory name, title, and signature are set in Application settings |
 | 1.55 | Sep 2026 | Platform team | Staff can delete one application file when the same login holds more than one form (email/phone/JAMB stay shared until the extra form is removed) |
 | 1.56 | Sep 2026 | Platform team | Applicants cannot start a second admission category while an application is still open |
+| 1.57 | Sep 2026 | Platform team | Report downloads (PDF/Excel/Word) write Naira columns as Excel numbers, include an automatic Total row, and generate PDF as a downloadable file |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

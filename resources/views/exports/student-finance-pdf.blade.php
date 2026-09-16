@@ -18,6 +18,7 @@
         tr:nth-child(even) td { background: #f8fafc; }
         .footer { margin-top: 8pt; font-size: 7.5pt; color: #64748b; text-align: right; }
         .num { text-align: right; }
+        .total td { background: #e0f2fe; font-weight: bold; color: #0c4a6e; }
     </style>
 </head>
 <body>
@@ -62,10 +63,10 @@
                     <td>{{ $row['programme'] }}</td>
                     <td>{{ $row['college'] }}</td>
                     <td>{{ $row['level'] }}</td>
-                    <td class="num">{{ $row['wallet'] }}</td>
-                    <td class="num">{{ $row['billed'] }}</td>
-                    <td class="num">{{ $row['paid'] }}</td>
-                    <td class="num">{{ $row['outstanding'] }}</td>
+                    <td class="num">{{ number_format((float) $row['wallet'], 2) }}</td>
+                    <td class="num">{{ number_format((float) $row['billed'], 2) }}</td>
+                    <td class="num">{{ number_format((float) $row['paid'], 2) }}</td>
+                    <td class="num">{{ number_format((float) $row['outstanding'], 2) }}</td>
                     <td>{{ $row['clearance'] }}</td>
                 </tr>
             @empty
@@ -74,6 +75,23 @@
                 </tr>
             @endforelse
         </tbody>
+        @if (!empty($totals))
+            <tfoot>
+                <tr class="total">
+                    <td>Total</td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td class="num">{{ number_format((float) $totals['wallet'], 2) }}</td>
+                    <td class="num">{{ number_format((float) $totals['billed'], 2) }}</td>
+                    <td class="num">{{ number_format((float) $totals['paid'], 2) }}</td>
+                    <td class="num">{{ number_format((float) $totals['outstanding'], 2) }}</td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        @endif
     </table>
     <div class="footer">{{ $institution['name'] }} · Students Financial Status</div>
 </body>

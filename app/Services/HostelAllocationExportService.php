@@ -5,8 +5,7 @@ namespace App\Services;
 use App\Models\Campus;
 use App\Models\Setting;
 use App\Support\InstitutionLogo;
-use Dompdf\Dompdf;
-use Dompdf\Options;
+use App\Support\PdfBinaryResponse;
 use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
@@ -16,6 +15,7 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpWord\IOFactory;
 use PhpOffice\PhpWord\PhpWord;
 use PhpOffice\PhpWord\SimpleType\Jc;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class HostelAllocationExportService
@@ -26,7 +26,7 @@ class HostelAllocationExportService
      * @param  Collection<int, array<string, string>>  $rows
      * @param  list<string>  $filterSummary
      */
-    public function export(string $format, Collection $rows, string $title, array $filterSummary = []): StreamedResponse
+    public function export(string $format, Collection $rows, string $title, array $filterSummary = []): Response
     {
         $institution = $this->institution();
         $generatedAt = now()->format('d M Y H:i:s');
@@ -98,7 +98,7 @@ class HostelAllocationExportService
         Collection $rows,
         string $generatedAt,
         string $filename,
-    ): StreamedResponse {
+    ): Response {
         $html = view('exports.hostel-allocations-pdf', [
             'institution' => $institution,
             'title' => $title,
@@ -109,20 +109,7 @@ class HostelAllocationExportService
             'logo_data_uri' => InstitutionLogo::dataUri(),
         ])->render();
 
-        $options = new Options;
-        $options->set('isRemoteEnabled', false);
-        $options->set('defaultFont', 'DejaVu Sans');
-        $dompdf = new Dompdf($options);
-        $dompdf->loadHtml($html);
-        $dompdf->setPaper('A4', 'landscape');
-        $dompdf->render();
-        $output = $dompdf->output();
-
-        return response()->streamDownload(function () use ($output) {
-            echo $output;
-        }, $filename.'.pdf', [
-            'Content-Type' => 'application/pdf',
-        ]);
+        return PdfBinaryResponse::fromHtml($html, $filename);
     }
 
     /**

@@ -4,11 +4,12 @@ namespace App\Services;
 
 use App\Models\Campus;
 use App\Models\Setting;
+use App\Support\ExportNumbers;
 use App\Support\InstitutionLogo;
-use Dompdf\Dompdf;
-use Dompdf\Options;
+use App\Support\PdfBinaryResponse;
 use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
@@ -18,14 +19,16 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpWord\IOFactory;
 use PhpOffice\PhpWord\PhpWord;
 use PhpOffice\PhpWord\SimpleType\Jc;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportExportService
 {
     /**
-     * @param  list<array{key: string, label: string}>  $headers
-     * @param  list<array<string, string>>  $rows
+     * @param  list<array{key: string, label: string, type?: string, aggregatable?: bool}>  $headers
+     * @param  list<array<string, mixed>>  $rows
      * @param  list<string>  $filterSummary
+     * @param  array<string, float|int>  $totals
      */
     public function export(
         string $format,
@@ -33,17 +36,21 @@ class ReportExportService
         array $rows,
         string $title,
         array $filterSummary = [],
-    ): StreamedResponse {
+        array $totals = [],
+    ): Response {
         $institution = $this->institution();
         $generatedAt = now()->format('d M Y H:i');
         $safeTitle = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $title) ?: 'report';
         $filename = $safeTitle.'_'.now()->format('Ymd_His');
         $rowCollection = Collection::make($rows);
+        if ($totals === []) {
+            $totals = $this->totalsFromRows($headers, $rows);
+        }
 
         return match ($format) {
-            'pdf' => $this->pdf($institution, $title, $filterSummary, $headers, $rowCollection, $generatedAt, $filename),
-            'excel' => $this->excel($institution, $title, $filterSummary, $headers, $rowCollection, $generatedAt, $filename),
-            'word' => $this->word($institution, $title, $filterSummary, $headers, $rowCollection, $generatedAt, $filename),
+            'pdf' => $this->pdf($institution, $title, $filterSummary, $headers, $rowCollection, $totals, $generatedAt, $filename),
+            'excel' => $this->excel($institution, $title, $filterSummary, $headers, $rowCollection, $totals, $generatedAt, $filename),
+            'word' => $this->word($institution, $title, $filterSummary, $headers, $rowCollection, $totals, $generatedAt, $filename),
             default => throw new \InvalidArgumentException('Unsupported export format.'),
         };
     }
@@ -65,10 +72,59 @@ class ReportExportService
     }
 
     /**
+     * @param  list<array{key: string, label: string, type?: string, aggregatable?: bool}>  $headers
+     * @param  list<array<string, mixed>>  $rows
+     * @return array<string, float>
+     */
+    private function totalsFromRows(array $headers, array $rows): array
+    {
+        $totals = [];
+        foreach ($headers as $header) {
+            if (! $this->isNumericHeader($header)) {
+                continue;
+            }
+            $sum = 0.0;
+            foreach ($rows as $row) {
+                $sum += ExportNumbers::toNumber($row[$header['key']] ?? null) ?? 0.0;
+            }
+            $totals[$header['key']] = round($sum, 2);
+        }
+
+        return $totals;
+    }
+
+    /**
+     * @param  array{key: string, label: string, type?: string, aggregatable?: bool}  $header
+     */
+    private function isNumericHeader(array $header): bool
+    {
+        if (($header['type'] ?? '') === 'number' && ($header['aggregatable'] ?? false)) {
+            return true;
+        }
+
+        return ($header['type'] ?? '') === 'number' && ExportNumbers::isMoneyField($header['key'], $header['label'] ?? '');
+    }
+
+    /**
+     * @param  array{key: string, label: string, type?: string, aggregatable?: bool}  $header
+     */
+    private function displayValue(array $header, mixed $value): string
+    {
+        if (($header['type'] ?? '') === 'number') {
+            $decimals = ExportNumbers::isMoneyField($header['key'], $header['label'] ?? '') ? 2 : 0;
+
+            return ExportNumbers::display($value, $decimals);
+        }
+
+        return $value === null || $value === '' ? '—' : (string) $value;
+    }
+
+    /**
      * @param  array{name: string, motto: string, address: string, contact: string}  $institution
      * @param  list<string>  $filterSummary
-     * @param  list<array{key: string, label: string}>  $headers
-     * @param  Collection<int, array<string, string>>  $rows
+     * @param  list<array{key: string, label: string, type?: string, aggregatable?: bool}>  $headers
+     * @param  Collection<int, array<string, mixed>>  $rows
+     * @param  array<string, float|int>  $totals
      */
     private function pdf(
         array $institution,
@@ -76,41 +132,32 @@ class ReportExportService
         array $filterSummary,
         array $headers,
         Collection $rows,
+        array $totals,
         string $generatedAt,
         string $filename,
-    ): StreamedResponse {
+    ): Response {
         $html = view('exports.custom-report-pdf', [
             'institution' => $institution,
             'title' => $title,
             'filterSummary' => $filterSummary,
             'headers' => $headers,
             'rows' => $rows,
+            'totals' => $totals,
             'generatedAt' => $generatedAt,
             'count' => $rows->count(),
             'logo_data_uri' => InstitutionLogo::dataUri(),
+            'displayValue' => fn (array $header, mixed $value) => $this->displayValue($header, $value),
         ])->render();
 
-        $options = new Options;
-        $options->set('isRemoteEnabled', false);
-        $options->set('defaultFont', 'DejaVu Sans');
-        $dompdf = new Dompdf($options);
-        $dompdf->loadHtml($html);
-        $dompdf->setPaper('A4', 'landscape');
-        $dompdf->render();
-        $output = $dompdf->output();
-
-        return response()->streamDownload(function () use ($output) {
-            echo $output;
-        }, $filename.'.pdf', [
-            'Content-Type' => 'application/pdf',
-        ]);
+        return PdfBinaryResponse::fromHtml($html, $filename);
     }
 
     /**
      * @param  array{name: string, motto: string, address: string, contact: string}  $institution
      * @param  list<string>  $filterSummary
-     * @param  list<array{key: string, label: string}>  $headers
-     * @param  Collection<int, array<string, string>>  $rows
+     * @param  list<array{key: string, label: string, type?: string, aggregatable?: bool}>  $headers
+     * @param  Collection<int, array<string, mixed>>  $rows
+     * @param  array<string, float|int>  $totals
      */
     private function excel(
         array $institution,
@@ -118,6 +165,7 @@ class ReportExportService
         array $filterSummary,
         array $headers,
         Collection $rows,
+        array $totals,
         string $generatedAt,
         string $filename,
     ): StreamedResponse {
@@ -125,7 +173,6 @@ class ReportExportService
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle(substr($title, 0, 31) ?: 'Report');
         $labels = ['S/N', ...array_column($headers, 'label')];
-        $keys = array_column($headers, 'key');
         $columnCount = count($labels);
         $lastCol = Coordinate::stringFromColumnIndex($columnCount);
 
@@ -176,13 +223,31 @@ class ReportExportService
 
         $rowIndex = $headerRow + 1;
         foreach ($rows as $i => $data) {
-            $sheet->setCellValue('A'.$rowIndex, (string) ($i + 1));
-            foreach ($keys as $colIndex => $key) {
-                $sheet->setCellValue(
-                    Coordinate::stringFromColumnIndex($colIndex + 2).$rowIndex,
-                    $data[$key] ?? '—',
-                );
+            $sheet->setCellValueExplicit('A'.$rowIndex, $i + 1, DataType::TYPE_NUMERIC);
+            foreach ($headers as $colIndex => $header) {
+                $cell = Coordinate::stringFromColumnIndex($colIndex + 2).$rowIndex;
+                $numeric = ($header['type'] ?? '') === 'number';
+                $money = ExportNumbers::isMoneyField($header['key'], $header['label'] ?? '');
+                ExportNumbers::writeCell($sheet, $cell, $data[$header['key']] ?? '—', $numeric, $money);
             }
+            $rowIndex++;
+        }
+
+        if ($rows->isNotEmpty() || $totals !== []) {
+            $totalRow = $rowIndex;
+            $sheet->setCellValue('A'.$totalRow, 'Total');
+            foreach ($headers as $colIndex => $header) {
+                $cell = Coordinate::stringFromColumnIndex($colIndex + 2).$totalRow;
+                if ($this->isNumericHeader($header) && array_key_exists($header['key'], $totals)) {
+                    $money = ExportNumbers::isMoneyField($header['key'], $header['label'] ?? '');
+                    ExportNumbers::writeCell($sheet, $cell, $totals[$header['key']], true, $money);
+                } else {
+                    $sheet->setCellValue($cell, '');
+                }
+            }
+            $sheet->getStyle('A'.$totalRow.':'.$lastCol.$totalRow)->getFont()->setBold(true);
+            $sheet->getStyle('A'.$totalRow.':'.$lastCol.$totalRow)->getFill()
+                ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E0F2FE');
             $rowIndex++;
         }
 
@@ -205,8 +270,9 @@ class ReportExportService
     /**
      * @param  array{name: string, motto: string, address: string, contact: string}  $institution
      * @param  list<string>  $filterSummary
-     * @param  list<array{key: string, label: string}>  $headers
-     * @param  Collection<int, array<string, string>>  $rows
+     * @param  list<array{key: string, label: string, type?: string, aggregatable?: bool}>  $headers
+     * @param  Collection<int, array<string, mixed>>  $rows
+     * @param  array<string, float|int>  $totals
      */
     private function word(
         array $institution,
@@ -214,6 +280,7 @@ class ReportExportService
         array $filterSummary,
         array $headers,
         Collection $rows,
+        array $totals,
         string $generatedAt,
         string $filename,
     ): StreamedResponse {
@@ -252,7 +319,8 @@ class ReportExportService
         ]);
         $headerStyle = ['bold' => true, 'color' => 'FFFFFF'];
         $headerCell = ['bgColor' => '0C4A6E', 'valign' => 'center'];
-        $keys = array_column($headers, 'key');
+        $totalStyle = ['bold' => true, 'color' => '0C4A6E'];
+        $totalCell = ['bgColor' => 'E0F2FE', 'valign' => 'center'];
 
         $table->addRow();
         $table->addCell(600, $headerCell)->addText('S/N', $headerStyle);
@@ -263,9 +331,18 @@ class ReportExportService
         foreach ($rows as $index => $data) {
             $table->addRow();
             $table->addCell(600)->addText((string) ($index + 1));
-            foreach ($keys as $key) {
-                $table->addCell(1400)->addText(htmlspecialchars((string) ($data[$key] ?? '—')));
+            foreach ($headers as $header) {
+                $table->addCell(1400)->addText(htmlspecialchars($this->displayValue($header, $data[$header['key']] ?? '—')));
             }
+        }
+
+        $table->addRow();
+        $table->addCell(600, $totalCell)->addText('Total', $totalStyle);
+        foreach ($headers as $header) {
+            $value = $this->isNumericHeader($header) && array_key_exists($header['key'], $totals)
+                ? $this->displayValue($header, $totals[$header['key']])
+                : '';
+            $table->addCell(1400, $totalCell)->addText(htmlspecialchars($value), $totalStyle);
         }
 
         return response()->streamDownload(function () use ($phpWord) {

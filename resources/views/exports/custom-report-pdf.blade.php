@@ -16,6 +16,8 @@
         th, td { border: 1px solid #cbd5e1; padding: 3pt 4pt; text-align: left; vertical-align: top; }
         th { background: #0c4a6e; color: #ffffff; font-weight: bold; }
         tr:nth-child(even) td { background: #f8fafc; }
+        .num { text-align: right; }
+        .total td { background: #e0f2fe; font-weight: bold; color: #0c4a6e; }
         .footer { margin-top: 8pt; font-size: 7.5pt; color: #64748b; text-align: right; }
     </style>
 </head>
@@ -41,7 +43,7 @@
             <tr>
                 <th>S/N</th>
                 @foreach ($headers as $header)
-                    <th>{{ $header['label'] }}</th>
+                    <th @if (($header['type'] ?? '') === 'number') class="num" @endif>{{ $header['label'] }}</th>
                 @endforeach
             </tr>
         </thead>
@@ -50,7 +52,7 @@
                 <tr>
                     <td>{{ $index + 1 }}</td>
                     @foreach ($headers as $header)
-                        <td>{{ $row[$header['key']] ?? '—' }}</td>
+                        <td @if (($header['type'] ?? '') === 'number') class="num" @endif>{{ $displayValue($header, $row[$header['key']] ?? '—') }}</td>
                     @endforeach
                 </tr>
             @empty
@@ -59,6 +61,20 @@
                 </tr>
             @endforelse
         </tbody>
+        @if (!empty($totals))
+            <tfoot>
+                <tr class="total">
+                    <td>Total</td>
+                    @foreach ($headers as $header)
+                        <td @if (($header['type'] ?? '') === 'number') class="num" @endif>
+                            @if (array_key_exists($header['key'], $totals))
+                                {{ $displayValue($header, $totals[$header['key']]) }}
+                            @endif
+                        </td>
+                    @endforeach
+                </tr>
+            </tfoot>
+        @endif
     </table>
     <div class="footer">{{ $institution['name'] }} · {{ $title }}</div>
 </body>

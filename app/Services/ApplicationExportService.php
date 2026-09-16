@@ -6,8 +6,7 @@ use App\Models\Application;
 use App\Models\Campus;
 use App\Models\Setting;
 use App\Support\InstitutionLogo;
-use Dompdf\Dompdf;
-use Dompdf\Options;
+use App\Support\PdfBinaryResponse;
 use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\Shared\Drawing as SharedDrawing;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -19,6 +18,7 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpWord\IOFactory;
 use PhpOffice\PhpWord\PhpWord;
 use PhpOffice\PhpWord\SimpleType\Jc;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ApplicationExportService
@@ -35,7 +35,7 @@ class ApplicationExportService
         string $title,
         array $filterSummary = [],
         string $referenceKind = 'application_number',
-    ): StreamedResponse {
+    ): Response {
         $institution = $this->institution();
         $rows = $applications->map(fn (Application $app) => $this->rowData($app, $referenceKind))->values();
         $generatedAt = now()->format('d M Y H:i');
@@ -110,7 +110,7 @@ class ApplicationExportService
         string $referenceKind,
         string $generatedAt,
         string $filename,
-    ): StreamedResponse {
+    ): Response {
         $html = view('exports.applications-pdf', [
             'institution' => $institution,
             'title' => $title,
@@ -122,20 +122,7 @@ class ApplicationExportService
             'logo_data_uri' => InstitutionLogo::dataUri(),
         ])->render();
 
-        $options = new Options;
-        $options->set('isRemoteEnabled', false);
-        $options->set('defaultFont', 'DejaVu Sans');
-        $dompdf = new Dompdf($options);
-        $dompdf->loadHtml($html);
-        $dompdf->setPaper('A4', 'landscape');
-        $dompdf->render();
-        $output = $dompdf->output();
-
-        return response()->streamDownload(function () use ($output) {
-            echo $output;
-        }, $filename.'.pdf', [
-            'Content-Type' => 'application/pdf',
-        ]);
+        return PdfBinaryResponse::fromHtml($html, $filename);
     }
 
     /**

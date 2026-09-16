@@ -5,10 +5,10 @@ namespace App\Services;
 use App\Models\Campus;
 use App\Models\Invoice;
 use App\Models\Setting;
+use App\Support\ExportNumbers;
 use App\Support\FeeSchedule;
 use App\Support\InstitutionLogo;
-use Dompdf\Dompdf;
-use Dompdf\Options;
+use App\Support\PdfBinaryResponse;
 use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\Shared\Drawing as SharedDrawing;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -22,6 +22,7 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpWord\IOFactory;
 use PhpOffice\PhpWord\PhpWord;
 use PhpOffice\PhpWord\SimpleType\Jc;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class InvoiceExportService
@@ -32,18 +33,22 @@ class InvoiceExportService
      * @param  Collection<int, Invoice>  $invoices
      * @param  list<string>  $filterSummary
      */
-    public function export(string $format, Collection $invoices, string $title, array $filterSummary = []): StreamedResponse
+    public function export(string $format, Collection $invoices, string $title, array $filterSummary = []): Response
     {
         $institution = $this->institution();
         $rows = $invoices->map(fn (Invoice $invoice) => $this->rowData($invoice))->values();
+        $totals = [
+            'amount' => round($rows->sum(fn ($row) => (float) $row['amount']), 2),
+            'balance' => round($rows->sum(fn ($row) => (float) $row['balance']), 2),
+        ];
         $generatedAt = now()->format('d M Y H:i:s');
         $safeTitle = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $title) ?: 'invoices';
         $filename = $safeTitle.'_'.now()->format('Ymd_His');
 
         return match ($format) {
-            'pdf' => $this->pdf($institution, $title, $filterSummary, $rows, $generatedAt, $filename),
-            'excel' => $this->excel($institution, $title, $filterSummary, $rows, $generatedAt, $filename),
-            'word' => $this->word($institution, $title, $filterSummary, $rows, $generatedAt, $filename),
+            'pdf' => $this->pdf($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename),
+            'excel' => $this->excel($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename),
+            'word' => $this->word($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename),
             default => throw new \InvalidArgumentException('Unsupported export format.'),
         };
     }
@@ -65,7 +70,7 @@ class InvoiceExportService
     }
 
     /**
-     * @return array<string, string>
+     * @return array<string, mixed>
      */
     private function rowData(Invoice $invoice): array
     {
@@ -81,8 +86,8 @@ class InvoiceExportService
             'programme' => $student?->program?->name ?: '—',
             'college' => $student?->program?->department?->faculty?->name ?: '—',
             'department' => $student?->program?->department?->name ?: '—',
-            'amount' => number_format((float) $invoice->amount, 2),
-            'balance' => number_format((float) $invoice->balance, 2),
+            'amount' => round((float) $invoice->amount, 2),
+            'balance' => round((float) $invoice->balance, 2),
             'status' => ucfirst($status),
             'date' => optional($invoice->created_at)->format('d M Y H:i:s') ?: '—',
         ];
@@ -115,75 +120,75 @@ class InvoiceExportService
     }
 
     /**
-     * @param  array<string, string>  $row
-     * @return list<string>
+     * @param  array<string, mixed>  $row
+     * @return list<mixed>
      */
-    private function rowValues(array $row, int $sn): array
+    private function rowValues(array $row, int $sn, bool $display = false): array
     {
         return [
-            (string) $sn,
+            $sn,
             $row['number'],
             $row['payer'],
             $row['matric'],
             $row['category'],
             $row['programme'],
             $row['college'],
-            $row['amount'],
-            $row['balance'],
+            $display ? ExportNumbers::display($row['amount']) : $row['amount'],
+            $display ? ExportNumbers::display($row['balance']) : $row['balance'],
             $row['status'],
             $row['date'],
         ];
     }
 
     /**
+     * @return list<int>
+     */
+    private function moneyIndexes(): array
+    {
+        return [7, 8];
+    }
+
+    /**
      * @param  array{name: string, motto: string, address: string, contact: string}  $institution
      * @param  list<string>  $filterSummary
-     * @param  Collection<int, array<string, string>>  $rows
+     * @param  Collection<int, array<string, mixed>>  $rows
+     * @param  array{amount: float, balance: float}  $totals
      */
     private function pdf(
         array $institution,
         string $title,
         array $filterSummary,
         Collection $rows,
+        array $totals,
         string $generatedAt,
         string $filename,
-    ): StreamedResponse {
+    ): Response {
         $html = view('exports.invoices-pdf', [
             'institution' => $institution,
             'title' => $title,
             'filterSummary' => $filterSummary,
             'rows' => $rows,
+            'totals' => $totals,
             'generatedAt' => $generatedAt,
             'count' => $rows->count(),
             'logo_data_uri' => InstitutionLogo::dataUri(),
         ])->render();
 
-        $options = new Options;
-        $options->set('isRemoteEnabled', false);
-        $options->set('defaultFont', 'DejaVu Sans');
-        $dompdf = new Dompdf($options);
-        $dompdf->loadHtml($html);
-        $dompdf->setPaper('A4', 'landscape');
-        $dompdf->render();
-        $output = $dompdf->output();
-
-        return response()->streamDownload(function () use ($output) {
-            echo $output;
-        }, $filename.'.pdf', [
-            'Content-Type' => 'application/pdf',
-        ]);
+        return PdfBinaryResponse::fromHtml($html, $filename);
     }
 
     /**
      * @param  array{name: string, motto: string, address: string, contact: string}  $institution
      * @param  list<string>  $filterSummary
-     * @param  Collection<int, array<string, string>>  $rows
+     * @param  Collection<int, array<string, mixed>>  $rows
+     * @param  array{amount: float, balance: float}  $totals
      */
     private function excel(
         array $institution,
         string $title,
         array $filterSummary,
         Collection $rows,
+        array $totals,
         string $generatedAt,
         string $filename,
     ): StreamedResponse {
@@ -251,12 +256,27 @@ class InvoiceExportService
         $sheet->getStyle($headerRange)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('0C4A6E');
 
         $rowIndex = $headerRow + 1;
+        $moneyIndexes = $this->moneyIndexes();
         foreach ($rows as $i => $data) {
             foreach ($this->rowValues($data, $i + 1) as $index => $value) {
-                $sheet->setCellValue($columns[$index].$rowIndex, $value);
+                $cell = $columns[$index].$rowIndex;
+                if ($index === 0 || in_array($index, $moneyIndexes, true)) {
+                    ExportNumbers::writeCell($sheet, $cell, $value, true, $index !== 0);
+                } else {
+                    $sheet->setCellValue($cell, $value);
+                }
             }
             $rowIndex++;
         }
+
+        $totalRow = $rowIndex;
+        $sheet->setCellValue('A'.$totalRow, 'Total');
+        ExportNumbers::writeCell($sheet, $columns[7].$totalRow, $totals['amount'], true, true);
+        ExportNumbers::writeCell($sheet, $columns[8].$totalRow, $totals['balance'], true, true);
+        $sheet->getStyle('A'.$totalRow.':'.$lastCol.$totalRow)->getFont()->setBold(true);
+        $sheet->getStyle('A'.$totalRow.':'.$lastCol.$totalRow)->getFill()
+            ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E0F2FE');
+        $rowIndex++;
 
         $sheet->getStyle('A'.$headerRow.':'.$lastCol.max($headerRow, $rowIndex - 1))->getBorders()->getAllBorders()
             ->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('CBD5E1');
@@ -278,13 +298,15 @@ class InvoiceExportService
     /**
      * @param  array{name: string, motto: string, address: string, contact: string}  $institution
      * @param  list<string>  $filterSummary
-     * @param  Collection<int, array<string, string>>  $rows
+     * @param  Collection<int, array<string, mixed>>  $rows
+     * @param  array{amount: float, balance: float}  $totals
      */
     private function word(
         array $institution,
         string $title,
         array $filterSummary,
         Collection $rows,
+        array $totals,
         string $generatedAt,
         string $filename,
     ): StreamedResponse {
@@ -328,10 +350,15 @@ class InvoiceExportService
         }
         foreach ($rows as $i => $data) {
             $table->addRow();
-            foreach ($this->rowValues($data, $i + 1) as $value) {
+            foreach ($this->rowValues($data, $i + 1, true) as $value) {
                 $cell = $table->addCell(1200);
                 $cell->addText((string) $value, ['size' => 8, 'color' => '1E293B']);
             }
+        }
+        $table->addRow();
+        foreach (['Total', '', '', '', '', '', '', ExportNumbers::display($totals['amount']), ExportNumbers::display($totals['balance']), '', ''] as $value) {
+            $cell = $table->addCell(1200, ['bgColor' => 'E0F2FE']);
+            $cell->addText((string) $value, ['bold' => true, 'size' => 8, 'color' => '0C4A6E']);
         }
 
         return response()->streamDownload(function () use ($phpWord) {

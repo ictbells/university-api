@@ -140,6 +140,7 @@ class ReportController extends Controller
             $exported['rows'],
             $exported['title'],
             $exported['filter_summary'],
+            $exported['totals'] ?? [],
         );
     }
 

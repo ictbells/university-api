@@ -8,12 +8,12 @@ use App\Models\InvoiceRebate;
 use App\Models\Payment;
 use App\Models\Setting;
 use App\Models\Wallet;
+use App\Support\ExportNumbers;
 use App\Support\FeeSchedule;
 use App\Support\InstitutionLogo;
+use App\Support\PdfBinaryResponse;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
-use Dompdf\Dompdf;
-use Dompdf\Options;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -24,6 +24,7 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpWord\IOFactory;
 use PhpOffice\PhpWord\PhpWord;
 use PhpOffice\PhpWord\SimpleType\Jc;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class UniversityFinanceStatementService
@@ -108,7 +109,7 @@ class UniversityFinanceStatementService
         ];
     }
 
-    public function export(string $format, array $statement): StreamedResponse
+    public function export(string $format, array $statement): Response
     {
         $generatedAt = now()->format('d M Y H:i:s');
         $title = 'University financial statement';
@@ -465,7 +466,7 @@ class UniversityFinanceStatementService
     /**
      * @param  array<string, mixed>  $statement
      */
-    private function pdf(array $statement, string $title, string $generatedAt, string $filename): StreamedResponse
+    private function pdf(array $statement, string $title, string $generatedAt, string $filename): Response
     {
         $html = view('exports.university-finance-statement-pdf', [
             'statement' => $statement,
@@ -475,20 +476,7 @@ class UniversityFinanceStatementService
             'naira' => fn (float $value) => $this->naira($value),
         ])->render();
 
-        $options = new Options;
-        $options->set('isRemoteEnabled', false);
-        $options->set('defaultFont', 'DejaVu Sans');
-        $dompdf = new Dompdf($options);
-        $dompdf->loadHtml($html);
-        $dompdf->setPaper('A4', 'portrait');
-        $dompdf->render();
-        $output = $dompdf->output();
-
-        return response()->streamDownload(function () use ($output) {
-            echo $output;
-        }, $filename.'.pdf', [
-            'Content-Type' => 'application/pdf',
-        ]);
+        return PdfBinaryResponse::fromHtml($html, $filename, 'A4', 'portrait');
     }
 
     /**
@@ -591,8 +579,7 @@ class UniversityFinanceStatementService
         $row++;
         foreach ($lines as $line) {
             $sheet->setCellValue('A'.$row, $line[0]);
-            $sheet->setCellValue('B'.$row, $this->naira((float) $line[1]));
-            $sheet->getStyle('B'.$row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+            ExportNumbers::writeCell($sheet, 'B'.$row, $line[1], true, true);
             $row++;
         }
 
@@ -620,9 +607,11 @@ class UniversityFinanceStatementService
         foreach ($rows as $data) {
             foreach ($data as $index => $value) {
                 $cell = chr(65 + $index).$row;
-                $sheet->setCellValue($cell, is_float($value) || is_int($value) ? $this->naira((float) $value) : $value);
                 if (is_float($value) || is_int($value)) {
-                    $sheet->getStyle($cell)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+                    $asMoney = strtolower((string) ($headers[$index] ?? '')) !== 'payments';
+                    ExportNumbers::writeCell($sheet, $cell, $value, true, $asMoney);
+                } else {
+                    $sheet->setCellValue($cell, $value);
                 }
             }
             $row++;

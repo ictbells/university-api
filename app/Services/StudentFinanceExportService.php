@@ -4,9 +4,9 @@ namespace App\Services;
 
 use App\Models\Campus;
 use App\Models\Setting;
+use App\Support\ExportNumbers;
 use App\Support\InstitutionLogo;
-use Dompdf\Dompdf;
-use Dompdf\Options;
+use App\Support\PdfBinaryResponse;
 use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
@@ -16,6 +16,7 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpWord\IOFactory;
 use PhpOffice\PhpWord\PhpWord;
 use PhpOffice\PhpWord\SimpleType\Jc;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class StudentFinanceExportService
@@ -23,20 +24,26 @@ class StudentFinanceExportService
     public const MAX_ROWS = 5000;
 
     /**
-     * @param  Collection<int, array<string, string>>  $rows
+     * @param  Collection<int, array<string, mixed>>  $rows
      * @param  list<string>  $filterSummary
      */
-    public function export(string $format, Collection $rows, string $title, array $filterSummary = []): StreamedResponse
+    public function export(string $format, Collection $rows, string $title, array $filterSummary = []): Response
     {
         $institution = $this->institution();
         $generatedAt = now()->format('d M Y H:i:s');
         $safeTitle = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $title) ?: 'student_finance';
         $filename = $safeTitle.'_'.now()->format('Ymd_His');
+        $totals = [
+            'wallet' => round($rows->sum(fn ($row) => (float) $row['wallet']), 2),
+            'billed' => round($rows->sum(fn ($row) => (float) $row['billed']), 2),
+            'paid' => round($rows->sum(fn ($row) => (float) $row['paid']), 2),
+            'outstanding' => round($rows->sum(fn ($row) => (float) $row['outstanding']), 2),
+        ];
 
         return match ($format) {
-            'pdf' => $this->pdf($institution, $title, $filterSummary, $rows, $generatedAt, $filename),
-            'excel' => $this->excel($institution, $title, $filterSummary, $rows, $generatedAt, $filename),
-            'word' => $this->word($institution, $title, $filterSummary, $rows, $generatedAt, $filename),
+            'pdf' => $this->pdf($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename),
+            'excel' => $this->excel($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename),
+            'word' => $this->word($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename),
             default => throw new \InvalidArgumentException('Unsupported export format.'),
         };
     }
@@ -65,75 +72,75 @@ class StudentFinanceExportService
     }
 
     /**
-     * @param  array<string, string>  $row
-     * @return list<string>
+     * @param  array<string, mixed>  $row
+     * @return list<mixed>
      */
-    private function values(array $row, int $sn): array
+    private function values(array $row, int $sn, bool $display = false): array
     {
         return [
-            (string) $sn,
+            $sn,
             $row['name'],
             $row['matric'],
             $row['programme'],
             $row['college'],
             $row['level'],
-            $row['wallet'],
-            $row['billed'],
-            $row['paid'],
-            $row['outstanding'],
+            $display ? ExportNumbers::display($row['wallet']) : $row['wallet'],
+            $display ? ExportNumbers::display($row['billed']) : $row['billed'],
+            $display ? ExportNumbers::display($row['paid']) : $row['paid'],
+            $display ? ExportNumbers::display($row['outstanding']) : $row['outstanding'],
             $row['clearance'],
         ];
     }
 
     /**
+     * @return list<int>
+     */
+    private function moneyIndexes(): array
+    {
+        return [6, 7, 8, 9];
+    }
+
+    /**
      * @param  array{name: string, motto: string}  $institution
      * @param  list<string>  $filterSummary
-     * @param  Collection<int, array<string, string>>  $rows
+     * @param  Collection<int, array<string, mixed>>  $rows
+     * @param  array{wallet: float, billed: float, paid: float, outstanding: float}  $totals
      */
     private function pdf(
         array $institution,
         string $title,
         array $filterSummary,
         Collection $rows,
+        array $totals,
         string $generatedAt,
         string $filename,
-    ): StreamedResponse {
+    ): Response {
         $html = view('exports.student-finance-pdf', [
             'institution' => $institution,
             'title' => $title,
             'filterSummary' => $filterSummary,
             'rows' => $rows,
+            'totals' => $totals,
             'generatedAt' => $generatedAt,
             'count' => $rows->count(),
             'logo_data_uri' => InstitutionLogo::dataUri(),
         ])->render();
 
-        $options = new Options;
-        $options->set('isRemoteEnabled', false);
-        $options->set('defaultFont', 'DejaVu Sans');
-        $dompdf = new Dompdf($options);
-        $dompdf->loadHtml($html);
-        $dompdf->setPaper('A4', 'landscape');
-        $dompdf->render();
-        $output = $dompdf->output();
-
-        return response()->streamDownload(function () use ($output) {
-            echo $output;
-        }, $filename.'.pdf', [
-            'Content-Type' => 'application/pdf',
-        ]);
+        return PdfBinaryResponse::fromHtml($html, $filename);
     }
 
     /**
      * @param  array{name: string, motto: string}  $institution
      * @param  list<string>  $filterSummary
-     * @param  Collection<int, array<string, string>>  $rows
+     * @param  Collection<int, array<string, mixed>>  $rows
+     * @param  array{wallet: float, billed: float, paid: float, outstanding: float}  $totals
      */
     private function excel(
         array $institution,
         string $title,
         array $filterSummary,
         Collection $rows,
+        array $totals,
         string $generatedAt,
         string $filename,
     ): StreamedResponse {
@@ -177,12 +184,29 @@ class StudentFinanceExportService
         $sheet->getStyle($headerRange)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('0C4A6E');
 
         $rowIndex = $headerRow + 1;
+        $moneyIndexes = $this->moneyIndexes();
         foreach ($rows as $i => $data) {
             foreach ($this->values($data, $i + 1) as $index => $value) {
-                $sheet->setCellValue(chr(65 + $index).$rowIndex, $value);
+                $cell = chr(65 + $index).$rowIndex;
+                if ($index === 0 || in_array($index, $moneyIndexes, true)) {
+                    ExportNumbers::writeCell($sheet, $cell, $value, true, $index !== 0);
+                } else {
+                    $sheet->setCellValue($cell, $value);
+                }
             }
             $rowIndex++;
         }
+
+        $totalRow = $rowIndex;
+        $sheet->setCellValue('A'.$totalRow, 'Total');
+        ExportNumbers::writeCell($sheet, 'G'.$totalRow, $totals['wallet'], true, true);
+        ExportNumbers::writeCell($sheet, 'H'.$totalRow, $totals['billed'], true, true);
+        ExportNumbers::writeCell($sheet, 'I'.$totalRow, $totals['paid'], true, true);
+        ExportNumbers::writeCell($sheet, 'J'.$totalRow, $totals['outstanding'], true, true);
+        $sheet->getStyle('A'.$totalRow.':'.$lastCol.$totalRow)->getFont()->setBold(true);
+        $sheet->getStyle('A'.$totalRow.':'.$lastCol.$totalRow)->getFill()
+            ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E0F2FE');
+        $rowIndex++;
 
         $sheet->getStyle('A'.$headerRow.':'.$lastCol.max($headerRow, $rowIndex - 1))->getBorders()->getAllBorders()
             ->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('CBD5E1');
@@ -202,13 +226,15 @@ class StudentFinanceExportService
     /**
      * @param  array{name: string, motto: string}  $institution
      * @param  list<string>  $filterSummary
-     * @param  Collection<int, array<string, string>>  $rows
+     * @param  Collection<int, array<string, mixed>>  $rows
+     * @param  array{wallet: float, billed: float, paid: float, outstanding: float}  $totals
      */
     private function word(
         array $institution,
         string $title,
         array $filterSummary,
         Collection $rows,
+        array $totals,
         string $generatedAt,
         string $filename,
     ): StreamedResponse {
@@ -246,10 +272,22 @@ class StudentFinanceExportService
         }
         foreach ($rows as $i => $data) {
             $table->addRow();
-            foreach ($this->values($data, $i + 1) as $value) {
+            foreach ($this->values($data, $i + 1, true) as $value) {
                 $cell = $table->addCell(1400);
                 $cell->addText((string) $value, ['size' => 8, 'color' => '1E293B']);
             }
+        }
+        $table->addRow();
+        foreach ([
+            'Total', '', '', '', '', '',
+            ExportNumbers::display($totals['wallet']),
+            ExportNumbers::display($totals['billed']),
+            ExportNumbers::display($totals['paid']),
+            ExportNumbers::display($totals['outstanding']),
+            '',
+        ] as $value) {
+            $cell = $table->addCell(1400, ['bgColor' => 'E0F2FE']);
+            $cell->addText((string) $value, ['bold' => true, 'size' => 8, 'color' => '0C4A6E']);
         }
 
         return response()->streamDownload(function () use ($phpWord) {
