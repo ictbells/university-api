@@ -179,6 +179,42 @@ class OpenApiGenerator
             'summary' => 'List JUPEB students without a matric number',
             'description' => 'Students on the JUPEB track with a blank matric number. Requires `admissions.matriculate` or `students.manage`.',
         ],
+        'post_/api/finance/semester-fee/generate' => [
+            'summary' => 'Generate semester fee for all enrolled students',
+            'description' => 'Creates one unpaid wallet invoice per active enrolled student for the selected academic term (defaults to the current term). Uses the single active `semester_fee` catalog FeeItem amount. Applicants and inactive students are skipped. Re-running for the same term skips students already billed. Requires `finance.invoices.manage`. May return HTTP 202 when Fees & payments Create office approval is required. While a student\'s current-term semester fee is unpaid, other invoice payments and tuition installment creation are blocked; wallet top-up remains allowed.',
+            'requestBody' => [
+                'required' => false,
+                'content' => [
+                    'application/json' => [
+                        'schema' => [
+                            'type' => 'object',
+                            'properties' => [
+                                'academic_term_id' => [
+                                    'type' => 'integer',
+                                    'description' => 'Optional academic term id. Defaults to the current term.',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ],
+        'get_/api/fees/meta' => [
+            'summary' => 'Fee catalog metadata',
+            'description' => 'Categories, installment options, transcript types, and semester-fee catalog amount plus recent academic terms for bulk generation. Requires `finance.invoices.manage`.',
+        ],
+        'get_/api/my-programme-fees' => [
+            'summary' => 'Student programme fee schedule',
+            'description' => 'Current-session tuition schedule, available installment percents, prior unpaid arrears, and semester-fee pay-first flags (`semester_fee_required`, `semester_fee_invoice_id`, `semester_fee_balance`, `semester_fee_term_id`).',
+        ],
+        'post_/api/invoices/tuition-installment' => [
+            'summary' => 'Create tuition installment invoice',
+            'description' => 'Student creates the next unpaid tuition installment. Blocked when prior-session arrears remain or when the current-term semester fee invoice is unpaid/partial.',
+        ],
+        'post_/api/wallet/pay/{invoice}' => [
+            'summary' => 'Pay invoice from campus wallet',
+            'description' => 'Debits the student wallet to settle an invoice. Blocked when a current-term unpaid semester fee exists unless this invoice is that semester fee. Application, acceptance, and transcript fees cannot be paid from wallet.',
+        ],
     ];
 
     public function generate(): array
@@ -337,6 +373,7 @@ class OpenApiGenerator
             str_starts_with($uri, 'api/receipts'),
             str_starts_with($uri, 'api/transactions'),
             str_starts_with($uri, 'api/fees'),
+            str_starts_with($uri, 'api/finance'),
             str_starts_with($uri, 'api/payments') => 'Finance',
             str_starts_with($uri, 'api/users'),
             str_starts_with($uri, 'api/roles'),

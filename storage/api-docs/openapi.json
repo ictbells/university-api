@@ -4980,6 +4980,62 @@
                     }
                 },
                 "description": "Staff with `admissions.view` can edit submitted application fields except application number and documents. `nin` may be corrected (11 digits) and is rejected if already linked to another account; omit or leave blank to keep the current NIN. Names, date of birth, gender, and NIN passport stay locked until staff with `identity.verify_nin` call POST `/api/applications/{application}/nin/resync`. Email and JAMB registration must stay unique. JAMB is checked against uploaded candidate data (`validated` if found, otherwise `pending`). Change of programme is allowed for 100L\u2013300L. Same college: the student keeps the current level, outstanding new-programme courses remain available, and CGPA stays cumulative. Different college: the student drops one band except 100L; the transcript and CGPA keep only old-programme courses below the new level (300L\u2192200L keeps old 100L only) plus results on the new programme."
+            },
+            "delete": {
+                "operationId": "deleteApplicationDestroy",
+                "summary": "Delete application file (staff)",
+                "tags": [
+                    "Applications"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "description": "Staff with `admissions.delete` soft-delete one application without removing the shared applicant account. Use this when the same person bought more than one form (for example postgraduate and UTME) and those files share email, phone, and JAMB. Paid invoices are kept; unpaid invoices for this file are cancelled. Blocked after an offer is issued, acceptance is paid, physical clearance, or a student record exists. Requires a reason. Office delete-approval still applies where configured.",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": [
+                                    "reason"
+                                ],
+                                "properties": {
+                                    "reason": {
+                                        "type": "string",
+                                        "minLength": 5,
+                                        "maxLength": 500
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         "/api/applications/{application}/acceptance-fee": {
@@ -8289,7 +8345,7 @@
         "/api/fees/meta": {
             "get": {
                 "operationId": "getFinanceFeeMeta",
-                "summary": "Get Fee Meta",
+                "summary": "Fee catalog metadata",
                 "tags": [
                     "Finance"
                 ],
@@ -8316,7 +8372,7 @@
                         "description": "Validation error"
                     }
                 },
-                "description": "Requires permission: `finance.invoices.manage`.",
+                "description": "Categories, installment options, transcript types, and semester-fee catalog amount plus recent academic terms for bulk generation. Requires `finance.invoices.manage`.",
                 "security": [
                     {
                         "bearerAuth": []
@@ -8413,7 +8469,7 @@
                 "operationId": "getFinanceDashboard",
                 "summary": "Get Dashboard",
                 "tags": [
-                    "Public"
+                    "Finance"
                 ],
                 "responses": {
                     "200": {
@@ -8451,7 +8507,7 @@
                 "operationId": "getFinanceExportDashboard",
                 "summary": "Get Export Dashboard",
                 "tags": [
-                    "Public"
+                    "Finance"
                 ],
                 "responses": {
                     "200": {
@@ -8484,12 +8540,66 @@
                 ]
             }
         },
+        "/api/finance/semester-fee/generate": {
+            "post": {
+                "operationId": "postFinanceGenerateSemesterFee",
+                "summary": "Generate semester fee for all enrolled students",
+                "tags": [
+                    "Finance"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Creates one unpaid wallet invoice per active enrolled student for the selected academic term (defaults to the current term). Uses the single active `semester_fee` catalog FeeItem amount. Applicants and inactive students are skipped. Re-running for the same term skips students already billed. Requires `finance.invoices.manage`. May return HTTP 202 when Fees & payments Create office approval is required. While a student's current-term semester fee is unpaid, other invoice payments and tuition installment creation are blocked; wallet top-up remains allowed.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "academic_term_id": {
+                                        "type": "integer",
+                                        "description": "Optional academic term id. Defaults to the current term."
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/finance/student-roster": {
             "get": {
                 "operationId": "getFinanceStudentRoster",
                 "summary": "Get Student Roster",
                 "tags": [
-                    "Public"
+                    "Finance"
                 ],
                 "responses": {
                     "200": {
@@ -8527,7 +8637,7 @@
                 "operationId": "getFinanceExportStudentRoster",
                 "summary": "Get Export Student Roster",
                 "tags": [
-                    "Public"
+                    "Finance"
                 ],
                 "responses": {
                     "200": {
@@ -8565,7 +8675,7 @@
                 "operationId": "getFinanceStudentStatus",
                 "summary": "Get Student Status",
                 "tags": [
-                    "Public"
+                    "Finance"
                 ],
                 "responses": {
                     "200": {
@@ -10502,7 +10612,7 @@
         "/api/invoices/tuition-installment": {
             "post": {
                 "operationId": "postFinanceCreateTuitionInstallment",
-                "summary": "Create Create Tuition Installment",
+                "summary": "Create tuition installment invoice",
                 "tags": [
                     "Finance"
                 ],
@@ -10543,7 +10653,8 @@
                             }
                         }
                     }
-                }
+                },
+                "description": "Student creates the next unpaid tuition installment. Blocked when prior-session arrears remain or when the current-term semester fee invoice is unpaid/partial."
             }
         },
         "/api/invoices/{invoice}/disable": {
@@ -11774,7 +11885,7 @@
         "/api/my-programme-fees": {
             "get": {
                 "operationId": "getFinanceMyProgrammeFeeSchedule",
-                "summary": "Get My Programme Fee Schedule",
+                "summary": "Student programme fee schedule",
                 "tags": [
                     "Public"
                 ],
@@ -11805,7 +11916,8 @@
                     {
                         "bearerAuth": []
                     }
-                ]
+                ],
+                "description": "Current-session tuition schedule, available installment percents, prior unpaid arrears, and semester-fee pay-first flags (`semester_fee_required`, `semester_fee_invoice_id`, `semester_fee_balance`, `semester_fee_term_id`)."
             }
         },
         "/api/nin/preview": {
@@ -18805,7 +18917,7 @@
         "/api/wallet/pay/{invoice}": {
             "post": {
                 "operationId": "postWalletPayInvoice",
-                "summary": "Create Pay Invoice",
+                "summary": "Pay invoice from campus wallet",
                 "tags": [
                     "Finance"
                 ],
@@ -18846,7 +18958,8 @@
                             }
                         }
                     }
-                }
+                },
+                "description": "Debits the student wallet to settle an invoice. Blocked when a current-term unpaid semester fee exists unless this invoice is that semester fee. Application, acceptance, and transcript fees cannot be paid from wallet."
             }
         },
         "/api/wallet/topup": {
