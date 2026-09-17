@@ -104,6 +104,11 @@ class Invoice extends BaseModel
         return $this->belongsTo(AcademicSession::class, 'academic_session_id');
     }
 
+    public function academicTerm(): BelongsTo
+    {
+        return $this->belongsTo(AcademicTerm::class, 'academic_term_id');
+    }
+
     public function isPayable(): bool
     {
         return in_array($this->status, ['unpaid', 'partial'], true);

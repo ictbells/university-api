@@ -50,6 +50,26 @@ class ApplicationFormSteps
     }
 
     /**
+     * Persist catalog keys. Blank values and labels like "ND" / "Lower Credit" normalize here.
+     *
+     * @param  list<string>  $allowed
+     */
+    public static function normalizeChoice(mixed $raw, array $allowed, string $fallback): string
+    {
+        $text = strtolower(trim((string) ($raw ?? '')));
+        if ($text === '') {
+            return $fallback;
+        }
+
+        $slug = str_replace([' ', '-'], '_', $text);
+        if (in_array($slug, $allowed, true)) {
+            return $slug;
+        }
+
+        return $fallback;
+    }
+
+    /**
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
@@ -162,6 +182,16 @@ class ApplicationFormSteps
             $payload['requested_entry_level'] ?? null,
             self::DE_ENTRY_LEVELS,
             '200',
+        );
+        $payload['qualification_type'] = self::normalizeChoice(
+            $payload['qualification_type'] ?? null,
+            self::DE_QUALIFICATION_TYPES,
+            'nd',
+        );
+        $payload['qualification_class'] = self::normalizeChoice(
+            $payload['qualification_class'] ?? null,
+            self::DE_CLASSIFICATIONS,
+            'upper_credit',
         );
 
         $request->merge(['payload' => $payload]);

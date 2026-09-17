@@ -7,6 +7,7 @@ use App\Models\Payment;
 use App\Services\FeeArrearsService;
 use App\Services\PaymentGatewayManager;
 use App\Support\SchoolFeeAccess;
+use App\Support\SemesterFeeAccess;
 use Illuminate\Http\Request;
 use RuntimeException;
 
@@ -87,6 +88,7 @@ class PaymentController extends Controller
             $this->arrears->ensureForStudent($student);
             try {
                 $this->arrears->assertCanPay($student, $invoice);
+                SemesterFeeAccess::assertCanPay($student, $invoice);
             } catch (RuntimeException $e) {
                 return response()->json(['message' => $e->getMessage()], 422);
             }

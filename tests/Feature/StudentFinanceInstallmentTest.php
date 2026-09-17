@@ -291,6 +291,59 @@ class StudentFinanceInstallmentTest extends TestCase
         $this->assertSame([50, 75, 100], TuitionProgress::availableInstallmentPercents($student));
     }
 
+    public function test_paid_first_installment_counts_when_student_id_missing_or_session_null(): void
+    {
+        [$student, $tuition] = $this->studentWithPaidQuarterTuition();
+
+        $tuition->update([
+            'student_id' => null,
+            'academic_session_id' => null,
+            'level_code' => '100L',
+        ]);
+
+        $this->assertEquals(25.0, TuitionProgress::currentSessionPercent($student->fresh()));
+        $this->assertSame([50, 75, 100], TuitionProgress::availableInstallmentPercents($student->fresh()));
+
+        Sanctum::actingAs($student->user);
+        $this->getJson('/api/my-programme-fees')
+            ->assertOk()
+            ->assertJsonPath('tuition_percent_paid', 25)
+            ->assertJsonPath('available_installment_percents', [50, 75, 100]);
+
+        $this->postJson('/api/invoices/tuition-installment', ['installment_percent' => 25])
+            ->assertStatus(422)
+            ->assertJsonFragment(['message' => 'This installment has already been paid. Choose the next unpaid share.']);
+    }
+
+    public function test_hostel_and_progress_follow_paid_tuition_session_when_current_term_differs(): void
+    {
+        [$student, $tuition] = $this->studentWithPaidQuarterTuition();
+        $paidSessionId = (int) $tuition->academic_session_id;
+
+        $other = AcademicSession::query()->create([
+            'label' => '2026/2027',
+            'starts_on' => '2026-10-01',
+            'ends_on' => '2027-09-30',
+        ]);
+        AcademicTerm::query()->update(['is_current' => false]);
+        AcademicTerm::query()->create([
+            'academic_session_id' => $other->id,
+            'name' => 'First',
+            'session_label' => '2026/2027',
+            'is_current' => true,
+        ]);
+
+        $this->assertNotSame($paidSessionId, (int) TuitionProgress::currentSessionId());
+        $this->assertEquals(25.0, TuitionProgress::currentSessionPercent($student->fresh()));
+        $this->assertTrue(TuitionProgress::meetsMinimum($student->fresh()));
+
+        Sanctum::actingAs($student->user);
+        $this->getJson('/api/me/hostel')
+            ->assertOk()
+            ->assertJsonPath('tuition_percent', 25)
+            ->assertJsonPath('tuition_ok', true);
+    }
+
     public function test_disabled_invoices_and_their_rebates_are_excluded_from_student_status(): void
     {
         $staff = $this->financeStaff();

@@ -21,6 +21,7 @@ use App\Services\FeeArrearsService;
 use App\Services\InvoiceExportService;
 use App\Services\InvoiceService;
 use App\Services\PaymentGatewayManager;
+use App\Services\SemesterFeeService;
 use App\Services\StudentFinanceExportService;
 use App\Services\UniversityFinanceStatementService;
 use App\Support\AdmissionEntryRules;
@@ -35,6 +36,7 @@ use App\Support\ReceiptInstitution;
 use App\Support\ReceiptPayer;
 use App\Support\ReceiptQr;
 use App\Support\SchoolFeeAccess;
+use App\Support\SemesterFeeAccess;
 use App\Support\StudentFinanceStatus;
 use App\Support\TranscriptType;
 use App\Support\TuitionProgress;
@@ -59,6 +61,7 @@ class FinanceController extends Controller
         private StudentFinanceExportService $studentFinanceExports,
         private UniversityFinanceStatementService $universityStatement,
         private FeeArrearsService $arrears,
+        private SemesterFeeService $semesterFees,
         private AuditWriter $audit,
         private PaymentGatewayManager $gateways,
     ) {}
@@ -81,6 +84,26 @@ class FinanceController extends Controller
 
     public function feeMeta()
     {
+        $semesterFee = FeeItem::query()
+            ->where('category', SemesterFeeAccess::CATEGORY)
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->first();
+        $terms = AcademicTerm::query()
+            ->with('session:id,label')
+            ->orderByDesc('is_current')
+            ->orderByDesc('id')
+            ->limit(20)
+            ->get()
+            ->map(fn (AcademicTerm $term) => [
+                'id' => $term->id,
+                'name' => $term->name,
+                'session_label' => $term->session_label ?: $term->session?->label,
+                'is_current' => (bool) $term->is_current,
+            ])
+            ->values()
+            ->all();
+
         return [
             'categories' => FeeSchedule::staffEditableCategoryOptions(),
             'schedule_categories' => FeeSchedule::scheduleCategories(),
@@ -88,6 +111,12 @@ class FinanceController extends Controller
             'installment_tranches' => FeeSchedule::installmentTrancheOptions(),
             'semesters' => FeeSchedule::SEMESTERS,
             'transcript_types' => TranscriptType::options(),
+            'semester_fee' => [
+                'fee_item_id' => $semesterFee?->id,
+                'name' => $semesterFee?->name,
+                'amount' => $semesterFee ? round((float) $semesterFee->amount, 2) : null,
+                'terms' => $terms,
+            ],
         ];
     }
 
@@ -713,6 +742,46 @@ class FinanceController extends Controller
         });
     }
 
+    public function generateSemesterFee(Request $request)
+    {
+        $data = $request->validate([
+            'academic_term_id' => 'nullable|integer|exists:academic_terms,id',
+        ]);
+
+        return $this->officeGate(
+            'finance.generate_semester_fee',
+            null,
+            $data,
+            'Generate semester fee',
+            function () use ($data) {
+                try {
+                    $summary = $this->semesterFees->generateForTerm(
+                        isset($data['academic_term_id']) ? (int) $data['academic_term_id'] : null,
+                    );
+                } catch (RuntimeException $e) {
+                    return response()->json(['message' => $e->getMessage()], 422);
+                }
+
+                $this->audit->record(
+                    'semester_fee.generated',
+                    sprintf(
+                        'Semester fee generated: %d created, %d skipped, %d failed',
+                        $summary['created'],
+                        $summary['skipped'],
+                        $summary['failed'],
+                    ),
+                    'fees',
+                    'academic_term',
+                    $summary['academic_term_id'],
+                    null,
+                    $summary,
+                );
+
+                return $summary;
+            },
+        );
+    }
+
     /**
      * @param  array<string, mixed>  $data
      */
@@ -832,6 +901,7 @@ class FinanceController extends Controller
 
         $finance = StudentFinanceStatus::summarize($student, $invoices);
         $walletBalance = round((float) ($student->wallet?->balance ?? 0), 2);
+        $semesterFee = SemesterFeeAccess::statusPayload($student);
 
         $invoiceIds = $invoices->pluck('id')->filter()->values();
         $payments = Payment::query()
@@ -886,6 +956,7 @@ class FinanceController extends Controller
                 'clearance' => $finance['clearance'],
                 'invoice_count' => $finance['invoice_count'],
                 'open_count' => $finance['open_count'],
+                ...$semesterFee,
             ],
             'invoices' => $invoices->map(function (Invoice $invoice) use ($settlements) {
                 $settlement = $settlements[$invoice->id];
@@ -1461,7 +1532,7 @@ class FinanceController extends Controller
     public function myProgrammeFeeSchedule(Request $request)
     {
         $student = $request->user()->student()->with('program')->first();
-        if (! $student?->program_id) {
+        if (! $student) {
             return [
                 'schedule_set' => false,
                 'total_amount' => null,
@@ -1469,11 +1540,36 @@ class FinanceController extends Controller
                 'program' => null,
                 'tuition_percent_paid' => 0,
                 'available_installment_percents' => FeeSchedule::INSTALLMENT_PERCENTS,
+                'prior_unpaid_count' => 0,
+                'prior_unpaid_amount' => 0,
+                'semester_fee_required' => false,
+                'semester_fee_invoice_id' => null,
+                'semester_fee_balance' => 0.0,
+                'semester_fee_term_id' => null,
             ];
         }
 
         $this->arrears->ensureForStudent($student);
         $prior = $this->arrears->priorUnpaid($student);
+        $tuitionPercentPaid = TuitionProgress::currentSessionPercent($student);
+        $semesterFee = SemesterFeeAccess::statusPayload($student);
+        $availableInstallments = $prior->isNotEmpty() || $semesterFee['semester_fee_required']
+            ? []
+            : TuitionProgress::availableInstallmentPercents($student);
+
+        if (! $student->program_id) {
+            return [
+                'schedule_set' => false,
+                'total_amount' => null,
+                'line_count' => 0,
+                'program' => null,
+                'tuition_percent_paid' => $tuitionPercentPaid,
+                'available_installment_percents' => $availableInstallments,
+                'prior_unpaid_count' => $prior->count(),
+                'prior_unpaid_amount' => round((float) $prior->sum('balance'), 2),
+                ...$semesterFee,
+            ];
+        }
 
         $lines = ProgrammeFeeResolver::forStudent($student);
         $total = round((float) $lines->sum(fn ($line) => $line->effective_amount), 2);
@@ -1483,12 +1579,11 @@ class FinanceController extends Controller
             'total_amount' => $total > 0 ? $total : null,
             'line_count' => $lines->count(),
             'program' => $student->program?->only(['id', 'name', 'code']),
-            'tuition_percent_paid' => TuitionProgress::currentSessionPercent($student),
-            'available_installment_percents' => $prior->isNotEmpty()
-                ? []
-                : TuitionProgress::availableInstallmentPercents($student),
+            'tuition_percent_paid' => $tuitionPercentPaid,
+            'available_installment_percents' => $availableInstallments,
             'prior_unpaid_count' => $prior->count(),
             'prior_unpaid_amount' => round((float) $prior->sum('balance'), 2),
+            ...$semesterFee,
         ];
     }
 
@@ -1505,6 +1600,7 @@ class FinanceController extends Controller
 
         try {
             $this->arrears->assertPriorSettled($student);
+            SemesterFeeAccess::assertCanCreateTuitionInstallment($student);
         } catch (RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }

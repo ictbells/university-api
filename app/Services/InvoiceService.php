@@ -15,6 +15,7 @@ use App\Models\Student;
 use App\Models\User;
 use App\Support\FeeSchedule;
 use App\Support\ProgrammeFeeResolver;
+use App\Support\SemesterFeeAccess;
 use App\Support\StudentAcademicLevel;
 use App\Support\Studentship;
 use App\Support\TuitionProgress;
@@ -31,9 +32,11 @@ class InvoiceService
         ?int $studentId = null,
         ?float $amountOverride = null,
         ?string $description = null,
+        ?int $academicTermId = null,
     ): Invoice {
         $amount = $amountOverride !== null ? round($amountOverride, 2) : (float) $fee->amount;
         $walletAllowed = FeeSchedule::walletAllowed($fee->category);
+        $term = $this->resolveTerm($academicTermId);
 
         $number = $this->nextInvoiceNumber();
         $invoice = Invoice::query()->create([
@@ -41,7 +44,8 @@ class InvoiceService
             'user_id' => $user->id,
             'student_id' => $studentId,
             'application_id' => $applicationId,
-            'academic_session_id' => $this->currentSessionId(),
+            'academic_session_id' => $term?->academic_session_id ?? $this->currentSessionId(),
+            'academic_term_id' => $term?->id,
             'level_code' => $this->levelCodeForStudentId($studentId),
             'category' => $fee->category,
             'amount' => $amount,
@@ -69,6 +73,7 @@ class InvoiceService
         ?int $feeItemId = null,
         ?string $number = null,
         bool $advanceBursarySequence = true,
+        ?int $academicTermId = null,
     ): Invoice {
         $amount = round($amount, 2);
         if ($amount <= 0) {
@@ -84,12 +89,14 @@ class InvoiceService
         } else {
             $number = $this->nextInvoiceNumber();
         }
+        $term = $this->resolveTerm($academicTermId);
         $invoice = Invoice::query()->create([
             'number' => $number,
             'user_id' => $user->id,
             'student_id' => $studentId,
             'application_id' => $applicationId,
-            'academic_session_id' => $this->currentSessionId(),
+            'academic_session_id' => $term?->academic_session_id ?? $this->currentSessionId(),
+            'academic_term_id' => $term?->id,
             'level_code' => $this->levelCodeForStudentId($studentId),
             'category' => $category,
             'amount' => $amount,
@@ -224,11 +231,15 @@ class InvoiceService
 
         $total = round(array_sum(array_column($lines, 'amount')), 2);
         $number = $this->nextInvoiceNumber();
+        $term = $category === SemesterFeeAccess::CATEGORY ? AcademicTerm::current() : null;
         $invoice = Invoice::query()->create([
             'number' => $number,
             'user_id' => $student->user_id,
             'student_id' => $student->id,
             'application_id' => $student->application_id,
+            'academic_session_id' => $term?->academic_session_id ?? $this->currentSessionId(),
+            'academic_term_id' => $term?->id,
+            'level_code' => $this->levelCodeForStudentId($student->id),
             'category' => $category,
             'installment_percent' => collect($fees)->contains(
                 fn (FeeItem $fee) => FeeSchedule::allowsInstallmentTranche((string) $fee->category)
@@ -499,7 +510,7 @@ class InvoiceService
         }
 
         $sessionId = $forSession?->id ?? $this->currentSessionId();
-        $includeLegacy = $forSession !== null;
+        $includeLegacy = true;
         $student->loadMissing(['user', 'program']);
         $resolvedLevel = $levelCode !== null && $levelCode !== ''
             ? $levelCode
@@ -508,7 +519,7 @@ class InvoiceService
             $student,
             $sessionId,
             $includeLegacy,
-            $includeLegacy ? $resolvedLevel : null,
+            $resolvedLevel,
         );
         if ($percent <= $paidPercent) {
             throw new RuntimeException($paidPercent >= 100
@@ -872,6 +883,15 @@ class InvoiceService
     private function nextInvoiceNumber(): string
     {
         return app(BursaryDocumentSequence::class)->allocate();
+    }
+
+    private function resolveTerm(?int $academicTermId = null): ?AcademicTerm
+    {
+        if ($academicTermId) {
+            return AcademicTerm::query()->find($academicTermId);
+        }
+
+        return null;
     }
 
     private function currentSessionId(): ?int

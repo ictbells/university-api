@@ -17,6 +17,23 @@ class ApplicationFormStepsEntryLevelTest extends TestCase
         $this->assertSame('200', ApplicationFormSteps::normalizeEntryLevel('999', ApplicationFormSteps::DE_ENTRY_LEVELS, '200'));
     }
 
+    public function test_validate_direct_entry_accepts_blank_qualification_defaults(): void
+    {
+        $payload = ApplicationFormSteps::validateDirectEntry(Request::create('/'), [
+            'previous_institution' => 'OGITECH',
+            'qualification_type' => '',
+            'qualification_title' => 'ND Architecture',
+            'qualification_class' => 'Lower Credit',
+            'qualification_year' => '2025',
+            'programme' => 'Architecture',
+            'requested_entry_level' => '200 Level',
+        ]);
+
+        $this->assertSame('nd', $payload['qualification_type']);
+        $this->assertSame('lower_credit', $payload['qualification_class']);
+        $this->assertSame('200', $payload['requested_entry_level']);
+    }
+
     public function test_validate_direct_entry_accepts_blank_requested_level_as_200(): void
     {
         $payload = ApplicationFormSteps::validateDirectEntry(Request::create('/'), [

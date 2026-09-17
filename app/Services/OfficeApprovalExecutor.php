@@ -187,6 +187,7 @@ class OfficeApprovalExecutor
             'finance.update_fee_category' => [\App\Http\Controllers\FinanceController::class, 'updateFeeCategory', ['key' => 'fee_category_id', 'class' => FeeCategory::class]],
             'finance.destroy_fee_category' => [\App\Http\Controllers\FinanceController::class, 'destroyFeeCategory', ['key' => 'fee_category_id', 'class' => FeeCategory::class]],
             'finance.generate_invoice' => [\App\Http\Controllers\FinanceController::class, 'generate', null],
+            'finance.generate_semester_fee' => [\App\Http\Controllers\FinanceController::class, 'generateSemesterFee', null],
             'finance.disable_invoice' => [\App\Http\Controllers\FinanceController::class, 'disableInvoice', ['key' => 'invoice_id', 'class' => Invoice::class]],
             'finance.enable_invoice' => [\App\Http\Controllers\FinanceController::class, 'enableInvoice', ['key' => 'invoice_id', 'class' => Invoice::class]],
             'finance.store_rebate_type' => [\App\Http\Controllers\RebateController::class, 'storeType', null],

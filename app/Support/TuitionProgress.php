@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\AcademicTerm;
 use App\Models\Invoice;
 use App\Models\Student;
+use Illuminate\Database\Eloquent\Builder;
 
 class TuitionProgress
 {
@@ -17,16 +18,36 @@ class TuitionProgress
 
     /**
      * Tuition paid toward the live academic session and the student's current level.
-     * Previous-session or previous-level receipts do not count. Returns 0 when no semester is current.
+     * Previous-level receipts do not count. When the current term session has no matching
+     * paid tuition but the student has paid on another stamped session for this level
+     * (common when invoices were raised under 2026/2027 while is_current still pointed
+     * elsewhere), that paid session is used so hostel/registration stay unlocked.
      */
     public static function currentSessionPercent(Student $student): float
     {
-        $sessionId = self::currentSessionId();
-        if (! $sessionId) {
-            return 0.0;
+        $level = StudentAcademicLevel::primaryFeeLevelCode($student);
+        $currentId = self::currentSessionId();
+
+        if ($currentId) {
+            $paid = self::percentPaid($student, $currentId, includeLegacy: true, levelCode: $level);
+            if ($paid > 0) {
+                return $paid;
+            }
         }
 
-        return self::percentPaid($student, $sessionId);
+        $latestPaidSessionId = self::latestPaidTuitionSessionId($student);
+        if ($latestPaidSessionId && $latestPaidSessionId !== $currentId) {
+            $paid = self::percentPaid($student, $latestPaidSessionId, includeLegacy: true, levelCode: $level);
+            if ($paid > 0) {
+                return $paid;
+            }
+        }
+
+        if (! $currentId) {
+            return self::percentPaid($student, null, includeLegacy: true, levelCode: $level);
+        }
+
+        return 0.0;
     }
 
     public static function percentPaid(Student $student, ?int $sessionId = null, bool $includeLegacy = false, ?string $levelCode = null): float
@@ -35,12 +56,17 @@ class TuitionProgress
         if (! $sessionId && ! $includeLegacy) {
             return 0.0;
         }
-        if (! $includeLegacy && ($levelCode === null || $levelCode === '') && $student->current_level !== null && $student->current_level !== '') {
-            $levelCode = (string) $student->current_level;
+        if ($levelCode === null || $levelCode === '') {
+            if (! $includeLegacy && $student->current_level !== null && $student->current_level !== '') {
+                $levelCode = (string) $student->current_level;
+            } elseif ($includeLegacy) {
+                $levelCode = StudentAcademicLevel::primaryFeeLevelCode($student);
+            }
         }
-        $query = $student->invoices()
-            ->where('category', 'tuition')
+
+        $query = self::tuitionInvoiceQuery($student)
             ->whereIn('status', ['paid', 'partial']);
+
         if ($sessionId) {
             $query->where(function ($builder) use ($sessionId, $includeLegacy) {
                 $builder->where('academic_session_id', $sessionId);
@@ -49,15 +75,12 @@ class TuitionProgress
                 }
             });
         }
+
         if ($levelCode) {
-            $query->where(function ($builder) use ($levelCode) {
-                $builder->whereNull('level_code')
-                    ->orWhere('level_code', 'all')
-                    ->orWhere('level_code', $levelCode);
-            });
+            self::constrainLevel($query, $student, $levelCode);
         }
 
-        $invoices = $query->get();
+        $invoices = $query->with('items')->get();
 
         $best = 0.0;
         foreach ($invoices as $invoice) {
@@ -74,7 +97,14 @@ class TuitionProgress
      */
     public static function availableInstallmentPercents(Student $student, ?int $sessionId = null): array
     {
-        $paid = self::percentPaid($student, $sessionId);
+        $paid = $sessionId
+            ? self::percentPaid(
+                $student,
+                $sessionId,
+                includeLegacy: true,
+                levelCode: StudentAcademicLevel::primaryFeeLevelCode($student),
+            )
+            : self::currentSessionPercent($student);
 
         return array_values(array_filter(
             FeeSchedule::INSTALLMENT_PERCENTS,
@@ -84,7 +114,16 @@ class TuitionProgress
 
     public static function meetsMinimum(Student $student, float $minimum = 25, ?int $sessionId = null): bool
     {
-        return self::percentPaid($student, $sessionId) >= $minimum;
+        if ($sessionId === null) {
+            return self::currentSessionPercent($student) >= $minimum;
+        }
+
+        return self::percentPaid(
+            $student,
+            $sessionId,
+            includeLegacy: true,
+            levelCode: StudentAcademicLevel::primaryFeeLevelCode($student),
+        ) >= $minimum;
     }
 
     public static function invoicePercent(Invoice $invoice): float
@@ -95,6 +134,14 @@ class TuitionProgress
 
         if ($invoice->status === 'paid' && $invoice->installment_percent) {
             return (float) $invoice->installment_percent;
+        }
+
+        // Tranche invoices may omit installment_percent but still label "1st 25%" in line items.
+        if ($invoice->status === 'paid') {
+            $fromLabel = self::percentFromShareLabel($invoice);
+            if ($fromLabel !== null) {
+                return $fromLabel;
+            }
         }
 
         $full = (float) ($invoice->full_amount ?: $invoice->amount);
@@ -127,5 +174,83 @@ class TuitionProgress
                     });
                 });
         };
+    }
+
+    /**
+     * @return Builder<Invoice>
+     */
+    private static function tuitionInvoiceQuery(Student $student): Builder
+    {
+        return Invoice::query()
+            ->where('category', 'tuition')
+            ->where(function ($builder) use ($student) {
+                $builder->where('student_id', $student->id);
+                if ($student->user_id) {
+                    // History lists by user_id; some legacy tuition rows omit student_id.
+                    $builder->orWhere(function ($byUser) use ($student) {
+                        $byUser->where('user_id', $student->user_id)
+                            ->where(function ($sid) {
+                                $sid->whereNull('student_id')
+                                    ->orWhere('student_id', 0);
+                            });
+                    });
+                }
+            });
+    }
+
+    private static function constrainLevel(Builder $query, Student $student, string $levelCode): void
+    {
+        $codes = StudentAcademicLevel::feeLevelCodes($student);
+        $codes[] = $levelCode;
+        $unique = [];
+        foreach ($codes as $code) {
+            $code = trim((string) $code);
+            if ($code === '') {
+                continue;
+            }
+            $unique[strtolower($code)] = $code;
+        }
+        $codes = array_values($unique);
+
+        $query->where(function ($builder) use ($codes) {
+            $builder->whereNull('level_code')
+                ->orWhere('level_code', 'all');
+            if ($codes !== []) {
+                $builder->orWhereIn('level_code', $codes);
+            }
+        });
+    }
+
+    private static function latestPaidTuitionSessionId(Student $student): ?int
+    {
+        $id = self::tuitionInvoiceQuery($student)
+            ->whereIn('status', ['paid', 'partial'])
+            ->whereNotNull('academic_session_id')
+            ->latest('id')
+            ->value('academic_session_id');
+
+        return $id ? (int) $id : null;
+    }
+
+    private static function percentFromShareLabel(Invoice $invoice): ?float
+    {
+        $label = strtolower(trim((string) ($invoice->shareLabel() ?: '')));
+        if ($label === '') {
+            return null;
+        }
+        if (str_contains($label, '1st 25') || $label === '25% installment') {
+            return 25.0;
+        }
+        if (str_contains($label, '2nd 25') || $label === '50% installment') {
+            return 50.0;
+        }
+        if (str_contains($label, '3rd 25') || $label === '75% installment') {
+            return 75.0;
+        }
+        if (str_contains($label, '4th 25') || str_contains($label, 'full 100') || $label === '100% installment') {
+            return 100.0;
+        }
+
+        return null;
     }
 }

@@ -59,6 +59,7 @@ class OfficeApprovalCatalog
             'finance.update_fee_category' => ['nav_key' => 'finance', 'label' => 'Update fee category', 'mutation' => self::MUTATION_UPDATE],
             'finance.destroy_fee_category' => ['nav_key' => 'finance', 'label' => 'Delete fee category', 'mutation' => self::MUTATION_DELETE],
             'finance.generate_invoice' => ['nav_key' => 'finance', 'label' => 'Generate invoice', 'mutation' => self::MUTATION_CREATE],
+            'finance.generate_semester_fee' => ['nav_key' => 'finance', 'label' => 'Generate semester fee', 'mutation' => self::MUTATION_CREATE],
             'finance.disable_invoice' => ['nav_key' => 'finance', 'label' => 'Disable invoice', 'mutation' => self::MUTATION_UPDATE],
             'finance.enable_invoice' => ['nav_key' => 'finance', 'label' => 'Enable invoice', 'mutation' => self::MUTATION_UPDATE],
             'finance.store_rebate_type' => ['nav_key' => 'finance', 'label' => 'Create rebate type', 'mutation' => self::MUTATION_CREATE],

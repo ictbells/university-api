@@ -153,6 +153,7 @@ class FeeSchedule
             'hostel',
             'clinic',
             'sundry',
+            'semester_fee',
             'course_registration_extension',
             'transcript',
         ];
@@ -294,6 +295,7 @@ class FeeSchedule
             'development' => 'Development levy',
             'hostel' => 'Hostel',
             'sundry' => 'Sundry',
+            'semester_fee' => 'Semester fee',
             'course_registration_extension' => 'Course registration extension',
             'transcript' => 'Official transcript',
             'other' => 'Other',

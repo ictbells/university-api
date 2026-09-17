@@ -8,6 +8,7 @@ use App\Services\FeeArrearsService;
 use App\Services\PaymentGatewayManager;
 use App\Services\WalletService;
 use App\Support\SchoolFeeAccess;
+use App\Support\SemesterFeeAccess;
 use Illuminate\Http\Request;
 
 class WalletController extends Controller
@@ -30,6 +31,7 @@ class WalletController extends Controller
             'transactions' => fn ($q) => $q->latest('id')->limit(25),
         ]);
         $prior = $this->arrears->priorUnpaid($student);
+        $semesterFee = SemesterFeeAccess::statusPayload($student);
 
         return [
             'id' => $wallet->id,
@@ -39,6 +41,7 @@ class WalletController extends Controller
             'open_invoice_count' => $this->arrears->openCount($student),
             'prior_unpaid_count' => $prior->count(),
             'prior_unpaid_amount' => round((float) $prior->sum('balance'), 2),
+            ...$semesterFee,
         ];
     }
 
@@ -64,6 +67,7 @@ class WalletController extends Controller
 
         try {
             $this->arrears->assertCanPay($student, $invoice);
+            SemesterFeeAccess::assertCanPay($student, $invoice);
             return $this->wallets->payInvoice($student, $invoice);
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
