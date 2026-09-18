@@ -623,9 +623,10 @@ The bursary sheet is four stacks of named lines (1st–4th 25%) with fixed naira
 Use this for a **flat charge that every enrolled student pays each academic term**, the same amount regardless of programme or level. Do **not** put it on Programme fees.
 
 1. **Fee categories** — system type **Semester fee** (`semester_fee`) is operational (not programme-schedule). Keep one active **Fee items** line under that type and set the naira amount. Only one active semester-fee catalog line is allowed.
-2. **Fees & payments → Generate invoice** — use **Generate semester fee** (select the academic term; default is the current term). The system creates one unpaid wallet invoice per **active** enrolled student who has a login. Applicants are not billed. Re-running for the same term skips students already billed (use this to catch students activated later). ICT may also run `php artisan fees:generate-semester` (optional `--term=` for a specific term id).
-3. **Pay first** — while a student’s current-term semester fee invoice is unpaid or partial, they cannot pay other student invoices (tuition, hostel, clinic, sundry, and the rest) from wallet or online checkout, and they cannot create a tuition installment. They **can** still fund the campus wallet. After the semester fee is paid, other charges unlock. If Finance has not generated the fee for that term yet, other payments stay allowed.
-4. Students see the invoice on **Transaction history** / financial status with a banner to pay the semester fee first.
+2. **When the catalog amount is greater than zero**, any **active** enrolled student who opens Transaction history, wallet, financial status, or tries to pay another charge automatically receives their current-term semester fee invoice (if they do not already have one). Applicants are never billed. Students who join later in the term see and can pay the same fee without staff regenerating.
+3. **Fees & payments → Generate invoice** — optional **Generate semester fee** still bills every active enrolled student for a selected term in one run (useful for staff reporting). Re-running skips students already billed. ICT may also run `php artisan fees:generate-semester` (optional `--term=`).
+4. **Pay first** — while a student’s current-term semester fee invoice is unpaid or partial, they cannot pay other student invoices (tuition, hostel, clinic, sundry, and the rest) from wallet or online checkout, and they cannot create a tuition installment. They **can** still fund the campus wallet. After the semester fee is paid, other charges unlock. If the catalog amount is zero or unset, no semester fee is raised and other payments stay allowed.
+5. Students see the invoice on **Transaction history** / financial status with a banner to pay the semester fee first.
 
 #### Import invoices and wallet history
 
@@ -835,7 +836,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.56 | Sep 2026 | Platform team | Applicants cannot start a second admission category while an application is still open |
 | 1.57 | Sep 2026 | Platform team | Report downloads (PDF/Excel/Word) write Naira columns as Excel numbers, include an automatic Total row, and generate PDF as a downloadable file |
 | 1.58 | Sep 2026 | Platform team | Staff cannot process (screen, reject, or advance) applicants who have not submitted their form |
-| 1.59 | Sep 2026 | Platform team | Semester fee: university-wide operational charge set in Fee items; Generate semester fee bills all active enrolled students per academic term; unpaid semester fee must be paid before other student invoice payments (wallet top-up still allowed) |
+| 1.59 | Sep 2026 | Platform team | Semester fee: university-wide operational charge set in Fee items; any active enrolled student auto-receives the current-term invoice when they open finance (bulk Generate semester fee optional); unpaid semester fee must be paid before other student invoice payments (wallet top-up still allowed) |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

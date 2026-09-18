@@ -181,7 +181,7 @@ class OpenApiGenerator
         ],
         'post_/api/finance/semester-fee/generate' => [
             'summary' => 'Generate semester fee for all enrolled students',
-            'description' => 'Creates one unpaid wallet invoice per active enrolled student for the selected academic term (defaults to the current term). Uses the single active `semester_fee` catalog FeeItem amount. Applicants and inactive students are skipped. Re-running for the same term skips students already billed. Requires `finance.invoices.manage`. May return HTTP 202 when Fees & payments Create office approval is required. While a student\'s current-term semester fee is unpaid, other invoice payments and tuition installment creation are blocked; wallet top-up remains allowed.',
+            'description' => 'Creates one unpaid wallet invoice per active enrolled student for the selected academic term (defaults to the current term). Uses the single active `semester_fee` catalog FeeItem amount. Applicants and inactive students are skipped. Re-running for the same term skips students already billed. Students who were not included also receive the invoice automatically the next time they open wallet, transactions, or financial status while the catalog amount is greater than zero. Requires `finance.invoices.manage`. May return HTTP 202 when Fees & payments Create office approval is required. While a student\'s current-term semester fee is unpaid, other invoice payments and tuition installment creation are blocked; wallet top-up remains allowed.',
             'requestBody' => [
                 'required' => false,
                 'content' => [

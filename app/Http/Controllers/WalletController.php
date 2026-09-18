@@ -6,6 +6,7 @@ use App\Models\Invoice;
 use App\Models\Student;
 use App\Services\FeeArrearsService;
 use App\Services\PaymentGatewayManager;
+use App\Services\SemesterFeeService;
 use App\Services\WalletService;
 use App\Support\SchoolFeeAccess;
 use App\Support\SemesterFeeAccess;
@@ -17,6 +18,7 @@ class WalletController extends Controller
         private WalletService $wallets,
         private PaymentGatewayManager $gateways,
         private FeeArrearsService $arrears,
+        private SemesterFeeService $semesterFees,
     ) {}
 
     public function show(Request $request)
@@ -25,6 +27,7 @@ class WalletController extends Controller
         abort_unless($student?->wallet, 404, 'Wallet is created after acceptance fee and student creation.');
 
         $this->arrears->ensureForStudent($student);
+        $this->semesterFees->ensureForStudent($student);
 
         $wallet = $student->wallet;
         $wallet->load([
@@ -64,6 +67,8 @@ class WalletController extends Controller
             ->where('user_id', $request->user()->id)
             ->first();
         abort_unless($student, 403);
+
+        $this->semesterFees->ensureForStudent($student);
 
         try {
             $this->arrears->assertCanPay($student, $invoice);

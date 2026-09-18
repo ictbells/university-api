@@ -185,7 +185,30 @@ class SemesterFeeTest extends TestCase
         $this->assertSame([], $schedule['available_installment_percents']);
     }
 
-    public function test_other_payments_allowed_when_semester_fee_not_yet_generated(): void
+    public function test_late_student_gets_semester_fee_without_bulk_generate(): void
+    {
+        $this->seedSemesterFeeCatalog(3500);
+        $student = $this->makeStudent('BUT/2026/S/0050', 'active', 10000);
+
+        Sanctum::actingAs($student->user);
+        $schedule = $this->getJson('/api/my-programme-fees')->assertOk()->json();
+        $this->assertTrue($schedule['semester_fee_required']);
+        $this->assertNotNull($schedule['semester_fee_invoice_id']);
+        $this->assertEquals(3500.0, $schedule['semester_fee_balance']);
+
+        $this->assertDatabaseHas('invoices', [
+            'student_id' => $student->id,
+            'category' => 'semester_fee',
+            'amount' => 3500,
+            'status' => 'unpaid',
+        ]);
+
+        $history = $this->getJson('/api/transactions')->assertOk()->json();
+        $rows = $history['data'] ?? $history;
+        $this->assertTrue(collect($rows)->contains(fn ($row) => ($row['category'] ?? null) === 'semester_fee'));
+    }
+
+    public function test_other_payments_blocked_when_catalog_amount_set_even_without_bulk_generate(): void
     {
         $this->seedSemesterFeeCatalog(1500);
         $student = $this->makeStudent('BUT/2026/S/0040', 'active', 5000);
@@ -204,8 +227,36 @@ class SemesterFeeTest extends TestCase
 
         Sanctum::actingAs($student->user);
         $this->postJson('/api/wallet/pay/'.$hostel->id)
+            ->assertStatus(422)
+            ->assertJsonPath('message', SemesterFeeAccess::BLOCKED_MESSAGE);
+
+        $semesterId = (int) $this->getJson('/api/my-programme-fees')->json('semester_fee_invoice_id');
+        $this->postJson('/api/wallet/pay/'.$semesterId)->assertOk();
+        $this->postJson('/api/wallet/pay/'.$hostel->id)->assertOk()->assertJsonPath('status', 'paid');
+    }
+
+    public function test_zero_amount_catalog_does_not_auto_bill(): void
+    {
+        $this->seedSemesterFeeCatalog(0);
+        $student = $this->makeStudent('BUT/2026/S/0041', 'active', 5000);
+
+        $hostel = Invoice::query()->create([
+            'number' => 'INV-HOSTEL-ZERO',
+            'user_id' => $student->user_id,
+            'student_id' => $student->id,
+            'category' => 'hostel',
+            'amount' => 1000,
+            'full_amount' => 1000,
+            'balance' => 1000,
+            'status' => 'unpaid',
+            'wallet_allowed' => true,
+        ]);
+
+        Sanctum::actingAs($student->user);
+        $this->postJson('/api/wallet/pay/'.$hostel->id)
             ->assertOk()
             ->assertJsonPath('status', 'paid');
+        $this->assertSame(0, Invoice::query()->where('student_id', $student->id)->where('category', 'semester_fee')->count());
     }
 
     public function test_generate_rejects_zero_amount_catalog(): void

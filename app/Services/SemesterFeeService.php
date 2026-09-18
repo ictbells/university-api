@@ -54,6 +54,48 @@ class SemesterFeeService
     }
 
     /**
+     * Create the current-term semester fee invoice for an active student when the catalog amount is set.
+     * Safe to call repeatedly; returns the existing invoice when already billed.
+     */
+    public function ensureForStudent(Student $student, ?AcademicTerm $term = null): ?Invoice
+    {
+        $student->loadMissing('user');
+        if (! $student->user
+            || $student->status !== Studentship::STATUS_ACTIVE
+            || ! Studentship::isCurrent($student)
+        ) {
+            return null;
+        }
+
+        try {
+            $fee = $this->resolveCatalogFee();
+            $term ??= $this->resolveTerm();
+        } catch (RuntimeException) {
+            return null;
+        }
+
+        $existing = Invoice::query()
+            ->where('student_id', $student->id)
+            ->where('category', SemesterFeeAccess::CATEGORY)
+            ->where('academic_term_id', $term->id)
+            ->orderBy('id')
+            ->first();
+        if ($existing) {
+            return $existing;
+        }
+
+        return $this->invoices->createForFee(
+            $student->user,
+            $fee,
+            null,
+            $student->id,
+            null,
+            null,
+            $term->id,
+        );
+    }
+
+    /**
      * @return array{created: int, skipped: int, failed: int, amount: float, academic_term_id: int, fee_item_id: int, failures: list<array{student_id: int, message: string}>}
      */
     public function generateForTerm(?int $academicTermId = null): array
@@ -71,7 +113,7 @@ class SemesterFeeService
             ->with('user')
             ->where('status', Studentship::STATUS_ACTIVE)
             ->orderBy('id')
-            ->chunkById(200, function ($students) use ($fee, $term, &$created, &$skipped, &$failed, &$failures) {
+            ->chunkById(200, function ($students) use ($term, &$created, &$skipped, &$failed, &$failures) {
                 foreach ($students as $student) {
                     if (! Studentship::isCurrent($student) || ! $student->user) {
                         $skipped++;
@@ -79,28 +121,24 @@ class SemesterFeeService
                         continue;
                     }
 
-                    $exists = Invoice::query()
+                    $hadInvoice = Invoice::query()
                         ->where('student_id', $student->id)
                         ->where('category', SemesterFeeAccess::CATEGORY)
                         ->where('academic_term_id', $term->id)
                         ->exists();
-                    if ($exists) {
+                    if ($hadInvoice) {
                         $skipped++;
 
                         continue;
                     }
 
                     try {
-                        $this->invoices->createForFee(
-                            $student->user,
-                            $fee,
-                            null,
-                            $student->id,
-                            null,
-                            null,
-                            $term->id,
-                        );
-                        $created++;
+                        $invoice = $this->ensureForStudent($student, $term);
+                        if ($invoice) {
+                            $created++;
+                        } else {
+                            $skipped++;
+                        }
                     } catch (\Throwable $e) {
                         $failed++;
                         $failures[] = [

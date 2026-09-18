@@ -536,6 +536,11 @@ class FinanceController extends Controller
     public function history(Request $request)
     {
         $userId = $request->user()->id;
+        $student = $request->user()->student;
+        if ($student) {
+            $this->arrears->ensureForStudent($student);
+            $this->semesterFees->ensureForStudent($student);
+        }
 
         $invoices = Invoice::query()
             ->with([
@@ -878,6 +883,8 @@ class FinanceController extends Controller
     private function financeStatusPayload(Student $student): array
     {
         $student->loadMissing(['user', 'program', 'wallet', 'application']);
+        $this->arrears->ensureForStudent($student);
+        $this->semesterFees->ensureForStudent($student);
 
         $invoices = Invoice::query()
             ->with([
@@ -1550,6 +1557,7 @@ class FinanceController extends Controller
         }
 
         $this->arrears->ensureForStudent($student);
+        $this->semesterFees->ensureForStudent($student);
         $prior = $this->arrears->priorUnpaid($student);
         $tuitionPercentPaid = TuitionProgress::currentSessionPercent($student);
         $semesterFee = SemesterFeeAccess::statusPayload($student);
@@ -1593,6 +1601,7 @@ class FinanceController extends Controller
         $student = $user->student;
         abort_unless($student, 422, SchoolFeeAccess::BLOCKED_MESSAGE);
         $this->arrears->ensureForStudent($student);
+        $this->semesterFees->ensureForStudent($student);
 
         $data = $request->validate([
             'installment_percent' => ['required', 'integer', Rule::in(FeeSchedule::INSTALLMENT_PERCENTS)],

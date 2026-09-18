@@ -6,6 +6,7 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Services\FeeArrearsService;
 use App\Services\PaymentGatewayManager;
+use App\Services\SemesterFeeService;
 use App\Support\SchoolFeeAccess;
 use App\Support\SemesterFeeAccess;
 use Illuminate\Http\Request;
@@ -16,6 +17,7 @@ class PaymentController extends Controller
     public function __construct(
         private PaymentGatewayManager $gateways,
         private FeeArrearsService $arrears,
+        private SemesterFeeService $semesterFees,
     ) {}
 
     public function index(Request $request)
@@ -86,6 +88,7 @@ class PaymentController extends Controller
         $student = $request->user()->student;
         if ($student) {
             $this->arrears->ensureForStudent($student);
+            $this->semesterFees->ensureForStudent($student);
             try {
                 $this->arrears->assertCanPay($student, $invoice);
                 SemesterFeeAccess::assertCanPay($student, $invoice);
