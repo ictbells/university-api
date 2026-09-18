@@ -342,6 +342,25 @@ class StudentFinanceInstallmentTest extends TestCase
             ->assertOk()
             ->assertJsonPath('tuition_percent', 25)
             ->assertJsonPath('tuition_ok', true);
+
+        $this->getJson('/api/academic/my-registration')
+            ->assertOk()
+            ->assertJsonPath('tuition_percent', 25)
+            ->assertJsonPath('tuition_ok', true);
+    }
+
+    public function test_registration_shows_paid_tuition_when_no_semester_is_current(): void
+    {
+        [$student] = $this->studentWithPaidQuarterTuition();
+        AcademicTerm::query()->update(['is_current' => false]);
+
+        Sanctum::actingAs($student->user);
+        $this->getJson('/api/academic/my-registration')
+            ->assertOk()
+            ->assertJsonPath('term', null)
+            ->assertJsonPath('tuition_percent', 25)
+            ->assertJsonPath('tuition_ok', true)
+            ->assertJsonPath('cannot_register_reason', 'No academic semester is current.');
     }
 
     public function test_disabled_invoices_and_their_rebates_are_excluded_from_student_status(): void

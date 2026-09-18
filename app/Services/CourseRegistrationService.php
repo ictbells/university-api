@@ -52,6 +52,8 @@ class CourseRegistrationService
         $student->loadMissing(['program.department.faculty', 'user']);
         $term ??= $this->currentTerm();
         if (! $term) {
+            $tuitionPercent = TuitionProgress::currentSessionPercent($student);
+
             return [
                 'term' => null,
                 'window' => 'Closed',
@@ -60,8 +62,8 @@ class CourseRegistrationService
                 'is_final_year' => LevelProgression::isFinalYear($student),
                 'can_request_extension' => false,
                 'can_uncheck_carry_over' => false,
-                'tuition_percent' => 0.0,
-                'tuition_ok' => false,
+                'tuition_percent' => $tuitionPercent,
+                'tuition_ok' => $tuitionPercent >= 25,
                 'limits' => [],
                 'units' => ['general' => 0, 'faculty' => 0, 'departmental' => 0, 'overall' => 0],
                 'roster_status' => 'not_started',
@@ -114,8 +116,8 @@ class CourseRegistrationService
                     : null,
             ],
             'window' => $term->registrationStatus(),
-            'tuition_percent' => TuitionProgress::percentPaid($student, (int) $term->academic_session_id),
-            'tuition_ok' => TuitionProgress::meetsMinimum($student, 25, (int) $term->academic_session_id),
+            'tuition_percent' => TuitionProgress::currentSessionPercent($student),
+            'tuition_ok' => TuitionProgress::meetsMinimum($student),
             'can_self_register' => $canSelfRegister,
             'cannot_register_reason' => $blockReason,
             'limits' => $limits,
@@ -383,7 +385,7 @@ class CourseRegistrationService
                 'course' => $offering->course?->code,
                 'staff' => $asStaff,
                 'reason' => $reason,
-                'tuition_percent' => TuitionProgress::percentPaid($student),
+                'tuition_percent' => TuitionProgress::currentSessionPercent($student),
             ],
             $reason,
             $actor,
