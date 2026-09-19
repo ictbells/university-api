@@ -132,28 +132,31 @@ class TuitionProgress
             return 0;
         }
 
+        $full = (float) ($invoice->full_amount ?: $invoice->amount);
+        $billed = (float) $invoice->amount;
+        $paidOnInvoice = max(0, $billed - (float) $invoice->balance);
+        $actual = $full > 0
+            ? round(max(0, min(100, ($paidOnInvoice / $full) * 100)), 2)
+            : ($invoice->status === 'paid' ? 100.0 : 0.0);
+
         if ($invoice->status === 'paid' && $invoice->installment_percent) {
-            return (float) $invoice->installment_percent;
+            return round(min((float) $invoice->installment_percent, $actual), 2);
         }
 
         // Tranche invoices may omit installment_percent but still label "1st 25%" in line items.
         if ($invoice->status === 'paid') {
             $fromLabel = self::percentFromShareLabel($invoice);
             if ($fromLabel !== null) {
-                return $fromLabel;
+                return round(min($fromLabel, $actual), 2);
             }
         }
 
-        $full = (float) ($invoice->full_amount ?: $invoice->amount);
-        $billed = (float) $invoice->amount;
         if ($full <= 0) {
             return $invoice->status === 'paid' ? 100.0 : 0.0;
         }
 
         // Progress toward the full-year fee: only count what was paid on this invoice.
-        $paidOnInvoice = max(0, $billed - (float) $invoice->balance);
-
-        return round(max(0, min(100, ($paidOnInvoice / $full) * 100)), 2);
+        return $actual;
     }
 
     public static function tuitionConstraint(): \Closure

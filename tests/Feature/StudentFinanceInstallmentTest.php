@@ -291,6 +291,95 @@ class StudentFinanceInstallmentTest extends TestCase
         $this->assertSame([50, 75, 100], TuitionProgress::availableInstallmentPercents($student));
     }
 
+    public function test_underpaid_full_100_invoice_does_not_lock_remaining_installments(): void
+    {
+        $user = User::factory()->create(['status' => 'active']);
+        $student = Student::query()->create([
+            'user_id' => $user->id,
+            'first_name' => 'Jupeb',
+            'last_name' => 'Underpaid',
+            'matric_number' => 'JFS26/UNDERPAID',
+            'status' => 'active',
+            'current_level' => 'JUPEB',
+        ]);
+        Wallet::query()->create(['student_id' => $student->id, 'balance' => 0]);
+
+        $session = AcademicSession::query()->create([
+            'label' => '2026/2027',
+            'starts_on' => '2026-10-01',
+            'ends_on' => '2027-09-30',
+        ]);
+        AcademicTerm::query()->create([
+            'academic_session_id' => $session->id,
+            'name' => 'First',
+            'session_label' => '2026/2027',
+            'is_current' => true,
+        ]);
+
+        $tuition = Invoice::query()->create([
+            'number' => 'INV-UNDERPAID-FULL',
+            'user_id' => $user->id,
+            'student_id' => $student->id,
+            'category' => 'tuition',
+            'installment_percent' => 100,
+            'amount' => 10000,
+            'full_amount' => 742000,
+            'balance' => 0,
+            'status' => 'paid',
+            'wallet_allowed' => true,
+            'academic_session_id' => $session->id,
+            'level_code' => 'JUPEB',
+        ]);
+
+        $this->assertEquals(1.35, TuitionProgress::invoicePercent($tuition->fresh()));
+        $this->assertEquals(1.35, TuitionProgress::percentPaid($student->fresh()));
+        $this->assertSame([25, 50, 75, 100], TuitionProgress::availableInstallmentPercents($student->fresh()));
+    }
+
+    public function test_true_full_tuition_pay_still_reports_100_and_no_available_installments(): void
+    {
+        $user = User::factory()->create(['status' => 'active']);
+        $student = Student::query()->create([
+            'user_id' => $user->id,
+            'first_name' => 'Full',
+            'last_name' => 'Pay',
+            'matric_number' => 'BUT/2026/FULLPAY',
+            'status' => 'active',
+            'current_level' => '100',
+        ]);
+        Wallet::query()->create(['student_id' => $student->id, 'balance' => 0]);
+
+        $session = AcademicSession::query()->create([
+            'label' => '2025/2026-FULL',
+            'starts_on' => '2025-10-01',
+            'ends_on' => '2026-09-30',
+        ]);
+        AcademicTerm::query()->create([
+            'academic_session_id' => $session->id,
+            'name' => 'First',
+            'session_label' => '2025/2026-FULL',
+            'is_current' => true,
+        ]);
+
+        Invoice::query()->create([
+            'number' => 'INV-TRUE-FULL',
+            'user_id' => $user->id,
+            'student_id' => $student->id,
+            'category' => 'tuition',
+            'installment_percent' => 100,
+            'amount' => 742000,
+            'full_amount' => 742000,
+            'balance' => 0,
+            'status' => 'paid',
+            'wallet_allowed' => true,
+            'academic_session_id' => $session->id,
+            'level_code' => '100',
+        ]);
+
+        $this->assertEquals(100.0, TuitionProgress::percentPaid($student->fresh()));
+        $this->assertSame([], TuitionProgress::availableInstallmentPercents($student->fresh()));
+    }
+
     public function test_paid_first_installment_counts_when_student_id_missing_or_session_null(): void
     {
         [$student, $tuition] = $this->studentWithPaidQuarterTuition();

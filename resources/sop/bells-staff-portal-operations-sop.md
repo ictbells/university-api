@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.59  
+**Version:** 1.60  
 **Effective date:** September 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -618,6 +618,8 @@ The bursary sheet is four stacks of named lines (1st–4th 25%) with fixed naira
 3. **Programme fees** — for each spreadsheet column, pick one programme in that group, assign every non-dash cell with its naira override (and slice if the catalog item is untagged), then **Copy schedule** to the other programmes in the same college (use Select all in this department when the group is one department). When 200–500 pay the same amount, select those levels together instead of repeating the assignment. **All levels** is one shared line. Dashes stay unassigned. Blank or 0 amounts are skipped on invoices.
 4. Skip **Full 100% (pay at once)** unless bursary wants a discounted lump sum. The sheet grand total is 1st + 2nd + 3rd + 4th 25%. Students who choose 50% or 75% still receive the next unpaid slices, not a pro-rata of that grand total.
 
+If a wrong programme-fee amount led students to pay a **Full 100%** invoice for far less than the schedule total (for example ₦10,000 of ₦742,000), tuition progress no longer treats that receipt as fully paid. Correct the **Programme fees** schedule, then students can create the next installment from Transaction history for unpaid lines. Keep the underpaid receipt; do not void it unless bursary requires that.
+
 #### Semester fee (all enrolled students)
 
 Use this for a **flat charge that every enrolled student pays each academic term**, the same amount regardless of programme or level. Do **not** put it on Programme fees.
@@ -837,6 +839,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.57 | Sep 2026 | Platform team | Report downloads (PDF/Excel/Word) write Naira columns as Excel numbers, include an automatic Total row, and generate PDF as a downloadable file |
 | 1.58 | Sep 2026 | Platform team | Staff cannot process (screen, reject, or advance) applicants who have not submitted their form |
 | 1.59 | Sep 2026 | Platform team | Semester fee: university-wide operational charge set in Fee items; any active enrolled student auto-receives the current-term invoice when they open finance (bulk Generate semester fee optional); unpaid semester fee must be paid before other student invoice payments (wallet top-up still allowed) |
+| 1.60 | Sep 2026 | Platform team | Tuition progress caps Full 100% (and other installment claims) by amount paid vs full_amount, so an underpaid Full 100% invoice no longer locks remaining installments after programme fees are corrected |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 
