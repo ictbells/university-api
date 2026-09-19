@@ -505,4 +505,145 @@ class ProgrammeFeeScheduleTest extends TestCase
         $this->assertContains('JUPEB', \App\Support\StudentAcademicLevel::feeLevelCodes($student));
         $this->assertSame(742000.0, \App\Support\ProgrammeFeeResolver::totalForStudent($student));
     }
+
+    public function test_pg_year_1_student_resolves_year_1_fee_schedule_with_empty_level_codes(): void
+    {
+        $campus = Campus::query()->create(['name' => 'Main', 'is_active' => true]);
+        $faculty = Faculty::query()->create(['name' => 'College of Natural and Applied Sciences', 'campus_id' => $campus->id]);
+        $department = Department::query()->create([
+            'name' => 'Computer Science',
+            'faculty_id' => $faculty->id,
+        ]);
+        $program = Program::query()->create([
+            'name' => 'Ph.D. Computer Science',
+            'code' => 'PHD-CS',
+            'department_id' => $department->id,
+            'study_level' => 'postgraduate',
+            'entry_modes' => ['pg'],
+            'award_type' => 'Ph.D',
+            'duration_years' => 2,
+            'is_active' => true,
+        ]);
+
+        // Mirror production: Year 1/2 with empty codes and UG-style sort_order gaps.
+        \App\Models\AcademicLevel::query()->create([
+            'name' => 'Year 1',
+            'code' => null,
+            'study_level' => 'postgraduate',
+            'sort_order' => 3,
+            'is_active' => true,
+        ]);
+        \App\Models\AcademicLevel::query()->create([
+            'name' => 'Year 2',
+            'code' => null,
+            'study_level' => 'postgraduate',
+            'sort_order' => 4,
+            'is_active' => true,
+        ]);
+
+        $tuition = FeeItem::query()->create([
+            'name' => 'Examination Fee',
+            'category' => 'tuition',
+            'amount' => 150000,
+            'is_active' => true,
+        ]);
+        ProgrammeFee::query()->create([
+            'program_id' => $program->id,
+            'fee_item_id' => $tuition->id,
+            'level_code' => 'Year 1',
+            'semester' => 'both',
+            'amount' => 980000,
+            'is_active' => true,
+            'display_order' => 1,
+        ]);
+
+        $user = User::factory()->create();
+        $student = \App\Models\Student::query()->create([
+            'user_id' => $user->id,
+            'program_id' => $program->id,
+            'first_name' => 'Biodun',
+            'last_name' => 'Ajayi',
+            'study_level' => 'postgraduate',
+            'current_level' => 1,
+            'status' => 'active',
+            'matric_number' => '2024/000003',
+        ]);
+
+        $this->assertSame('Year 1', \App\Support\StudentAcademicLevel::label($student));
+        $this->assertSame('Year 1', \App\Support\StudentAcademicLevel::primaryFeeLevelCode($student));
+        $this->assertContains('Year 1', \App\Support\StudentAcademicLevel::feeLevelCodes($student));
+        $this->assertSame(980000.0, \App\Support\ProgrammeFeeResolver::totalForStudent($student));
+    }
+
+    public function test_pg_year_labels_resolve_to_year_one_fees(): void
+    {
+        $labels = ['Year 1', 'year1', 'Year1', 'year one', 'Year one', 'Year One'];
+
+        foreach ($labels as $levelName) {
+            $campus = Campus::query()->create(['name' => 'Main '.$levelName, 'is_active' => true]);
+            $faculty = Faculty::query()->create(['name' => 'College '.$levelName, 'campus_id' => $campus->id]);
+            $department = Department::query()->create([
+                'name' => 'Computer Science '.$levelName,
+                'faculty_id' => $faculty->id,
+            ]);
+            $program = Program::query()->create([
+                'name' => 'M.Sc '.$levelName,
+                'code' => 'MSC-'.substr(md5($levelName), 0, 8),
+                'department_id' => $department->id,
+                'study_level' => 'postgraduate',
+                'entry_modes' => ['pg'],
+                'award_type' => 'M.Sc',
+                'duration_years' => 2,
+                'is_active' => true,
+            ]);
+
+            \App\Models\AcademicLevel::query()->where('study_level', 'postgraduate')->delete();
+            \App\Models\AcademicLevel::query()->create([
+                'name' => $levelName,
+                'code' => null,
+                'study_level' => 'postgraduate',
+                'sort_order' => 3,
+                'is_active' => true,
+            ]);
+            \App\Models\AcademicLevel::query()->create([
+                'name' => 'Year 2',
+                'code' => null,
+                'study_level' => 'postgraduate',
+                'sort_order' => 4,
+                'is_active' => true,
+            ]);
+
+            $tuition = FeeItem::query()->create([
+                'name' => 'School Fees '.$levelName,
+                'category' => 'tuition',
+                'amount' => 500000,
+                'is_active' => true,
+            ]);
+            ProgrammeFee::query()->create([
+                'program_id' => $program->id,
+                'fee_item_id' => $tuition->id,
+                'level_code' => 'Year 1',
+                'semester' => 'both',
+                'amount' => 500000,
+                'is_active' => true,
+                'display_order' => 1,
+            ]);
+
+            $user = User::factory()->create();
+            $student = \App\Models\Student::query()->create([
+                'user_id' => $user->id,
+                'program_id' => $program->id,
+                'first_name' => 'Ada',
+                'last_name' => 'Pg',
+                'study_level' => 'postgraduate',
+                'current_level' => 1,
+                'status' => 'active',
+                'matric_number' => '2024/'.substr(md5($levelName), 0, 6),
+            ]);
+
+            $this->assertSame($levelName, \App\Support\StudentAcademicLevel::label($student), "label for {$levelName}");
+            $this->assertContains('Year 1', \App\Support\StudentAcademicLevel::feeLevelCodes($student), "aliases for {$levelName}");
+            $this->assertSame(500000.0, \App\Support\ProgrammeFeeResolver::totalForStudent($student), "fees for {$levelName}");
+        }
+    }
 }

@@ -11,6 +11,9 @@ use App\Models\Student;
  *
  * JUPEB keeps current_level=100 for progression, but fees/labels use the JUPEB
  * academic level (often named "JUPEB" with an empty or "100" code).
+ *
+ * Postgraduate uses current_level=1,2,… while catalog rows are often "Year 1"
+ * / "Year 2" with empty codes — resolve must bridge that gap for fees & labels.
  */
 class StudentAcademicLevel
 {
@@ -54,6 +57,24 @@ class StudentAcademicLevel
             if ($matched) {
                 return $matched;
             }
+
+            $year = self::progressionYear($code);
+            if ($year !== null) {
+                $yearMatched = self::matchYearNamedLevel(clone $query, $year);
+                if ($yearMatched) {
+                    return $yearMatched;
+                }
+
+                // PG Year 1/2 catalog rows often have empty codes and sort_order
+                // that is not the year index — pick the Nth level in track order.
+                if ($studyLevel === StudyLevel::POSTGRADUATE) {
+                    $ordered = (clone $query)->orderBy('sort_order')->orderBy('id')->get();
+                    $index = $year - 1;
+                    if ($ordered->has($index)) {
+                        return $ordered->get($index);
+                    }
+                }
+            }
         }
 
         return null;
@@ -82,6 +103,13 @@ class StudentAcademicLevel
             $codes[] = $n;
             $codes[] = $n.'L';
             $codes[] = $n.' Level';
+
+            $year = self::progressionYear($n);
+            if ($year !== null) {
+                foreach (self::yearAliases($year) as $alias) {
+                    $codes[] = $alias;
+                }
+            }
         }
 
         $unique = [];
@@ -182,5 +210,137 @@ class StudentAcademicLevel
         }
 
         return $text;
+    }
+
+    /**
+     * PG (and similar) progression year from current_level. UG bands 100–500
+     * are not years — return null so they keep numeric-band matching.
+     */
+    private static function progressionYear(string $code): ?int
+    {
+        return self::yearFromLabel($code);
+    }
+
+    /**
+     * Extract year index from labels like Year 1, year1, Year One, 1st Year.
+     */
+    private static function yearFromLabel(string $text): ?int
+    {
+        $text = strtolower(trim(preg_replace('/\s+/', ' ', $text) ?? ''));
+        if ($text === '') {
+            return null;
+        }
+
+        // Plain 1–20 (PG progression), not UG 100/200 bands.
+        if (preg_match('/^\d+$/', $text)) {
+            $n = (int) $text;
+            if ($n <= 0 || $n >= 100) {
+                return null;
+            }
+
+            return $n <= 20 ? $n : null;
+        }
+
+        $words = self::yearWordMap();
+
+        // year 1 | year1 | year-1 | year_1
+        if (preg_match('/^year[\s\-_]?(\d+)(?:\s*l(?:evel)?)?$/', $text, $match)) {
+            $year = (int) $match[1];
+
+            return $year > 0 && $year <= 20 ? $year : null;
+        }
+
+        // year one | year-one | year_one
+        if (preg_match('/^year[\s\-_]([a-z]+)(?:\s*l(?:evel)?)?$/', $text, $match)) {
+            $word = $match[1];
+            if (isset($words[$word])) {
+                return $words[$word];
+            }
+        }
+
+        // 1st year | first year
+        if (preg_match('/^(\d+)(?:st|nd|rd|th)?\s*year(?:\s*l(?:evel)?)?$/', $text, $match)) {
+            $year = (int) $match[1];
+
+            return $year > 0 && $year <= 20 ? $year : null;
+        }
+        if (preg_match('/^([a-z]+)\s*year(?:\s*l(?:evel)?)?$/', $text, $match) && isset($words[$match[1]])) {
+            return $words[$match[1]];
+        }
+
+        return null;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function yearAliases(int $year): array
+    {
+        $word = array_flip(self::yearWordMap())[$year] ?? null;
+        $ordinal = match ($year) {
+            1 => '1st',
+            2 => '2nd',
+            3 => '3rd',
+            default => $year.'th',
+        };
+        $aliases = [
+            'Year '.$year,
+            'Year '.$year.' Level',
+            'year'.$year,
+            'Year'.$year,
+            'Y'.$year,
+            $ordinal.' Year',
+            (string) $year,
+        ];
+        if ($word !== null) {
+            $title = ucfirst($word);
+            $aliases[] = 'Year '.$title;
+            $aliases[] = 'Year '.$word;
+            $aliases[] = 'year '.$word;
+            $aliases[] = 'year'.$word;
+            $aliases[] = $title.' Year';
+            $aliases[] = $word.' year';
+        }
+
+        return $aliases;
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private static function yearWordMap(): array
+    {
+        return [
+            'one' => 1,
+            'two' => 2,
+            'three' => 3,
+            'four' => 4,
+            'five' => 5,
+            'six' => 6,
+            'seven' => 7,
+            'eight' => 8,
+            'nine' => 9,
+            'ten' => 10,
+            'first' => 1,
+            'second' => 2,
+            'third' => 3,
+            'fourth' => 4,
+            'fifth' => 5,
+        ];
+    }
+
+    private static function matchYearNamedLevel($query, int $year): ?AcademicLevel
+    {
+        $levels = $query->orderBy('sort_order')->orderBy('id')->get();
+
+        foreach ($levels as $level) {
+            foreach ([trim((string) ($level->name ?: '')), trim((string) ($level->code ?: ''))] as $label) {
+                if ($label !== '' && self::yearFromLabel($label) === $year) {
+                    return $level;
+                }
+            }
+        }
+
+        return null;
     }
 }

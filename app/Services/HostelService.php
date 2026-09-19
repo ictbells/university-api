@@ -1248,15 +1248,25 @@ class HostelService
 
     private function academicLevelForStudent(string $category, Student $student): ?AcademicLevel
     {
+        $track = $this->studyLevelForCategory($category);
+        $resolved = StudentAcademicLevel::resolve($student);
+        if ($resolved && (string) $resolved->study_level === $track) {
+            return $resolved;
+        }
+
         $band = $this->academicLevelBand($student);
         $raw = trim((string) $student->current_level);
         $year = $band ? intdiv($band, 100) : 0;
+        // PG current_level=1 must also try "Year 1" (catalog name with empty code).
+        $pgYear = ($band && $band < 100) ? $band : (($raw !== '' && ctype_digit($raw) && (int) $raw < 100) ? (int) $raw : 0);
         $codes = array_values(array_unique(array_filter([
             $raw,
             $band ? (string) $band : null,
             $band ? $band.'L' : null,
             $year > 0 ? 'Y'.$year : null,
             $year > 0 ? (string) $year : null,
+            $pgYear > 0 ? 'Year '.$pgYear : null,
+            $pgYear > 0 ? 'Y'.$pgYear : null,
         ])));
 
         if ($codes === [] && ! $band) {
@@ -1264,10 +1274,11 @@ class HostelService
         }
 
         return AcademicLevel::query()
-            ->where('study_level', $this->studyLevelForCategory($category))
-            ->where(function (Builder $query) use ($codes, $raw, $band, $year) {
+            ->where('study_level', $track)
+            ->where(function (Builder $query) use ($codes, $raw, $band, $year, $pgYear) {
                 if ($codes !== []) {
-                    $query->whereIn('code', $codes);
+                    $query->whereIn('code', $codes)
+                        ->orWhereIn('name', $codes);
                 }
                 if ($raw !== '') {
                     $query->orWhere('name', 'like', $raw.'%');
@@ -1276,6 +1287,9 @@ class HostelService
                     $query->orWhere('name', 'like', $band.'%')
                         ->orWhere('sort_order', $band)
                         ->orWhere('sort_order', $year);
+                }
+                if ($pgYear > 0) {
+                    $query->orWhere('name', 'like', 'Year '.$pgYear.'%');
                 }
             })
             ->orderBy('sort_order')
