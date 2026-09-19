@@ -1050,4 +1050,66 @@ class InvoiceService
 
         return '('.implode(' · ', $parts).')';
     }
+
+    /**
+     * Remove a wrongly stamped "(… · arrears)" suffix from current-level lines.
+     * True prior-level / prior-session arrears keep the label.
+     */
+    public function sanitizeItemDescription(Invoice $invoice, string $description): string
+    {
+        if (! preg_match('/\barrears\b/i', $description)) {
+            return $description;
+        }
+
+        $student = $invoice->student;
+        if (! $student) {
+            return $description;
+        }
+
+        $session = $invoice->relationLoaded('academicSession')
+            ? $invoice->academicSession
+            : $invoice->academicSession()->first();
+
+        if ($this->arrearsDescriptionSuffix($session, $invoice->level_code !== null ? (string) $invoice->level_code : null, $student) !== null) {
+            return $description;
+        }
+
+        $cleaned = trim((string) preg_replace('/\s*\([^)]*\barrears\b[^)]*\)/iu', '', $description));
+
+        return $cleaned !== '' ? $cleaned : $description;
+    }
+
+    /**
+     * Persist cleaned particulars for invoices that were stamped before level-alias matching.
+     *
+     * @return int Number of invoice items updated
+     */
+    public function repairFalseArrearsLabels(?Invoice $invoice = null): int
+    {
+        $updated = 0;
+        $query = InvoiceItem::query()
+            ->where('description', 'like', '%arrears%')
+            ->with(['invoice.student', 'invoice.academicSession']);
+
+        if ($invoice) {
+            $query->where('invoice_id', $invoice->id);
+        }
+
+        $query->orderBy('id')->chunkById(200, function ($items) use (&$updated) {
+            foreach ($items as $item) {
+                $owner = $item->invoice;
+                if (! $owner?->student) {
+                    continue;
+                }
+                $cleaned = $this->sanitizeItemDescription($owner, (string) $item->description);
+                if ($cleaned === (string) $item->description) {
+                    continue;
+                }
+                $item->forceFill(['description' => $cleaned])->save();
+                $updated++;
+            }
+        });
+
+        return $updated;
+    }
 }

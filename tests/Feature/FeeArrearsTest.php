@@ -215,6 +215,80 @@ class FeeArrearsTest extends TestCase
         }
     }
 
+    public function test_false_arrears_labels_are_stripped_from_existing_items(): void
+    {
+        $campus = Campus::query()->create(['name' => 'Main Repair', 'is_active' => true]);
+        $faculty = Faculty::query()->create(['campus_id' => $campus->id, 'name' => 'COLPGS']);
+        $department = Department::query()->create(['faculty_id' => $faculty->id, 'name' => 'CS']);
+        $program = Program::query()->create([
+            'department_id' => $department->id,
+            'name' => 'M.Sc Repair',
+            'code' => 'MSC-CS-REP',
+            'award_type' => 'M.Sc',
+            'study_level' => 'postgraduate',
+            'entry_modes' => ['pg'],
+            'duration_years' => 2,
+            'is_active' => true,
+        ]);
+        \App\Models\AcademicLevel::query()->create([
+            'name' => 'Year 1',
+            'code' => null,
+            'study_level' => 'postgraduate',
+            'sort_order' => 1,
+            'is_active' => true,
+        ]);
+        $session = AcademicSession::query()->create([
+            'label' => '2025/2026',
+            'starts_on' => '2025-10-01',
+            'ends_on' => '2026-09-30',
+        ]);
+        AcademicTerm::query()->create([
+            'academic_session_id' => $session->id,
+            'name' => 'First',
+            'session_label' => '2025/2026',
+            'is_current' => true,
+        ]);
+
+        $user = User::factory()->create(['status' => 'active']);
+        $student = Student::query()->create([
+            'user_id' => $user->id,
+            'program_id' => $program->id,
+            'first_name' => 'Biodun',
+            'last_name' => 'Ajayi',
+            'matric_number' => 'BUT/2026/PG002',
+            'status' => 'active',
+            'study_level' => 'postgraduate',
+            'current_level' => 1,
+        ]);
+
+        $invoice = Invoice::query()->create([
+            'number' => 'INV-ARREARS-LABEL',
+            'user_id' => $user->id,
+            'student_id' => $student->id,
+            'category' => 'tuition',
+            'amount' => 75000,
+            'full_amount' => 300000,
+            'balance' => 0,
+            'status' => 'paid',
+            'wallet_allowed' => true,
+            'academic_session_id' => $session->id,
+            'level_code' => 'Year 1',
+            'installment_percent' => 75,
+        ]);
+        $item = $invoice->items()->create([
+            'description' => 'Examination Fee (3rd 25%) (Year 1 level · arrears)',
+            'amount' => 75000,
+        ]);
+
+        $service = app(InvoiceService::class);
+        $this->assertSame(
+            'Examination Fee (3rd 25%)',
+            $service->sanitizeItemDescription($invoice->fresh(['student', 'academicSession']), (string) $item->description)
+        );
+        $this->assertSame(1, $service->repairFalseArrearsLabels($invoice));
+        $this->assertSame('Examination Fee (3rd 25%)', $item->fresh()->description);
+    }
+
     public function test_already_promoted_student_gets_arrears_invoice_on_wallet_load(): void
     {
         [$student] = $this->studentWithLevelSchedules();

@@ -560,6 +560,14 @@ class FinanceController extends Controller
             ->limit(200)
             ->get()
             ->map(function (Invoice $invoice) {
+                if ($invoice->relationLoaded('items')) {
+                    foreach ($invoice->items as $item) {
+                        $cleaned = $this->invoices->sanitizeItemDescription($invoice, (string) $item->description);
+                        if ($cleaned !== (string) $item->description) {
+                            $item->forceFill(['description' => $cleaned])->save();
+                        }
+                    }
+                }
                 $row = $invoice->toArray();
                 $row['kind'] = 'invoice';
                 $row['invoice_id'] = $invoice->id;
@@ -719,10 +727,17 @@ class FinanceController extends Controller
             'paid_at' => ReceiptDate::format($payment->created_at),
             'amount' => $amount,
             'amount_words' => NairaWords::phrase($amount),
-            'items' => $invoice->items->map(fn ($item) => [
-                'description' => $item->description,
-                'amount' => $item->amount,
-            ])->all(),
+            'items' => $invoice->items->map(function ($item) use ($invoice) {
+                $description = $this->invoices->sanitizeItemDescription($invoice, (string) $item->description);
+                if ($description !== (string) $item->description) {
+                    $item->forceFill(['description' => $description])->save();
+                }
+
+                return [
+                    'description' => $description,
+                    'amount' => $item->amount,
+                ];
+            })->all(),
             'generated_at' => ReceiptDate::format(now()),
         ])->render();
 
@@ -995,11 +1010,18 @@ class FinanceController extends Controller
                     'rebate_total' => $settlement['rebate'],
                     'status' => $settlement['status'],
                     'created_at' => $invoice->created_at,
-                    'items' => $invoice->items->map(fn ($item) => [
-                        'id' => $item->id,
-                        'description' => $item->description,
-                        'amount' => (float) $item->amount,
-                    ])->values(),
+                    'items' => $invoice->items->map(function ($item) use ($invoice) {
+                        $description = $this->invoices->sanitizeItemDescription($invoice, (string) $item->description);
+                        if ($description !== (string) $item->description) {
+                            $item->forceFill(['description' => $description])->save();
+                        }
+
+                        return [
+                            'id' => $item->id,
+                            'description' => $description,
+                            'amount' => (float) $item->amount,
+                        ];
+                    })->values(),
                     'payments' => $invoice->payments->map(fn (Payment $payment) => [
                         'id' => $payment->id,
                         'invoice_id' => $payment->invoice_id,

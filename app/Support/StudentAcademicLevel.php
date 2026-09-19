@@ -126,7 +126,7 @@ class StudentAcademicLevel
 
     /**
      * Whether an invoice / fee level_code is the student's current band
-     * (e.g. current_level 1 vs catalog "Year 1", or 100 vs "100 Level").
+     * (e.g. current_level 1 vs catalog "Year 1", or 100 vs "Year 1" / "100 Level").
      */
     public static function matchesFeeLevelCode(Student $student, ?string $levelCode): bool
     {
@@ -144,7 +144,60 @@ class StudentAcademicLevel
             }
         }
 
+        $resolved = self::resolve($student);
+        if ($resolved) {
+            foreach ([trim((string) ($resolved->code ?: '')), trim((string) ($resolved->name ?: ''))] as $candidate) {
+                if ($candidate !== '' && strtolower($candidate) === $needle) {
+                    return true;
+                }
+            }
+        }
+
+        $invoiceYear = self::yearFromLabel($levelCode);
+        $studentRaw = $student->current_level !== null ? (string) $student->current_level : '';
+        $studentYear = $studentRaw !== '' ? self::yearFromLabel($studentRaw) : null;
+        if ($invoiceYear !== null && $studentYear !== null && $invoiceYear === $studentYear) {
+            return true;
+        }
+
+        // UG catalogue sometimes uses "Year 1" while students store 100/200 bands.
+        $studentBand = self::undergraduateBand($studentRaw);
+        if ($invoiceYear !== null && $studentBand !== null && $studentBand === $invoiceYear * 100) {
+            return true;
+        }
+        $invoiceBand = self::undergraduateBand($levelCode);
+        if ($invoiceBand !== null && $studentYear !== null && $invoiceBand === $studentYear * 100) {
+            return true;
+        }
+        if ($invoiceBand !== null && $studentBand !== null && $invoiceBand === $studentBand) {
+            return true;
+        }
+
         return false;
+    }
+
+    /**
+     * 100/200/… undergraduate band from a level code, or null.
+     */
+    public static function undergraduateBand(?string $code): ?int
+    {
+        if ($code === null || trim($code) === '') {
+            return null;
+        }
+        $text = strtolower(trim($code));
+        if (preg_match('/^(\d{3})\s*l(?:evel)?$/', $text, $match)) {
+            $band = (int) $match[1];
+
+            return $band >= 100 && $band % 100 === 0 ? $band : null;
+        }
+        if (preg_match('/^\d+$/', $text)) {
+            $n = (int) $text;
+            if ($n >= 100 && $n % 100 === 0 && $n < 1000) {
+                return $n;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -247,7 +300,7 @@ class StudentAcademicLevel
     /**
      * Extract year index from labels like Year 1, year1, Year One, 1st Year.
      */
-    private static function yearFromLabel(string $text): ?int
+    public static function yearFromLabel(string $text): ?int
     {
         $text = strtolower(trim(preg_replace('/\s+/', ' ', $text) ?? ''));
         if ($text === '') {
