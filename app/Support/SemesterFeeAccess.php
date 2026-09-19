@@ -106,19 +106,41 @@ final class SemesterFeeAccess
      *   semester_fee_required: bool,
      *   semester_fee_invoice_id: int|null,
      *   semester_fee_balance: float,
-     *   semester_fee_term_id: int|null
+     *   semester_fee_amount: float,
+     *   semester_fee_term_id: int|null,
+     *   semester_fee_error: string|null
      * }
      */
     public static function statusPayload(Student $student, ?AcademicTerm $term = null): array
     {
         $term ??= AcademicTerm::current();
         $unpaid = self::unpaidForTerm($student, $term);
+        $catalogAmount = 0.0;
+        if (self::catalogIsCompulsory()) {
+            $catalogAmount = round((float) FeeItem::query()
+                ->where('category', self::CATEGORY)
+                ->where('is_active', true)
+                ->orderBy('id')
+                ->value('amount'), 2);
+        }
+
+        $required = self::requiresSettlement($student, $term);
+        $error = null;
+        if ($required && ! $unpaid) {
+            $error = $term
+                ? 'Semester fee is required but no payable invoice is available. Refresh this page or contact the bursary.'
+                : 'Semester fee is required but no current academic term is set. Contact the bursary.';
+        }
 
         return [
-            'semester_fee_required' => self::requiresSettlement($student, $term),
+            'semester_fee_required' => $required,
             'semester_fee_invoice_id' => $unpaid?->id,
-            'semester_fee_balance' => $unpaid ? round((float) $unpaid->balance, 2) : 0.0,
+            'semester_fee_balance' => $unpaid
+                ? round((float) $unpaid->balance, 2)
+                : $catalogAmount,
+            'semester_fee_amount' => $catalogAmount,
             'semester_fee_term_id' => $term?->id,
+            'semester_fee_error' => $error,
         ];
     }
 

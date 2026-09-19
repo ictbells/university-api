@@ -27,7 +27,11 @@ class WalletController extends Controller
         abort_unless($student?->wallet, 404, 'Wallet is created after acceptance fee and student creation.');
 
         $this->arrears->ensureForStudent($student);
-        $this->semesterFees->ensureForStudent($student);
+        try {
+            $this->semesterFees->ensureForStudentOrFail($student);
+        } catch (\RuntimeException) {
+            // Wallet payload still reports semester_fee_error when payable invoice is missing.
+        }
 
         $wallet = $student->wallet;
         $wallet->load([
@@ -68,7 +72,15 @@ class WalletController extends Controller
             ->first();
         abort_unless($student, 403);
 
-        $this->semesterFees->ensureForStudent($student);
+        if (SemesterFeeAccess::catalogIsCompulsory()) {
+            try {
+                $this->semesterFees->ensureForStudentOrFail($student);
+            } catch (\RuntimeException $e) {
+                if ((string) $invoice->category !== SemesterFeeAccess::CATEGORY) {
+                    return response()->json(['message' => $e->getMessage()], 422);
+                }
+            }
+        }
 
         try {
             $this->arrears->assertCanPay($student, $invoice);

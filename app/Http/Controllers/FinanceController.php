@@ -539,7 +539,11 @@ class FinanceController extends Controller
         $student = $request->user()->student;
         if ($student) {
             $this->arrears->ensureForStudent($student);
-            $this->semesterFees->ensureForStudent($student);
+            try {
+                $this->semesterFees->ensureForStudentOrFail($student);
+            } catch (RuntimeException) {
+                // History still loads; programme-fees payload carries semester_fee_error.
+            }
         }
 
         $invoices = Invoice::query()
@@ -886,7 +890,11 @@ class FinanceController extends Controller
     {
         $student->loadMissing(['user', 'program', 'wallet', 'application']);
         $this->arrears->ensureForStudent($student);
-        $this->semesterFees->ensureForStudent($student);
+        try {
+            $this->semesterFees->ensureForStudentOrFail($student);
+        } catch (RuntimeException) {
+            // statusPayload still reports semester_fee_error when payable invoice is missing.
+        }
 
         $invoices = Invoice::query()
             ->with([
@@ -1554,12 +1562,18 @@ class FinanceController extends Controller
                 'semester_fee_required' => false,
                 'semester_fee_invoice_id' => null,
                 'semester_fee_balance' => 0.0,
+                'semester_fee_amount' => 0.0,
                 'semester_fee_term_id' => null,
+                'semester_fee_error' => null,
             ];
         }
 
         $this->arrears->ensureForStudent($student);
-        $this->semesterFees->ensureForStudent($student);
+        try {
+            $this->semesterFees->ensureForStudentOrFail($student);
+        } catch (RuntimeException) {
+            // statusPayload.semester_fee_error explains a missing payable invoice.
+        }
         $prior = $this->arrears->priorUnpaid($student);
         $tuitionPercentPaid = TuitionProgress::currentSessionPercent($student);
         $semesterFee = SemesterFeeAccess::statusPayload($student);
@@ -1603,7 +1617,11 @@ class FinanceController extends Controller
         $student = $user->student;
         abort_unless($student, 422, SchoolFeeAccess::BLOCKED_MESSAGE);
         $this->arrears->ensureForStudent($student);
-        $this->semesterFees->ensureForStudent($student);
+        try {
+            $this->semesterFees->ensureForStudentOrFail($student);
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         $data = $request->validate([
             'installment_percent' => ['required', 'integer', Rule::in(FeeSchedule::INSTALLMENT_PERCENTS)],

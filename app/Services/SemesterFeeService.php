@@ -54,34 +54,73 @@ class SemesterFeeService
     }
 
     /**
-     * Create the current-term semester fee invoice for an active student when the catalog amount is set.
-     * Safe to call repeatedly; returns the existing invoice when already billed.
+     * Soft ensure for background callers — returns null when the student or catalog is not billable.
      */
     public function ensureForStudent(Student $student, ?AcademicTerm $term = null): ?Invoice
     {
-        $student->loadMissing('user');
-        if (! $student->user
-            || $student->status !== Studentship::STATUS_ACTIVE
-            || ! Studentship::isCurrent($student)
-        ) {
-            return null;
-        }
-
         try {
-            $fee = $this->resolveCatalogFee();
-            $term ??= $this->resolveTerm();
+            return $this->ensureForStudentOrFail($student, $term);
         } catch (RuntimeException) {
             return null;
         }
+    }
+
+    /**
+     * Create or repair the current-term semester fee invoice.
+     * Skips cancelled rows and refreshes zero-amount unpaid invoices from the catalog.
+     */
+    public function ensureForStudentOrFail(Student $student, ?AcademicTerm $term = null): Invoice
+    {
+        $student->loadMissing('user');
+        if (! $student->user) {
+            throw new RuntimeException('Student login is missing; semester fee cannot be billed.');
+        }
+        if ($student->status !== Studentship::STATUS_ACTIVE || ! Studentship::isCurrent($student)) {
+            throw new RuntimeException('Only active students receive the semester fee.');
+        }
+
+        $fee = $this->resolveCatalogFee();
+        $term ??= $this->resolveTerm();
+        $amount = round((float) $fee->amount, 2);
 
         $existing = Invoice::query()
             ->where('student_id', $student->id)
             ->where('category', SemesterFeeAccess::CATEGORY)
             ->where('academic_term_id', $term->id)
+            ->whereNotIn('status', ['cancelled', 'disabled'])
             ->orderBy('id')
             ->first();
+
         if ($existing) {
-            return $existing;
+            if (in_array((string) $existing->status, ['unpaid', 'partial'], true)
+                && (round((float) $existing->amount, 2) <= 0 || round((float) $existing->balance, 2) <= 0)
+            ) {
+                $existing->forceFill([
+                    'amount' => $amount,
+                    'full_amount' => $amount,
+                    'balance' => $amount,
+                    'status' => 'unpaid',
+                    'wallet_allowed' => true,
+                ])->save();
+                $item = $existing->items()->orderBy('id')->first();
+                if ($item) {
+                    $item->forceFill([
+                        'fee_item_id' => $fee->id,
+                        'description' => $fee->name,
+                        'amount' => $amount,
+                    ])->save();
+                } else {
+                    $existing->items()->create([
+                        'fee_item_id' => $fee->id,
+                        'description' => $fee->name,
+                        'amount' => $amount,
+                    ]);
+                }
+
+                return $existing->fresh('items');
+            }
+
+            return $existing->loadMissing('items');
         }
 
         return $this->invoices->createForFee(
@@ -121,24 +160,21 @@ class SemesterFeeService
                         continue;
                     }
 
-                    $hadInvoice = Invoice::query()
+                    $hadOpenOrPaid = Invoice::query()
                         ->where('student_id', $student->id)
                         ->where('category', SemesterFeeAccess::CATEGORY)
                         ->where('academic_term_id', $term->id)
+                        ->whereNotIn('status', ['cancelled', 'disabled'])
                         ->exists();
-                    if ($hadInvoice) {
+                    if ($hadOpenOrPaid) {
                         $skipped++;
 
                         continue;
                     }
 
                     try {
-                        $invoice = $this->ensureForStudent($student, $term);
-                        if ($invoice) {
-                            $created++;
-                        } else {
-                            $skipped++;
-                        }
+                        $this->ensureForStudentOrFail($student, $term);
+                        $created++;
                     } catch (\Throwable $e) {
                         $failed++;
                         $failures[] = [

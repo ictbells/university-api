@@ -347,6 +347,36 @@ class SemesterFeeTest extends TestCase
         );
     }
 
+    public function test_cancelled_semester_fee_is_recreated_so_student_can_pay(): void
+    {
+        [$term] = $this->seedSemesterFeeCatalog(5000);
+        $student = $this->makeStudent('BUT/2026/S/0070', 'active', 10000);
+
+        Invoice::query()->create([
+            'number' => 'INV-SEM-CANCELLED',
+            'user_id' => $student->user_id,
+            'student_id' => $student->id,
+            'category' => 'semester_fee',
+            'amount' => 5000,
+            'full_amount' => 5000,
+            'balance' => 5000,
+            'status' => 'cancelled',
+            'wallet_allowed' => true,
+            'academic_term_id' => $term->id,
+        ]);
+
+        Sanctum::actingAs($student->user);
+        $schedule = $this->getJson('/api/my-programme-fees')->assertOk()->json();
+        $this->assertTrue($schedule['semester_fee_required']);
+        $this->assertNotNull($schedule['semester_fee_invoice_id']);
+        $this->assertEquals(5000.0, $schedule['semester_fee_balance']);
+        $this->assertNull($schedule['semester_fee_error'] ?? null);
+
+        $fresh = Invoice::query()->findOrFail($schedule['semester_fee_invoice_id']);
+        $this->assertSame('unpaid', $fresh->status);
+        $this->assertNotSame('INV-SEM-CANCELLED', $fresh->number);
+    }
+
     public function test_generate_rejects_zero_amount_catalog(): void
     {
         $staff = $this->financeStaff();
