@@ -837,6 +837,8 @@ class FinanceController extends Controller
         if (($data['category'] ?? null) === 'tuition') {
             $percent = (int) ($data['installment_percent'] ?? 100);
             try {
+                $this->semesterFees->ensureForStudent($student);
+                SemesterFeeAccess::assertCanCreateTuitionInstallment($student);
                 $invoice = $this->invoices->createTuitionInvoice($student, $percent);
             } catch (RuntimeException $e) {
                 return response()->json(['message' => $e->getMessage()], 422);

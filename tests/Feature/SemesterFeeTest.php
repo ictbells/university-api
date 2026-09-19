@@ -259,6 +259,69 @@ class SemesterFeeTest extends TestCase
         $this->assertSame(0, Invoice::query()->where('student_id', $student->id)->where('category', 'semester_fee')->count());
     }
 
+    public function test_legacy_semester_fee_without_term_still_blocks_tuition_payment(): void
+    {
+        $this->seedSemesterFeeCatalog(2000);
+        $student = $this->makeStudent('BUT/2026/S/0060', 'active', 20000);
+
+        Invoice::query()->create([
+            'number' => 'INV-SEM-LEGACY',
+            'user_id' => $student->user_id,
+            'student_id' => $student->id,
+            'category' => 'semester_fee',
+            'amount' => 2000,
+            'full_amount' => 2000,
+            'balance' => 2000,
+            'status' => 'unpaid',
+            'wallet_allowed' => true,
+            'academic_term_id' => null,
+        ]);
+        $tuition = Invoice::query()->create([
+            'number' => 'INV-TUITION-LEGACY',
+            'user_id' => $student->user_id,
+            'student_id' => $student->id,
+            'category' => 'tuition',
+            'amount' => 5000,
+            'full_amount' => 5000,
+            'balance' => 5000,
+            'status' => 'unpaid',
+            'wallet_allowed' => true,
+        ]);
+
+        Sanctum::actingAs($student->user);
+        $this->postJson('/api/wallet/pay/'.$tuition->id)
+            ->assertStatus(422)
+            ->assertJsonPath('message', SemesterFeeAccess::BLOCKED_MESSAGE);
+    }
+
+    public function test_wallet_topup_remains_allowed_while_semester_fee_is_unpaid(): void
+    {
+        $this->seedSemesterFeeCatalog(2000);
+        $student = $this->makeStudent('BUT/2026/S/0061', 'active', 0);
+
+        Invoice::query()->create([
+            'number' => 'INV-SEM-TOPUP',
+            'user_id' => $student->user_id,
+            'student_id' => $student->id,
+            'category' => 'semester_fee',
+            'amount' => 2000,
+            'full_amount' => 2000,
+            'balance' => 2000,
+            'status' => 'unpaid',
+            'wallet_allowed' => true,
+            'academic_term_id' => AcademicTerm::current()?->id,
+        ]);
+
+        Sanctum::actingAs($student->user);
+        $this->postJson('/api/wallet/topup', ['amount' => 5000, 'portal' => 'student'])
+            ->assertOk();
+        $this->postJson('/api/payments/initialize', [
+            'type' => 'wallet_topup',
+            'amount' => 3000,
+            'portal' => 'student',
+        ])->assertOk();
+    }
+
     public function test_generate_rejects_zero_amount_catalog(): void
     {
         $staff = $this->financeStaff();

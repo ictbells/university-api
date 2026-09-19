@@ -85,7 +85,9 @@ class PaymentController extends Controller
         } catch (RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
-        $student = $request->user()->student;
+        $student = \App\Models\Student::query()
+            ->where('user_id', $request->user()->id)
+            ->first();
         if ($student) {
             $this->arrears->ensureForStudent($student);
             $this->semesterFees->ensureForStudent($student);
@@ -95,6 +97,9 @@ class PaymentController extends Controller
             } catch (RuntimeException $e) {
                 return response()->json(['message' => $e->getMessage()], 422);
             }
+        } elseif (! in_array((string) $invoice->category, ['application_fee', 'acceptance_fee'], true)) {
+            // Student invoices must resolve a student so semester-fee pay-first can run.
+            return response()->json(['message' => SemesterFeeAccess::BLOCKED_MESSAGE], 422);
         }
         $callbackUrl = ($data['portal'] ?? null) === 'student'
             ? rtrim((string) config('app.student_url'), '/').'/payments/callback'
