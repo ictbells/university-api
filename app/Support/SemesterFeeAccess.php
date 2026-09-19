@@ -79,24 +79,26 @@ final class SemesterFeeAccess
 
     /**
      * True when the student must settle semester fee before other charges.
-     * Covers unpaid/partial invoices and "catalog active but not yet paid this term".
+     * Catalog active + not paid for the current term always blocks — even if the
+     * invoice was never generated yet (staff skipped Generate / ensure failed).
      */
     public static function requiresSettlement(Student $student, ?AcademicTerm $term = null): bool
     {
-        $term ??= AcademicTerm::current();
-        if (! $term) {
-            return false;
-        }
-
-        if (self::unpaidForTerm($student, $term)) {
-            return true;
-        }
-
         if (! self::catalogIsCompulsory()) {
             return false;
         }
 
-        return ! self::hasPaidForTerm($student, $term);
+        $term ??= AcademicTerm::current();
+        if (! $term) {
+            // Fee is compulsory but the live term is unknown — fail closed.
+            return true;
+        }
+
+        if (self::hasPaidForTerm($student, $term)) {
+            return false;
+        }
+
+        return true;
     }
 
     /**

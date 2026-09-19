@@ -322,6 +322,31 @@ class SemesterFeeTest extends TestCase
         ])->assertOk();
     }
 
+    public function test_tuition_create_blocked_when_catalog_active_even_without_semester_invoice(): void
+    {
+        $this->seedSemesterFeeCatalog(2500);
+        $student = $this->studentOnProgrammeWithSchoolFees(20000);
+
+        // No semester fee invoice row — gate must still block (fail closed).
+        $this->assertSame(0, Invoice::query()
+            ->where('student_id', $student->id)
+            ->where('category', 'semester_fee')
+            ->count());
+        $this->assertTrue(SemesterFeeAccess::requiresSettlement($student));
+
+        Sanctum::actingAs($student->user);
+        // Bypass ensure by calling assert directly after confirming create API blocks.
+        $this->postJson('/api/invoices/tuition-installment', ['installment_percent' => 100])
+            ->assertStatus(422);
+
+        $message = (string) $this->postJson('/api/invoices/tuition-installment', ['installment_percent' => 100])
+            ->json('message');
+        $this->assertTrue(
+            str_contains($message, 'semester fee') || str_contains($message, 'Semester fee'),
+            "Unexpected message: {$message}"
+        );
+    }
+
     public function test_generate_rejects_zero_amount_catalog(): void
     {
         $staff = $this->financeStaff();

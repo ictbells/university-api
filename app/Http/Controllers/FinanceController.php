@@ -1611,6 +1611,14 @@ class FinanceController extends Controller
 
         try {
             $this->arrears->assertPriorSettled($student);
+            if (SemesterFeeAccess::catalogIsCompulsory()
+                && ! SemesterFeeAccess::hasPaidForTerm($student)
+                && ! SemesterFeeAccess::unpaidForTerm($student)
+            ) {
+                throw new RuntimeException(
+                    'Semester fee could not be billed for this term. Open Transaction history or contact the bursary.'
+                );
+            }
             SemesterFeeAccess::assertCanCreateTuitionInstallment($student);
         } catch (RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
