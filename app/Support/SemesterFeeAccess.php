@@ -9,7 +9,8 @@ use App\Models\Student;
 use RuntimeException;
 
 /** Semester fee must be settled before other student invoice payments for the current term.
- *  Wallet funding (top-up) is never blocked — students fund the wallet, then pay the semester fee from it.
+ *  Enforcement applies only when a semester is marked current. With no live term, other
+ *  payments proceed. Wallet funding (top-up) is never blocked.
  */
 final class SemesterFeeAccess
 {
@@ -79,8 +80,9 @@ final class SemesterFeeAccess
 
     /**
      * True when the student must settle semester fee before other charges.
-     * Catalog active + not paid for the current term always blocks — even if the
-     * invoice was never generated yet (staff skipped Generate / ensure failed).
+     * Only enforces when a current academic term is set and the catalog fee is
+     * active — even if the invoice was never generated yet. With no live term,
+     * other payments stay allowed until staff set a semester current.
      */
     public static function requiresSettlement(Student $student, ?AcademicTerm $term = null): bool
     {
@@ -90,8 +92,7 @@ final class SemesterFeeAccess
 
         $term ??= AcademicTerm::current();
         if (! $term) {
-            // Fee is compulsory but the live term is unknown — fail closed.
-            return true;
+            return false;
         }
 
         if (self::hasPaidForTerm($student, $term)) {
@@ -127,9 +128,7 @@ final class SemesterFeeAccess
         $required = self::requiresSettlement($student, $term);
         $error = null;
         if ($required && ! $unpaid) {
-            $error = $term
-                ? 'Semester fee is required but no payable invoice is available. Refresh this page or contact the bursary.'
-                : 'Semester fee is required but no current academic term is set. Contact the bursary.';
+            $error = 'Semester fee is required but no payable invoice is available. Refresh this page or contact the bursary.';
         }
 
         return [

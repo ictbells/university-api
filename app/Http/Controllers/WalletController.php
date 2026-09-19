@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Invoice;
 use App\Models\Student;
+use App\Models\AcademicTerm;
 use App\Services\FeeArrearsService;
 use App\Services\PaymentGatewayManager;
 use App\Services\SemesterFeeService;
@@ -74,7 +75,7 @@ class WalletController extends Controller
             ->first();
         abort_unless($student, 403);
 
-        if (SemesterFeeAccess::catalogIsCompulsory()) {
+        if (SemesterFeeAccess::catalogIsCompulsory() && AcademicTerm::current()) {
             try {
                 $this->semesterFees->ensureForStudentOrFail($student);
             } catch (\RuntimeException $e) {

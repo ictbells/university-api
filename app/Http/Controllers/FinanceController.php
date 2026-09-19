@@ -1623,7 +1623,7 @@ class FinanceController extends Controller
         $student = $user->student;
         abort_unless($student, 422, SchoolFeeAccess::BLOCKED_MESSAGE);
         $this->arrears->ensureForStudent($student);
-        if (SemesterFeeAccess::catalogIsCompulsory()) {
+        if (SemesterFeeAccess::catalogIsCompulsory() && AcademicTerm::current()) {
             try {
                 $this->semesterFees->ensureForStudentOrFail($student);
             } catch (RuntimeException $e) {
@@ -1637,8 +1637,7 @@ class FinanceController extends Controller
 
         try {
             $this->arrears->assertPriorSettled($student);
-            if (SemesterFeeAccess::catalogIsCompulsory()
-                && ! SemesterFeeAccess::hasPaidForTerm($student)
+            if (SemesterFeeAccess::requiresSettlement($student)
                 && ! SemesterFeeAccess::unpaidForTerm($student)
             ) {
                 throw new RuntimeException(

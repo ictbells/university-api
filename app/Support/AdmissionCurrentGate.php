@@ -4,8 +4,12 @@ namespace App\Support;
 
 use App\Models\AcademicTerm;
 use App\Models\Intake;
-use Illuminate\Validation\ValidationException;
 
+/**
+ * Application intakes may stay open while a semester is marked current.
+ * Enrolled students need a live term for semester fee, registration, and calendar.
+ * acceptingIntakeNamesForSession() remains for staff UI awareness only.
+ */
 class AdmissionCurrentGate
 {
     public const MESSAGE = 'Stop accepting applications for this admission session before setting it current.';
@@ -41,32 +45,21 @@ class AdmissionCurrentGate
 
     public static function canSetCurrentForSession(int $sessionId): bool
     {
-        return self::acceptingIntakeNamesForSession($sessionId) === [];
+        return true;
     }
 
     public static function canSetCurrent(AcademicTerm $term): bool
     {
-        return self::canSetCurrentForSession((int) $term->academic_session_id);
+        return true;
     }
 
     public static function assertCanSetCurrentForSession(int $sessionId, string $field = 'is_current'): void
     {
-        $names = self::acceptingIntakeNamesForSession($sessionId);
-        if ($names === []) {
-            return;
-        }
-
-        $suffix = $names !== []
-            ? ' Still accepting: '.implode(', ', $names).'.'
-            : '';
-
-        throw ValidationException::withMessages([
-            $field => self::MESSAGE.$suffix,
-        ]);
+        // No-op: live semester may be set while application sessions still accept.
     }
 
     public static function assertCanSetCurrent(AcademicTerm $term, string $field = 'is_current'): void
     {
-        self::assertCanSetCurrentForSession((int) $term->academic_session_id, $field);
+        // No-op: live semester may be set while application sessions still accept.
     }
 }

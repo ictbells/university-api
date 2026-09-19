@@ -111,7 +111,7 @@ class AdmissionCurrentGateTest extends TestCase
         );
     }
 
-    public function test_cannot_set_term_current_while_intake_accepting(): void
+    public function test_can_set_term_current_while_intake_accepting(): void
     {
         Intake::query()->create([
             'academic_term_id' => $this->newTerm->id,
@@ -126,12 +126,11 @@ class AdmissionCurrentGateTest extends TestCase
         Sanctum::actingAs($this->staffUser);
 
         $this->patchJson("/api/terms/{$this->newTerm->id}", ['is_current' => true])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors(['is_current']);
+            ->assertSuccessful();
 
-        $this->assertTrue((bool) $this->previousTerm->fresh()->is_current);
-        $this->assertFalse((bool) $this->newTerm->fresh()->is_current);
-        $this->assertFalse(AdmissionCurrentGate::canSetCurrent($this->newTerm));
+        $this->assertFalse((bool) $this->previousTerm->fresh()->is_current);
+        $this->assertTrue((bool) $this->newTerm->fresh()->is_current);
+        $this->assertTrue(AdmissionCurrentGate::canSetCurrent($this->newTerm));
     }
 
     public function test_can_set_term_current_after_stop_accepting(): void
@@ -155,7 +154,7 @@ class AdmissionCurrentGateTest extends TestCase
         $this->assertTrue((bool) $this->newTerm->fresh()->is_current);
     }
 
-    public function test_auto_calendar_skips_activation_while_intakes_accepting(): void
+    public function test_auto_calendar_activates_while_intakes_accepting(): void
     {
         Intake::query()->create([
             'academic_term_id' => $this->newTerm->id,
@@ -169,12 +168,12 @@ class AdmissionCurrentGateTest extends TestCase
 
         $result = app(AcademicCalendarService::class)->sync(Carbon::today());
 
-        $this->assertNull($result['opened']);
-        $this->assertTrue((bool) $this->previousTerm->fresh()->is_current);
-        $this->assertFalse((bool) $this->newTerm->fresh()->is_current);
+        $this->assertNotNull($result['opened']);
+        $this->assertFalse((bool) $this->previousTerm->fresh()->is_current);
+        $this->assertTrue((bool) $this->newTerm->fresh()->is_current);
     }
 
-    public function test_sessions_list_exposes_can_set_current_flag(): void
+    public function test_sessions_list_exposes_accepting_intakes_and_allows_set_current(): void
     {
         Intake::query()->create([
             'academic_term_id' => $this->newTerm->id,
@@ -192,7 +191,7 @@ class AdmissionCurrentGateTest extends TestCase
         $new = collect($rows)->firstWhere('id', $this->newSession->id);
 
         $this->assertNotNull($new);
-        $this->assertFalse($new['can_set_current']);
+        $this->assertTrue($new['can_set_current']);
         $this->assertContains('UTME 2025/2026', $new['accepting_application_sessions']);
     }
 }

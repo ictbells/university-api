@@ -181,7 +181,7 @@ class OpenApiGenerator
         ],
         'post_/api/finance/semester-fee/generate' => [
             'summary' => 'Generate semester fee for all enrolled students',
-            'description' => 'Creates one unpaid wallet invoice per active enrolled student for the selected academic term (defaults to the current term). Uses the single active `semester_fee` catalog FeeItem amount. Applicants and inactive students are skipped. Re-running for the same term skips students already billed. Students who were not included also receive the invoice automatically the next time they open wallet, transactions, or financial status while the catalog amount is greater than zero. Requires `finance.invoices.manage`. May return HTTP 202 when Fees & payments Create office approval is required. While a student\'s current-term semester fee is unpaid, other invoice payments and tuition installment creation are blocked; wallet top-up remains allowed.',
+            'description' => 'Creates one unpaid wallet invoice per active enrolled student for the selected academic term (defaults to the current term). Uses the single active `semester_fee` catalog FeeItem amount. Applicants and inactive students are skipped. Re-running for the same term skips students already billed. Students who were not included also receive the invoice automatically the next time they open wallet, transactions, or financial status while a current academic term is set and the catalog amount is greater than zero. Requires `finance.invoices.manage`. May return HTTP 202 when Fees & payments Create office approval is required. Pay-first: when a semester is marked current and the student has not paid that term\'s semester fee, other invoice payments and tuition installment creation are blocked; wallet top-up remains allowed. With no current semester, pay-first does not apply.',
             'requestBody' => [
                 'required' => false,
                 'content' => [
@@ -205,15 +205,31 @@ class OpenApiGenerator
         ],
         'get_/api/my-programme-fees' => [
             'summary' => 'Student programme fee schedule',
-            'description' => 'Current-session tuition schedule, available installment percents, prior unpaid arrears, and semester-fee pay-first flags (`semester_fee_required`, `semester_fee_invoice_id`, `semester_fee_balance`, `semester_fee_term_id`).',
+            'description' => 'Current-session tuition schedule, available installment percents, prior unpaid arrears, and semester-fee pay-first flags (`semester_fee_required`, `semester_fee_invoice_id`, `semester_fee_balance`, `semester_fee_amount`, `semester_fee_term_id`, `semester_fee_error`). `semester_fee_required` is true only when a current academic term is set, the catalog semester fee is active (amount > 0), and the student has not paid that term\'s fee. With no current term, `semester_fee_required` is false and other payments proceed.',
+        ],
+        'get_/api/wallet' => [
+            'summary' => 'Student campus wallet',
+            'description' => 'Wallet balance, recent transactions, outstanding arrears, and the same semester-fee pay-first flags as `GET /api/my-programme-fees`. Auto-bills the current-term semester fee when a current term is set and the catalog amount is greater than zero.',
         ],
         'post_/api/invoices/tuition-installment' => [
             'summary' => 'Create tuition installment invoice',
-            'description' => 'Student creates the next unpaid tuition installment. Blocked when prior-session arrears remain or when the current-term semester fee invoice is unpaid/partial.',
+            'description' => 'Student creates the next unpaid tuition installment. Blocked when prior-session arrears remain, or when a current academic term is set and the current-term semester fee is unpaid/partial (or could not be billed). With no current semester, the semester-fee gate does not apply.',
         ],
         'post_/api/wallet/pay/{invoice}' => [
             'summary' => 'Pay invoice from campus wallet',
-            'description' => 'Debits the student wallet to settle an invoice. Blocked when a current-term unpaid semester fee exists unless this invoice is that semester fee. Application, acceptance, and transcript fees cannot be paid from wallet.',
+            'description' => 'Debits the student wallet to settle an invoice. When a current academic term is set and the current-term semester fee is unpaid, other categories are blocked until that semester fee is paid (paying the semester fee itself is always allowed). With no current semester, other wallet payments proceed. Application, acceptance, and transcript fees cannot be paid from wallet.',
+        ],
+        'post_/api/payments/initialize' => [
+            'summary' => 'Initialize online payment',
+            'description' => 'Starts gateway checkout for an invoice or wallet top-up. For student invoices (not application/acceptance), the same semester-fee pay-first rule as wallet pay applies when a current term is set. Wallet top-up is never blocked by semester fee.',
+        ],
+        'patch_/api/terms/{term}' => [
+            'summary' => 'Update academic semester',
+            'description' => 'Update semester dates, registration windows, auto-schedule, or mark `is_current`. Setting current is allowed even while application sessions (intakes) on the parent admission session are still accepting. Only one semester is current at a time.',
+        ],
+        'get_/api/academic/sessions' => [
+            'summary' => 'List admission sessions',
+            'description' => 'Academic sessions with nested semesters. Each row includes `accepting_application_sessions` (open intake names for awareness) and `can_set_current` (always true — open applications do not block marking a semester current).',
         ],
     ];
 

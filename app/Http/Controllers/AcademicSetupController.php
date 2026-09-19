@@ -103,7 +103,7 @@ class AcademicSetupController extends Controller
                 $session->setAttribute('is_current', $session->semesters->contains(fn ($s) => $s->is_current));
                 $session->setAttribute('is_closed', $session->isClosed());
                 $session->setAttribute('accepting_application_sessions', $accepting);
-                $session->setAttribute('can_set_current', $accepting === []);
+                $session->setAttribute('can_set_current', true);
                 $closure = $session->latestClosure;
                 if ($closure) {
                     $session->setAttribute('last_closure', [

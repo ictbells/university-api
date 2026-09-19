@@ -472,9 +472,9 @@ These are two calendars, not one record with a type flag.
 2. Open **application sessions** on that admission session.
 3. **Stop accepting** when the application window ends. Applicants in that category can still save a started form, but they cannot make a **final submit**.
 4. **Run admission** (review, offers, acceptance, matriculation).
-5. **Set a semester current** so this admission session becomes active for students.
+5. **Set a semester current** so this admission session becomes active for students (fees, registration, calendar). You may do this while application sessions are still accepting — enrolled students need a live term even if intakes remain open.
 
-The platform blocks step 5 while any application session on that admission session is still accepting.
+Application sessions still accepting are shown on the Sessions page for awareness; they do not block marking a semester current.
 
 New applicant **signup** on the student portal requires choosing a specific **application session** first. An open UTME session does not let a postgraduate or transfer applicant create an account. NIN preview and account creation are rejected unless that session is accepting. Successful NIN preview returns names plus **phone** and **address** when the identity provider supplies them, so the register step and later application form can be prefilled. UTME and Direct Entry also require a JAMB number at signup, but **candidate-list membership is not checked at signup or submit**. After submit, `jamb_status` is `validated` if the number is on that session’s uploaded list, otherwise `pending` (screening uses this). Signup then starts the application for the chosen session. If no session is accepting, the API returns *Applications are not open. There is no active application session, so you cannot create an account.* Staff applicant import and existing applicant login are not blocked. A started application cannot be **submitted** after that category’s window closes (Accepting applications off, or outside the open/close dates). Saving progress is still allowed. An open window for a different category does not unlock submit.
 
@@ -627,7 +627,7 @@ Use this for a **flat charge that every enrolled student pays each academic term
 1. **Fee categories** — system type **Semester fee** (`semester_fee`) is operational (not programme-schedule). Keep one active **Fee items** line under that type and set the naira amount. Only one active semester-fee catalog line is allowed.
 2. **When the catalog amount is greater than zero**, any **active** enrolled student who opens Transaction history, wallet, financial status, or tries to pay another charge automatically receives their current-term semester fee invoice (if they do not already have one). Applicants are never billed. Students who join later in the term see and can pay the same fee without staff regenerating.
 3. **Fees & payments → Generate invoice** — optional **Generate semester fee** still bills every active enrolled student for a selected term in one run (useful for staff reporting). Re-running skips students already billed. ICT may also run `php artisan fees:generate-semester` (optional `--term=`).
-4. **Pay first** — while a student’s current-term semester fee invoice is unpaid or partial, they cannot pay other student invoices (tuition, hostel, clinic, sundry, and the rest) from wallet or online checkout, and they cannot create a tuition installment. They **can** still fund the campus wallet. After the semester fee is paid, other charges unlock. If the catalog amount is zero or unset, no semester fee is raised and other payments stay allowed.
+4. **Pay first** — when a semester is marked **Current** and the catalog amount is greater than zero, students must settle that term’s semester fee before paying other student invoices (tuition, hostel, clinic, sundry, and the rest) or creating a tuition installment. They **can** still fund the campus wallet. After the semester fee is paid, other charges unlock. If **no semester is current**, the pay-first rule does not apply and other payments proceed. If the catalog amount is zero or unset, no semester fee is raised and other payments stay allowed.
 5. Students see the invoice on **Transaction history** / financial status with a banner to pay the semester fee first.
 
 #### Import invoices and wallet history
@@ -700,7 +700,7 @@ Use the audit trail for compliance reviews and incident investigation.
 5. If migrating from another portal, use **Import applicants** (see §8.5).
 6. When the window ends, **stop accepting** on those application sessions.
 7. **Run admission** (pipeline decisions, offers, acceptance fees, matriculation).
-8. **Set a semester current** on the new admission session so it becomes the live session for students. The system rejects this while any application session on that admission session is still accepting.
+8. **Set a semester current** on the new admission session so it becomes the live session for students. This is allowed even while application sessions are still accepting (needed for semester fee and registration for already enrolled students).
 
 ### 10.3 Import applicants from another portal
 
@@ -841,6 +841,8 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.59 | Sep 2026 | Platform team | Semester fee: university-wide operational charge set in Fee items; any active enrolled student auto-receives the current-term invoice when they open finance (bulk Generate semester fee optional); unpaid semester fee must be paid before other student invoice payments (wallet top-up still allowed) |
 | 1.60 | Sep 2026 | Platform team | Tuition progress caps only grossly underpaid Full 100% claims by amount paid vs full_amount (tranche 25/50/75 trust the claimed band). Financial status hides Pay this invoice when the installment document itself is fully paid, even if settlement still shows balance against the year fee |
 | 1.61 | Sep 2026 | Platform team | Postgraduate students with current_level 1/2 resolve to catalog Year 1/Year 2 (even with empty level codes / year1 / Year One labels) so programme fees, labels, and hostel windows match the PG fee schedule. Schedules tagged only Full 100% (pay at once) offer 100% alone — not 25/50/75 installments. Semester fee pay-first also blocks when the catalog fee is active but not yet paid for the current term (including legacy invoices missing academic_term_id) |
+| 1.62 | Sep 2026 | Platform team | Staff may set a semester current while application sessions are still accepting; Sessions UI no longer blocks the Current toggle (open intakes shown for awareness only) |
+| 1.63 | Sep 2026 | Platform team | Semester fee pay-first only applies when a current academic term is set; with no current semester, students may pay other charges until staff mark a term current |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

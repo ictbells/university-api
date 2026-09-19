@@ -327,7 +327,7 @@ class SemesterFeeTest extends TestCase
         $this->seedSemesterFeeCatalog(2500);
         $student = $this->studentOnProgrammeWithSchoolFees(20000);
 
-        // No semester fee invoice row — gate must still block (fail closed).
+        // No semester fee invoice row — gate must still block (fail closed) while a current term exists.
         $this->assertSame(0, Invoice::query()
             ->where('student_id', $student->id)
             ->where('category', 'semester_fee')
@@ -345,6 +345,58 @@ class SemesterFeeTest extends TestCase
             str_contains($message, 'semester fee') || str_contains($message, 'Semester fee'),
             "Unexpected message: {$message}"
         );
+    }
+
+    public function test_other_payments_allowed_when_no_current_term(): void
+    {
+        [$term] = $this->seedSemesterFeeCatalog(4000);
+        $term->update(['is_current' => false]);
+        $this->assertNull(AcademicTerm::current());
+
+        $student = $this->makeStudent('BUT/2026/S/0080', 'active', 20000);
+        $hostel = Invoice::query()->create([
+            'number' => 'INV-HOSTEL-NO-TERM',
+            'user_id' => $student->user_id,
+            'student_id' => $student->id,
+            'category' => 'hostel',
+            'amount' => 1000,
+            'full_amount' => 1000,
+            'balance' => 1000,
+            'status' => 'unpaid',
+            'wallet_allowed' => true,
+            'academic_session_id' => $term->academic_session_id,
+        ]);
+
+        $this->assertFalse(SemesterFeeAccess::requiresSettlement($student));
+        $status = SemesterFeeAccess::statusPayload($student);
+        $this->assertFalse($status['semester_fee_required']);
+        $this->assertNull($status['semester_fee_error']);
+
+        Sanctum::actingAs($student->user);
+        $this->postJson('/api/wallet/pay/'.$hostel->id)
+            ->assertOk()
+            ->assertJsonPath('status', 'paid');
+
+        // Once a semester is current again, pay-first returns.
+        $term->update(['is_current' => true]);
+        $hostel2 = Invoice::query()->create([
+            'number' => 'INV-HOSTEL-WITH-TERM',
+            'user_id' => $student->user_id,
+            'student_id' => $student->id,
+            'category' => 'hostel',
+            'amount' => 1500,
+            'full_amount' => 1500,
+            'balance' => 1500,
+            'status' => 'unpaid',
+            'wallet_allowed' => true,
+            'academic_session_id' => $term->academic_session_id,
+        ]);
+        Wallet::query()->where('student_id', $student->id)->update(['balance' => 20000]);
+
+        $this->assertTrue(SemesterFeeAccess::requiresSettlement($student));
+        $this->postJson('/api/wallet/pay/'.$hostel2->id)
+            ->assertStatus(422)
+            ->assertJsonPath('message', SemesterFeeAccess::BLOCKED_MESSAGE);
     }
 
     public function test_cancelled_semester_fee_is_recreated_so_student_can_pay(): void
