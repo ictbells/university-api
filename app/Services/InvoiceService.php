@@ -538,6 +538,12 @@ class InvoiceService
         $hasTranches = $lines->contains(fn (ProgrammeFee $fee) => FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
             && $fee->effective_installment_tranche !== null);
         if ($hasTranches) {
+            if (FeeSchedule::isPayOnceOnlySchedule($lines) && $percent < 100) {
+                throw new RuntimeException(
+                    'This programme bills school fees in full (pay at once). Choose 100%.'
+                );
+            }
+
             return $this->createTuitionInvoiceFromTranches(
                 $student,
                 $lines,
@@ -617,6 +623,7 @@ class InvoiceService
         ?AcademicSession $forSession = null,
         bool $includeLegacy = false,
     ): Invoice {
+        $billedStatuses = ['paid', 'partial', 'unpaid'];
         $billable = $this->billableTrancheLines(
             $student,
             $lines,
@@ -624,15 +631,32 @@ class InvoiceService
             $paidPercent,
             $sessionId,
             $includeLegacy,
-            ['paid', 'partial', 'unpaid'],
+            $billedStatuses,
         );
 
+        $scale = null;
         if ($billable->isEmpty()) {
-            throw new RuntimeException('No unpaid fee items remain for this installment. You may already have paid this share.');
+            // Schedule has no matching unpaid tranche rows for this band (common when
+            // PG fees inherit a Full 100% catalog tag, or 4th-slice rows are missing).
+            // Fall back to a pro-rata share of still-unbilled lines.
+            $fallback = $this->proRataUnpaidScheduleLines(
+                $student,
+                $lines,
+                $percent,
+                $paidPercent,
+                $fullAmount,
+                $sessionId,
+                $includeLegacy,
+                $billedStatuses,
+            );
+            $billable = $fallback['lines'];
+            $scale = $fallback['scale'];
+            $amount = $fallback['amount'];
+        } else {
+            $amount = round((float) $billable->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
         }
 
-        $amount = round((float) $billable->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
-        if ($amount <= 0) {
+        if ($billable->isEmpty() || $amount <= 0) {
             throw new RuntimeException('No unpaid fee items remain for this installment. You may already have paid this share.');
         }
 
@@ -655,17 +679,22 @@ class InvoiceService
 
         $arrearsSuffix = $this->arrearsDescriptionSuffix($forSession, $levelCode, $student);
         foreach ($billable as $line) {
-            $lineAmount = round((float) $line->effective_amount, 2);
+            $lineAmount = $scale === null
+                ? round((float) $line->effective_amount, 2)
+                : round((float) $line->effective_amount * $scale, 2);
             if ($lineAmount <= 0) {
                 continue;
             }
             $name = $line->feeItem?->name ?: FeeSchedule::label((string) ($line->feeItem?->category ?? 'other'));
             $tranche = $line->effective_installment_tranche;
             $isTaggedSlice = FeeSchedule::allowsInstallmentTranche((string) ($line->feeItem?->category ?? ''))
-                && $tranche !== null;
+                && $tranche !== null
+                && $scale === null;
             $suffix = $isTaggedSlice
                 ? FeeSchedule::installmentTrancheLabel((int) $tranche)
-                : ($percent < 100 ? "{$percent}%" : null);
+                : ($percent < 100
+                    ? ($paidPercent > 0 ? "{$percent}% installment" : "{$percent}%")
+                    : null);
             $invoice->items()->create([
                 'fee_item_id' => $line->fee_item_id,
                 'programme_fee_id' => $line->id,
@@ -677,6 +706,96 @@ class InvoiceService
         }
 
         return $invoice->fresh('items');
+    }
+
+    /**
+     * @param  Collection<int, ProgrammeFee>  $lines
+     * @param  list<string>  $billedStatuses
+     * @return array{lines: Collection<int, ProgrammeFee>, amount: float, scale: float}
+     */
+    private function proRataUnpaidScheduleLines(
+        Student $student,
+        Collection $lines,
+        int $percent,
+        float $paidPercent,
+        float $fullAmount,
+        ?int $sessionId,
+        bool $includeLegacy,
+        array $billedStatuses,
+    ): array {
+        $deltaPercent = $percent - $paidPercent;
+        if ($deltaPercent <= 0.009 || $fullAmount <= 0) {
+            return ['lines' => collect(), 'amount' => 0.0, 'scale' => 0.0];
+        }
+
+        $paidProgrammeFeeIds = $this->billedProgrammeFeeIds($student, $sessionId, $includeLegacy, $billedStatuses);
+        $legacyPaidFeeItemIds = $this->billedLegacyFeeItemIds($student, $sessionId, $includeLegacy, $billedStatuses);
+
+        $unpaid = $lines->filter(
+            fn (ProgrammeFee $line) => ! $this->trancheLineAlreadyPaid($line, $paidProgrammeFeeIds, $legacyPaidFeeItemIds)
+        )->values();
+
+        $unpaidTotal = round((float) $unpaid->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
+        $target = round($fullAmount * ($deltaPercent / 100), 2);
+        $amount = round(min($target, $unpaidTotal), 2);
+        if ($unpaid->isEmpty() || $amount <= 0.009 || $unpaidTotal <= 0.009) {
+            return ['lines' => collect(), 'amount' => 0.0, 'scale' => 0.0];
+        }
+
+        return [
+            'lines' => $unpaid,
+            'amount' => $amount,
+            'scale' => $amount / $unpaidTotal,
+        ];
+    }
+
+    /**
+     * @param  list<string>  $billedStatuses
+     * @return list<int>
+     */
+    private function billedProgrammeFeeIds(
+        Student $student,
+        ?int $sessionId,
+        bool $includeLegacy,
+        array $billedStatuses,
+    ): array {
+        return InvoiceItem::query()
+            ->whereNotNull('programme_fee_id')
+            ->whereHas('invoice', function ($query) use ($student, $sessionId, $includeLegacy, $billedStatuses) {
+                $query->where('student_id', $student->id)
+                    ->where('category', 'tuition')
+                    ->whereIn('status', $billedStatuses);
+                $this->constrainInvoiceSession($query, $sessionId, $includeLegacy);
+            })
+            ->pluck('programme_fee_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->all();
+    }
+
+    /**
+     * @param  list<string>  $billedStatuses
+     * @return list<int>
+     */
+    private function billedLegacyFeeItemIds(
+        Student $student,
+        ?int $sessionId,
+        bool $includeLegacy,
+        array $billedStatuses,
+    ): array {
+        return InvoiceItem::query()
+            ->whereNull('programme_fee_id')
+            ->whereNotNull('fee_item_id')
+            ->whereHas('invoice', function ($query) use ($student, $sessionId, $includeLegacy, $billedStatuses) {
+                $query->where('student_id', $student->id)
+                    ->where('category', 'tuition')
+                    ->whereIn('status', $billedStatuses);
+                $this->constrainInvoiceSession($query, $sessionId, $includeLegacy);
+            })
+            ->pluck('fee_item_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->all();
     }
 
     /**
@@ -734,31 +853,8 @@ class InvoiceService
         bool $includeLegacy,
         array $billedStatuses,
     ): Collection {
-        $paidProgrammeFeeIds = InvoiceItem::query()
-            ->whereNotNull('programme_fee_id')
-            ->whereHas('invoice', function ($query) use ($student, $sessionId, $includeLegacy, $billedStatuses) {
-                $query->where('student_id', $student->id)
-                    ->where('category', 'tuition')
-                    ->whereIn('status', $billedStatuses);
-                $this->constrainInvoiceSession($query, $sessionId, $includeLegacy);
-            })
-            ->pluck('programme_fee_id')
-            ->map(fn ($id) => (int) $id)
-            ->unique()
-            ->all();
-        $legacyPaidFeeItemIds = InvoiceItem::query()
-            ->whereNull('programme_fee_id')
-            ->whereNotNull('fee_item_id')
-            ->whereHas('invoice', function ($query) use ($student, $sessionId, $includeLegacy, $billedStatuses) {
-                $query->where('student_id', $student->id)
-                    ->where('category', 'tuition')
-                    ->whereIn('status', $billedStatuses);
-                $this->constrainInvoiceSession($query, $sessionId, $includeLegacy);
-            })
-            ->pluck('fee_item_id')
-            ->map(fn ($id) => (int) $id)
-            ->unique()
-            ->all();
+        $paidProgrammeFeeIds = $this->billedProgrammeFeeIds($student, $sessionId, $includeLegacy, $billedStatuses);
+        $legacyPaidFeeItemIds = $this->billedLegacyFeeItemIds($student, $sessionId, $includeLegacy, $billedStatuses);
 
         $hasFullPackage = $lines->contains(
             fn (ProgrammeFee $fee) => FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))

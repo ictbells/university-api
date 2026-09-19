@@ -92,6 +92,7 @@ class TuitionProgress
 
     /**
      * Installment options still available after already-paid tuition (e.g. hide 25% once 1st is paid).
+     * Pay-at-once schedules (Full 100% only) expose 100% alone.
      *
      * @return list<int>
      */
@@ -106,8 +107,14 @@ class TuitionProgress
             )
             : self::currentSessionPercent($student);
 
+        $bands = FeeSchedule::INSTALLMENT_PERCENTS;
+        if ($student->program_id) {
+            $lines = ProgrammeFeeResolver::forStudent($student);
+            $bands = FeeSchedule::installmentPercentsForSchedule($lines);
+        }
+
         return array_values(array_filter(
-            FeeSchedule::INSTALLMENT_PERCENTS,
+            $bands,
             static fn (int $percent) => $percent > $paid
         ));
     }

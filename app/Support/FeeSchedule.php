@@ -45,6 +45,51 @@ class FeeSchedule
     }
 
     /**
+     * True when the schedule only has Full 100% (pay at once) slices — no 1st–4th 25% rows.
+     *
+     * @param  iterable<mixed>  $lines  ProgrammeFee models (or objects with feeItem + effective_installment_tranche)
+     */
+    public static function isPayOnceOnlySchedule(iterable $lines): bool
+    {
+        $hasFull = false;
+        $hasSlice = false;
+        foreach ($lines as $line) {
+            $category = (string) ($line->feeItem?->category ?? $line->category ?? '');
+            if (! self::allowsInstallmentTranche($category)) {
+                continue;
+            }
+            $tranche = $line->effective_installment_tranche ?? $line->installment_tranche ?? null;
+            if ($tranche === null || $tranche === '') {
+                continue;
+            }
+            $tranche = (int) $tranche;
+            if ($tranche === 100) {
+                $hasFull = true;
+            }
+            if (in_array($tranche, [1, 2, 3, 4], true)) {
+                $hasSlice = true;
+            }
+        }
+
+        return $hasFull && ! $hasSlice;
+    }
+
+    /**
+     * Installment % bands a student may choose for this schedule shape.
+     *
+     * @param  iterable<mixed>  $lines
+     * @return list<int>
+     */
+    public static function installmentPercentsForSchedule(iterable $lines): array
+    {
+        if (self::isPayOnceOnlySchedule($lines)) {
+            return [100];
+        }
+
+        return self::INSTALLMENT_PERCENTS;
+    }
+
+    /**
      * Which fee-item tranches belong on a student installment invoice.
      *
      * @return list<int>

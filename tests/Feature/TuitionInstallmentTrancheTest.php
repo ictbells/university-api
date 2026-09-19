@@ -22,6 +22,42 @@ class TuitionInstallmentTrancheTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_pay_once_schedule_only_offers_full_100_percent(): void
+    {
+        $student = $this->activeStudent();
+        $fee = FeeItem::query()->create([
+            'name' => 'E-Library Subscription · 1st 25%',
+            'category' => 'tuition',
+            'installment_tranche' => 1,
+            'amount' => 25000,
+            'is_active' => true,
+        ]);
+        // Programme override: Full 100% pay at once (PG style).
+        $student->program->programmeFees()->create([
+            'fee_item_id' => $fee->id,
+            'amount' => 15000,
+            'installment_tranche' => 100,
+            'level_code' => 'all',
+            'semester' => 'both',
+            'is_active' => true,
+        ]);
+
+        $fresh = $student->fresh(['program']);
+        $this->assertSame([100], \App\Support\TuitionProgress::availableInstallmentPercents($fresh));
+
+        try {
+            app(InvoiceService::class)->createTuitionInvoice($fresh, 25);
+            $this->fail('Expected pay-once schedules to reject 25%.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('pay at once', $e->getMessage());
+        }
+
+        $invoice = app(InvoiceService::class)->createTuitionInvoice($fresh, 100);
+        $this->assertEquals(100, (int) $invoice->installment_percent);
+        $this->assertEquals(15000.0, (float) $invoice->amount);
+        $this->assertEquals(15000.0, (float) $invoice->full_amount);
+    }
+
     public function test_bills_fixed_tranche_amounts_not_pro_rata(): void
     {
         [$student, $items] = $this->studentWithTrancheSchedule();
