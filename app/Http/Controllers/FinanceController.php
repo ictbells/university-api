@@ -539,10 +539,12 @@ class FinanceController extends Controller
         $student = $request->user()->student;
         if ($student) {
             $this->arrears->ensureForStudent($student);
-            try {
-                $this->semesterFees->ensureForStudentOrFail($student);
-            } catch (RuntimeException) {
-                // History still loads; programme-fees payload carries semester_fee_error.
+            if (SemesterFeeAccess::catalogIsCompulsory()) {
+                try {
+                    $this->semesterFees->ensureForStudentOrFail($student);
+                } catch (RuntimeException) {
+                    // History still loads; programme-fees payload carries semester_fee_error.
+                }
             }
         }
 
@@ -890,10 +892,12 @@ class FinanceController extends Controller
     {
         $student->loadMissing(['user', 'program', 'wallet', 'application']);
         $this->arrears->ensureForStudent($student);
-        try {
-            $this->semesterFees->ensureForStudentOrFail($student);
-        } catch (RuntimeException) {
-            // statusPayload still reports semester_fee_error when payable invoice is missing.
+        if (SemesterFeeAccess::catalogIsCompulsory()) {
+            try {
+                $this->semesterFees->ensureForStudentOrFail($student);
+            } catch (RuntimeException) {
+                // statusPayload still reports semester_fee_error when payable invoice is missing.
+            }
         }
 
         $invoices = Invoice::query()
@@ -1569,10 +1573,12 @@ class FinanceController extends Controller
         }
 
         $this->arrears->ensureForStudent($student);
-        try {
-            $this->semesterFees->ensureForStudentOrFail($student);
-        } catch (RuntimeException) {
-            // statusPayload.semester_fee_error explains a missing payable invoice.
+        if (SemesterFeeAccess::catalogIsCompulsory()) {
+            try {
+                $this->semesterFees->ensureForStudentOrFail($student);
+            } catch (RuntimeException) {
+                // statusPayload.semester_fee_error explains a missing payable invoice.
+            }
         }
         $prior = $this->arrears->priorUnpaid($student);
         $tuitionPercentPaid = TuitionProgress::currentSessionPercent($student);
@@ -1617,10 +1623,12 @@ class FinanceController extends Controller
         $student = $user->student;
         abort_unless($student, 422, SchoolFeeAccess::BLOCKED_MESSAGE);
         $this->arrears->ensureForStudent($student);
-        try {
-            $this->semesterFees->ensureForStudentOrFail($student);
-        } catch (RuntimeException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
+        if (SemesterFeeAccess::catalogIsCompulsory()) {
+            try {
+                $this->semesterFees->ensureForStudentOrFail($student);
+            } catch (RuntimeException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
         }
 
         $data = $request->validate([
