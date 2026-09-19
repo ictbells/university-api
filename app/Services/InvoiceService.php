@@ -1026,10 +1026,16 @@ class InvoiceService
 
     private function arrearsDescriptionSuffix(?AcademicSession $session, ?string $levelCode, Student $student): ?string
     {
-        $currentLevel = $student->current_level !== null ? (string) $student->current_level : null;
-        $isPriorLevel = $levelCode && $currentLevel && $levelCode !== 'all' && $levelCode !== $currentLevel;
-        $isClosedSession = $session?->closed_at !== null;
-        if (! $isPriorLevel && ! $isClosedSession) {
+        // Catalog stamps "Year 1" while students often store current_level as 1 or 100 —
+        // compare via fee aliases so current-level invoices are not labelled arrears.
+        $isPriorLevel = $levelCode
+            && $levelCode !== 'all'
+            && ! StudentAcademicLevel::matchesFeeLevelCode($student, $levelCode);
+        $currentSessionId = TuitionProgress::currentSessionId();
+        $isOtherClosedSession = $session?->closed_at !== null
+            && $currentSessionId
+            && (int) $session->id !== (int) $currentSessionId;
+        if (! $isPriorLevel && ! $isOtherClosedSession) {
             return null;
         }
 

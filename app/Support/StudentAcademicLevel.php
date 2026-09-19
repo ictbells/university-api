@@ -125,6 +125,29 @@ class StudentAcademicLevel
     }
 
     /**
+     * Whether an invoice / fee level_code is the student's current band
+     * (e.g. current_level 1 vs catalog "Year 1", or 100 vs "100 Level").
+     */
+    public static function matchesFeeLevelCode(Student $student, ?string $levelCode): bool
+    {
+        if ($levelCode === null) {
+            return false;
+        }
+        $needle = strtolower(trim($levelCode));
+        if ($needle === '' || $needle === 'all') {
+            return false;
+        }
+
+        foreach (self::feeLevelCodes($student) as $code) {
+            if (strtolower(trim($code)) === $needle) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Preferred level_code to stamp on invoices / receipts.
      */
     public static function primaryFeeLevelCode(Student $student): ?string

@@ -6,6 +6,7 @@ use App\Models\AcademicSession;
 use App\Models\Invoice;
 use App\Models\Student;
 use App\Models\StudentLevelProgression;
+use App\Support\StudentAcademicLevel;
 use App\Support\TuitionProgress;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -96,23 +97,23 @@ class FeeArrearsService
     public function priorUnpaid(Student $student): Collection
     {
         $currentSessionId = TuitionProgress::currentSessionId();
-        $currentLevel = $student->current_level !== null ? (string) $student->current_level : null;
+        $currentLevelCodes = StudentAcademicLevel::feeLevelCodes($student);
 
         return Invoice::query()
             ->where('student_id', $student->id)
             ->whereIn('status', ['unpaid', 'partial'])
-            ->where(function ($query) use ($currentSessionId, $currentLevel) {
+            ->where(function ($query) use ($currentSessionId, $currentLevelCodes) {
                 if ($currentSessionId) {
                     $query->where(function ($session) use ($currentSessionId) {
                         $session->whereNotNull('academic_session_id')
                             ->where('academic_session_id', '!=', $currentSessionId);
                     });
                 }
-                if ($currentLevel) {
-                    $query->orWhere(function ($level) use ($currentLevel) {
+                if ($currentLevelCodes !== []) {
+                    $query->orWhere(function ($level) use ($currentLevelCodes) {
                         $level->whereNotNull('level_code')
                             ->where('level_code', '!=', 'all')
-                            ->where('level_code', '!=', $currentLevel);
+                            ->whereNotIn('level_code', $currentLevelCodes);
                     });
                 }
             })
