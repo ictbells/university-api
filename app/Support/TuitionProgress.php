@@ -140,14 +140,26 @@ class TuitionProgress
             : ($invoice->status === 'paid' ? 100.0 : 0.0);
 
         if ($invoice->status === 'paid' && $invoice->installment_percent) {
-            return round(min((float) $invoice->installment_percent, $actual), 2);
+            $claimed = (float) $invoice->installment_percent;
+
+            // Cap only grossly underpaid "pay in full" claims (e.g. ₦10k of ₦742k marked 100%).
+            // Tranche installments often sum to less than percent×full_amount; trust the claimed band.
+            if (self::shouldCapClaimedPercent($claimed, $actual)) {
+                return round(min($claimed, $actual), 2);
+            }
+
+            return $claimed;
         }
 
         // Tranche invoices may omit installment_percent but still label "1st 25%" in line items.
         if ($invoice->status === 'paid') {
             $fromLabel = self::percentFromShareLabel($invoice);
             if ($fromLabel !== null) {
-                return round(min($fromLabel, $actual), 2);
+                if (self::shouldCapClaimedPercent($fromLabel, $actual)) {
+                    return round(min($fromLabel, $actual), 2);
+                }
+
+                return $fromLabel;
             }
         }
 
@@ -157,6 +169,20 @@ class TuitionProgress
 
         // Progress toward the full-year fee: only count what was paid on this invoice.
         return $actual;
+    }
+
+    /**
+     * True when a claimed installment band (especially Full 100%) far exceeds what was paid
+     * against full_amount — the wrong-fee Full 100% case.
+     */
+    private static function shouldCapClaimedPercent(float $claimed, float $actual): bool
+    {
+        if ($claimed < 99.5) {
+            return false;
+        }
+
+        // Paid less than half of a claimed full settlement.
+        return $actual < ($claimed * 0.5);
     }
 
     public static function tuitionConstraint(): \Closure

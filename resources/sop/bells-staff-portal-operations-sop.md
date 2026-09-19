@@ -839,7 +839,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.57 | Sep 2026 | Platform team | Report downloads (PDF/Excel/Word) write Naira columns as Excel numbers, include an automatic Total row, and generate PDF as a downloadable file |
 | 1.58 | Sep 2026 | Platform team | Staff cannot process (screen, reject, or advance) applicants who have not submitted their form |
 | 1.59 | Sep 2026 | Platform team | Semester fee: university-wide operational charge set in Fee items; any active enrolled student auto-receives the current-term invoice when they open finance (bulk Generate semester fee optional); unpaid semester fee must be paid before other student invoice payments (wallet top-up still allowed) |
-| 1.60 | Sep 2026 | Platform team | Tuition progress caps Full 100% (and other installment claims) by amount paid vs full_amount, so an underpaid Full 100% invoice no longer locks remaining installments after programme fees are corrected |
+| 1.60 | Sep 2026 | Platform team | Tuition progress caps only grossly underpaid Full 100% claims by amount paid vs full_amount (tranche 25/50/75 trust the claimed band). Financial status hides Pay this invoice when the installment document itself is fully paid, even if settlement still shows balance against the year fee |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

@@ -336,6 +336,52 @@ class StudentFinanceInstallmentTest extends TestCase
         $this->assertSame([25, 50, 75, 100], TuitionProgress::availableInstallmentPercents($student->fresh()));
     }
 
+    public function test_tranche_75_percent_invoice_trusts_claimed_band_even_when_amount_is_below_75_of_full(): void
+    {
+        $user = User::factory()->create(['status' => 'active']);
+        $student = Student::query()->create([
+            'user_id' => $user->id,
+            'first_name' => 'Jupeb',
+            'last_name' => 'Tranche',
+            'matric_number' => 'JFS26/TRANCHE75',
+            'status' => 'active',
+            'current_level' => 'JUPEB',
+        ]);
+        Wallet::query()->create(['student_id' => $student->id, 'balance' => 0]);
+
+        $session = AcademicSession::query()->create([
+            'label' => '2026/2027-T',
+            'starts_on' => '2026-10-01',
+            'ends_on' => '2027-09-30',
+        ]);
+        AcademicTerm::query()->create([
+            'academic_session_id' => $session->id,
+            'name' => 'First',
+            'session_label' => '2026/2027-T',
+            'is_current' => true,
+        ]);
+
+        $tuition = Invoice::query()->create([
+            'number' => 'INV-TRANCHE-75',
+            'user_id' => $user->id,
+            'student_id' => $student->id,
+            'category' => 'tuition',
+            'installment_percent' => 75,
+            'amount' => 522750,
+            'full_amount' => 742000,
+            'balance' => 0,
+            'status' => 'paid',
+            'wallet_allowed' => true,
+            'academic_session_id' => $session->id,
+            'level_code' => 'JUPEB',
+        ]);
+
+        // 522750/742000 ≈ 70.45% — must still count as 75% so 75% is not offered again.
+        $this->assertEquals(75.0, TuitionProgress::invoicePercent($tuition->fresh()));
+        $this->assertEquals(75.0, TuitionProgress::percentPaid($student->fresh()));
+        $this->assertSame([100], TuitionProgress::availableInstallmentPercents($student->fresh()));
+    }
+
     public function test_true_full_tuition_pay_still_reports_100_and_no_available_installments(): void
     {
         $user = User::factory()->create(['status' => 'active']);
