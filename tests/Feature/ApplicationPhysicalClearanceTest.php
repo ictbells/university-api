@@ -100,9 +100,9 @@ class ApplicationPhysicalClearanceTest extends TestCase
         Mail::assertNothingQueued();
 
         $this->artisan('students:email-matric')
-            ->expectsOutput('Queued 1 matric email.')
+            ->expectsOutput('Sent 1 matric email.')
             ->assertSuccessful();
-        Mail::assertQueued(StudentMatricIssuedMail::class, function (StudentMatricIssuedMail $mail) use ($student) {
+        Mail::assertSent(StudentMatricIssuedMail::class, function (StudentMatricIssuedMail $mail) use ($student) {
             return $mail->hasTo($student->user->email)
                 && $mail->matricNumber === $student->matric_number;
         });

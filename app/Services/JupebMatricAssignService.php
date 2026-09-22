@@ -125,7 +125,7 @@ class JupebMatricAssignService
                 continue;
             }
             if (! $dryRun) {
-                $this->emailMatric($student, $matric);
+                $this->emailMatric($student, $matric, now: true);
             }
             $sent++;
         }
@@ -298,7 +298,7 @@ class JupebMatricAssignService
         ];
     }
 
-    private function emailMatric(Student $student, string $matric): void
+    private function emailMatric(Student $student, string $matric, bool $now = false): void
     {
         $email = trim((string) ($student->user?->email ?? ''));
         if ($email === '') {
@@ -306,7 +306,12 @@ class JupebMatricAssignService
         }
 
         try {
-            Mail::to($email)->send(new JupebMatricIssuedMail($student, $matric));
+            $mailable = new JupebMatricIssuedMail($student, $matric);
+            if ($now) {
+                Mail::to($email)->sendNow($mailable);
+            } else {
+                Mail::to($email)->send($mailable);
+            }
         } catch (\Throwable $exception) {
             Log::warning('student.jupeb_matric_email_failed', [
                 'student_id' => $student->id,

@@ -385,6 +385,61 @@ class PremblyService
     }
 
     /**
+     * Drop the previous NIN passport when staff corrects the NIN.
+     * Names stay locked until resync; the old photo must not remain attached.
+     */
+    public function clearPassportAfterNinChange(User $user, ?Application $application = null, ?Student $student = null): void
+    {
+        $student ??= $user->student;
+        if ($student && filled($student->photo_path)) {
+            $student->update(['photo_path' => null]);
+        }
+
+        $records = NinVerification::query()->where('user_id', $user->id)->orderByDesc('id')->get();
+        foreach ($records as $record) {
+            $mapped = is_array($record->mapped_fields) ? $record->mapped_fields : [];
+            if (! array_key_exists('photo_path', $mapped) && ! array_key_exists('photo', $mapped)) {
+                continue;
+            }
+            unset($mapped['photo_path'], $mapped['photo']);
+            $record->update(['mapped_fields' => $mapped]);
+        }
+
+        if (! $application) {
+            return;
+        }
+
+        $biodata = $application->steps()->where('step_key', 'biodata')->first();
+        if ($biodata) {
+            $payload = is_array($biodata->payload) ? $biodata->payload : [];
+            if (array_key_exists('photo_path', $payload)) {
+                unset($payload['photo_path']);
+                $biodata->update(['payload' => $payload]);
+            }
+        }
+
+        $passportDocs = $application->documents()->where('doc_type', 'passport')->get();
+        $removedIds = [];
+        foreach ($passportDocs as $doc) {
+            $removedIds[] = (int) $doc->id;
+            $doc->delete();
+        }
+
+        $documentsStep = $application->steps()->where('step_key', 'required_documents')->first();
+        if ($documentsStep && $removedIds !== []) {
+            $documentsPayload = is_array($documentsStep->payload) ? $documentsStep->payload : [];
+            $files = collect($documentsPayload['files'] ?? [])
+                ->reject(fn ($file) => in_array((int) ($file['id'] ?? 0), $removedIds, true)
+                    || ($file['doc_type'] ?? null) === 'passport')
+                ->values()
+                ->all();
+            $documentsPayload['files'] = $files;
+            unset($documentsPayload['passport_from_nin']);
+            $documentsStep->update(['payload' => $documentsPayload]);
+        }
+    }
+
+    /**
      * @param  array<string, mixed>  $mapped
      * @param  array<string, mixed>  $contactPayload
      */

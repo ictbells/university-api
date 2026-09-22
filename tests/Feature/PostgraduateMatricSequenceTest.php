@@ -93,10 +93,10 @@ class PostgraduateMatricSequenceTest extends TestCase
         Mail::fake();
 
         $this->artisan('students:email-matric', ['--entry-mode' => 'pg'])
-            ->expectsOutput('Queued 1 matric email.')
+            ->expectsOutput('Sent 1 matric email.')
             ->assertSuccessful();
-        Mail::assertQueued(StudentMatricIssuedMail::class, 1);
-        Mail::assertQueued(StudentMatricIssuedMail::class, function (StudentMatricIssuedMail $mail) use ($pg) {
+        Mail::assertSent(StudentMatricIssuedMail::class, 1);
+        Mail::assertSent(StudentMatricIssuedMail::class, function (StudentMatricIssuedMail $mail) use ($pg) {
             return $mail->hasTo($pg->user->email)
                 && $mail->matricNumber === $pg->matric_number
                 && $mail->isPostgraduate();

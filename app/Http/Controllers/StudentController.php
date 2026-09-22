@@ -7,6 +7,7 @@ use App\Models\Student;
 use App\Models\StudentTermRemark;
 use App\Models\StudentTermSanction;
 use App\Services\AuditWriter;
+use App\Services\PremblyService;
 use App\Services\StudentTermRemarkService;
 use App\Services\StudentTermSanctionService;
 use App\Support\GradeExamRemark;
@@ -22,6 +23,7 @@ class StudentController extends Controller
     use Concerns\AuthorizesOfficeApprovals;
     public function __construct(
         private AuditWriter $audit,
+        private PremblyService $prembly,
         private StudentTermSanctionService $sanctions,
         private StudentTermRemarkService $remarks,
     ) {}
@@ -114,10 +116,28 @@ class StudentController extends Controller
         if (array_key_exists('next_of_kin_phone', $data) && filled($data['next_of_kin_phone'])) {
             $data['next_of_kin_phone'] = PhoneNumber::normalize($data['next_of_kin_phone']);
         }
+        $ninChanged = false;
+        if (array_key_exists('nin', $data) && filled($data['nin']) && $student->user_id !== $user->id) {
+            $nin = $this->prembly->normalizeNin((string) $data['nin']);
+            $current = $student->nin !== null ? $this->prembly->normalizeNin((string) $student->nin) : null;
+            if ($nin !== $current) {
+                $this->prembly->assertNinAvailable($nin, $student->user_id);
+                $data['nin'] = $nin;
+                $data['photo_path'] = null;
+                $ninChanged = true;
+            } else {
+                $data['nin'] = $nin;
+            }
+        }
         $before = $student->only(array_keys($data));
 
-        $execute = function () use ($student, $data, $before) {
+        $execute = function () use ($student, $data, $before, $ninChanged) {
             $student->update($data);
+            if ($ninChanged && $student->user) {
+                $application = $student->application
+                    ?? $student->user->applications()->latest('id')->first();
+                $this->prembly->clearPassportAfterNinChange($student->user, $application, $student->fresh());
+            }
             $this->audit->record('student.updated', 'Student profile updated', 'sis', 'student', $student->id, $before, $student->fresh());
 
             return $student->fresh();

@@ -32,8 +32,8 @@ class EmailJupebMatricNumbers extends Command
                 ? 'Would email 1 JUPEB student.'
                 : "Would email {$result['sent']} JUPEB students.")
             : ($result['sent'] === 1
-                ? 'Queued 1 JUPEB matric email.'
-                : "Queued {$result['sent']} JUPEB matric emails."));
+                ? 'Sent 1 JUPEB matric email.'
+                : "Sent {$result['sent']} JUPEB matric emails."));
 
         if ($result['skipped'] > 0) {
             $this->warn($result['skipped'] === 1

@@ -34,8 +34,8 @@ class EmailStudentMatricNumbers extends Command
                 ? 'Would email 1 student.'
                 : "Would email {$result['sent']} students.")
             : ($result['sent'] === 1
-                ? 'Queued 1 matric email.'
-                : "Queued {$result['sent']} matric emails."));
+                ? 'Sent 1 matric email.'
+                : "Sent {$result['sent']} matric emails."));
 
         if ($result['skipped'] > 0) {
             $this->warn($result['skipped'] === 1

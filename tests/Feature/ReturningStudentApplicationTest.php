@@ -349,6 +349,28 @@ class ReturningStudentApplicationTest extends TestCase
         [$user, $application] = $this->matriculatedStudentWithOpenPgIntake();
         $application->update(['jamb_registration' => '12345678AB']);
         $user->update(['jamb_registration' => '12345678AB']);
+        $application->steps()->where('step_key', 'biodata')->update([
+            'payload' => [
+                'nin' => '12345678901',
+                'nin_locked' => true,
+                'first_name' => 'Adaeze',
+                'last_name' => 'Okoye',
+                'photo_path' => 'nin-photos/1/12345678901.jpg',
+            ],
+        ]);
+        $user->student->update(['photo_path' => 'nin-photos/1/12345678901.jpg']);
+        $passport = $application->documents()->create([
+            'doc_type' => 'passport',
+            'path' => 'nin-photos/1/12345678901.jpg',
+            'original_name' => 'nin-passport.jpg',
+        ]);
+        NinVerification::query()->where('user_id', $user->id)->update([
+            'mapped_fields' => [
+                'first_name' => 'Adaeze',
+                'last_name' => 'Okoye',
+                'photo_path' => 'nin-photos/1/12345678901.jpg',
+            ],
+        ]);
 
         app(ApplicationStaffUpdateService::class)->update($application, [
             'email' => $user->email,
@@ -359,16 +381,18 @@ class ReturningStudentApplicationTest extends TestCase
             'nin' => '98765432109',
         ]);
 
-        $fresh = $application->fresh(['steps', 'student']);
+        $fresh = $application->fresh(['steps', 'student', 'documents']);
         $biodata = $fresh->steps->firstWhere('step_key', 'biodata')?->payload ?? [];
         $this->assertSame('98765432109', $biodata['nin'] ?? null);
         $this->assertTrue((bool) ($biodata['nin_locked'] ?? false));
         $this->assertSame('Adaeze', $biodata['first_name'] ?? null);
+        $this->assertArrayNotHasKey('photo_path', $biodata);
+        $this->assertNull($fresh->student?->photo_path);
         $this->assertSame('98765432109', $fresh->student?->nin);
-        $this->assertSame(
-            '98765432109',
-            NinVerification::query()->where('user_id', $user->id)->latest('id')->first()?->nin,
-        );
+        $this->assertFalse($fresh->documents->contains('id', $passport->id));
+        $verification = NinVerification::query()->where('user_id', $user->id)->latest('id')->first();
+        $this->assertSame('98765432109', $verification?->nin);
+        $this->assertArrayNotHasKey('photo_path', $verification?->mapped_fields ?? []);
     }
 
     public function test_staff_cannot_assign_a_nin_already_linked_to_another_account(): void

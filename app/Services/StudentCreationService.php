@@ -483,7 +483,7 @@ class StudentCreationService
                 continue;
             }
             if (! $dryRun) {
-                $this->emailIssuedMatric($student);
+                $this->emailIssuedMatric($student, now: true);
             }
             $sent++;
         }
@@ -500,7 +500,7 @@ class StudentCreationService
             ->whereDoesntHave('application', fn ($applications) => $applications->where('entry_mode', 'jupeb'));
     }
 
-    private function emailIssuedMatric(?Student $student): void
+    private function emailIssuedMatric(?Student $student, bool $now = false): void
     {
         if (! $student) {
             return;
@@ -513,7 +513,12 @@ class StudentCreationService
         }
 
         try {
-            Mail::to($email)->send(new StudentMatricIssuedMail($student, $matric));
+            $mailable = new StudentMatricIssuedMail($student, $matric);
+            if ($now) {
+                Mail::to($email)->sendNow($mailable);
+            } else {
+                Mail::to($email)->send($mailable);
+            }
         } catch (\Throwable $exception) {
             Log::warning('student.matric_email_failed', [
                 'student_id' => $student->id,

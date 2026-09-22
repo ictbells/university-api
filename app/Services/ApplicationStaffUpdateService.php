@@ -50,7 +50,9 @@ class ApplicationStaffUpdateService
         if ($jamb) {
             $this->assertUniqueJamb($user, $application, $jamb);
         }
+        $previousNin = $this->currentNin($application, $user);
         $data = $this->normalizeStaffNin($application, $user, $data);
+        $ninChanged = isset($data['nin']) && $data['nin'] !== $previousNin;
 
         if (($application->entry_mode ?? '') === 'utme' && array_key_exists('utme', $data)) {
             $nested = Request::create('/', 'POST', ['payload' => ['utme' => $data['utme']]]);
@@ -76,6 +78,7 @@ class ApplicationStaffUpdateService
             $jambStatus,
             $originalProgramId,
             $nextProgramId,
+            $ninChanged,
             &$levelNote,
         ) {
             $this->validateProgrammeChoices($application, $data);
@@ -99,9 +102,12 @@ class ApplicationStaffUpdateService
                 'program_id' => $nextProgramId,
             ]);
 
-            $this->writeSteps($application, $data, $jamb);
-            $this->syncStudentProfile($student, $data, $nextProgramId);
+            $this->writeSteps($application, $data, $jamb, $ninChanged);
+            $this->syncStudentProfile($student, $data, $nextProgramId, $ninChanged);
             $this->persistStaffNin($user, $data['nin'] ?? null);
+            if ($ninChanged) {
+                $this->prembly->clearPassportAfterNinChange($user, $application, $student);
+            }
         });
 
         $this->audit->record(
@@ -302,12 +308,17 @@ class ApplicationStaffUpdateService
     /**
      * @param  array<string, mixed>  $data
      */
-    private function writeSteps(Application $application, array $data, ?string $jamb): void
+    private function writeSteps(Application $application, array $data, ?string $jamb, bool $ninChanged = false): void
     {
         $biodataUpdates = [
             'phone' => $application->user?->phone,
         ];
-        $biodataPreserve = ['photo_path', 'nin_locked', 'first_name', 'middle_name', 'last_name', 'date_of_birth', 'gender'];
+        $biodataPreserve = ['nin_locked', 'first_name', 'middle_name', 'last_name', 'date_of_birth', 'gender'];
+        if ($ninChanged) {
+            $biodataUpdates['photo_path'] = null;
+        } else {
+            $biodataPreserve[] = 'photo_path';
+        }
         if (! empty($data['nin'])) {
             $biodataUpdates['nin'] = $data['nin'];
         } else {
@@ -453,7 +464,7 @@ class ApplicationStaffUpdateService
     /**
      * @param  array<string, mixed>  $data
      */
-    private function syncStudentProfile(?Student $student, array $data, ?int $programId): void
+    private function syncStudentProfile(?Student $student, array $data, ?int $programId, bool $ninChanged = false): void
     {
         if (! $student) {
             return;
@@ -483,6 +494,9 @@ class ApplicationStaffUpdateService
         ];
         if (! empty($data['nin'])) {
             $profile['nin'] = $data['nin'];
+        }
+        if ($ninChanged) {
+            $profile['photo_path'] = null;
         }
         $student->update($profile);
 

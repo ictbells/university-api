@@ -403,10 +403,10 @@ class JupebAndNabtebAdmissionRulesTest extends TestCase
         Mail::assertNothingQueued();
 
         $this->artisan('jupeb:email-matric')
-            ->expectsOutput('Queued 1 JUPEB matric email.')
+            ->expectsOutput('Sent 1 JUPEB matric email.')
             ->assertSuccessful();
-        Mail::assertQueued(JupebMatricIssuedMail::class, 1);
-        Mail::assertQueued(JupebMatricIssuedMail::class, function (JupebMatricIssuedMail $mail) use ($jupeb) {
+        Mail::assertSent(JupebMatricIssuedMail::class, 1);
+        Mail::assertSent(JupebMatricIssuedMail::class, function (JupebMatricIssuedMail $mail) use ($jupeb) {
             return $mail->hasTo($jupeb->user->email)
                 && $mail->matricNumber === 'JUPEB/2026/0099';
         });
