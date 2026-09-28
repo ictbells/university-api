@@ -10816,7 +10816,7 @@
                         }
                     }
                 },
-                "description": "Returns `amount`, `full_amount`, and line `items` the selected `installment_percent` would bill, using the same rules and blocks as `POST /api/invoices/tuition-installment`. Nothing is saved and no invoice number is used."
+                "description": "Returns `amount`, `full_amount`, `billed_before` (earlier tuition invoices this session), `share_of_session_percent`, `remaining_after`, and line `items` the selected `installment_percent` would bill, using the same rules and blocks as `POST /api/invoices/tuition-installment`. Nothing is saved and no invoice number is used."
             }
         },
         "/api/invoices/{invoice}/disable": {

@@ -460,6 +460,9 @@ class StudentFinanceInstallmentTest extends TestCase
             ->assertJsonPath('installment_percent', 25)
             ->assertJsonPath('amount', 100000)
             ->assertJsonPath('full_amount', 400000)
+            ->assertJsonPath('billed_before', 0)
+            ->assertJsonPath('share_of_session_percent', 25)
+            ->assertJsonPath('remaining_after', 300000)
             ->assertJsonPath('items.0.amount', 100000);
 
         $this->assertSame(0, Invoice::query()->where('student_id', $student->id)->where('category', 'tuition')->count());

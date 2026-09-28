@@ -237,7 +237,7 @@ class OpenApiGenerator
         ],
         'post_/api/invoices/tuition-installment/preview' => [
             'summary' => 'Preview tuition installment amount',
-            'description' => 'Returns `amount`, `full_amount`, and line `items` the selected `installment_percent` would bill, using the same rules and blocks as `POST /api/invoices/tuition-installment`. Nothing is saved and no invoice number is used.',
+            'description' => 'Returns `amount`, `full_amount`, `billed_before` (earlier tuition invoices this session), `share_of_session_percent`, `remaining_after`, and line `items` the selected `installment_percent` would bill, using the same rules and blocks as `POST /api/invoices/tuition-installment`. Nothing is saved and no invoice number is used.',
         ],
         'post_/api/wallet/pay/{invoice}' => [
             'summary' => 'Pay invoice from campus wallet',

@@ -1684,11 +1684,28 @@ class FinanceController extends Controller
             }
 
             $invoice = $this->invoices->createTuitionInvoice($student->load(['user', 'program']), $percent);
+            $amount = round((float) $invoice->amount, 2);
+            $fullAmount = round((float) $invoice->full_amount, 2);
+            $billedBefore = round((float) Invoice::query()
+                ->where('category', 'tuition')
+                ->where('id', '!=', $invoice->id)
+                ->where('academic_session_id', $invoice->academic_session_id)
+                ->whereNotIn('status', ['cancelled', 'disabled'])
+                ->where(function ($query) use ($student) {
+                    $query->where('student_id', $student->id)
+                        ->orWhere(function ($query) use ($student) {
+                            $query->whereNull('student_id')->where('user_id', $student->user_id);
+                        });
+                })
+                ->sum('amount'), 2);
 
             return [
                 'installment_percent' => $percent,
-                'amount' => round((float) $invoice->amount, 2),
-                'full_amount' => round((float) $invoice->full_amount, 2),
+                'amount' => $amount,
+                'full_amount' => $fullAmount,
+                'billed_before' => $billedBefore,
+                'share_of_session_percent' => $fullAmount > 0 ? round($amount / $fullAmount * 100, 1) : null,
+                'remaining_after' => max(0, round($fullAmount - $billedBefore - $amount, 2)),
                 'items' => $invoice->items
                     ->map(fn ($item) => [
                         'description' => $item->description,
