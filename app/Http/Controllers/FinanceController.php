@@ -14,6 +14,8 @@ use App\Models\Payment;
 use App\Models\Program;
 use App\Models\ProgrammeFee;
 use App\Models\Student;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use App\Services\AuditWriter;
@@ -1644,6 +1646,66 @@ class FinanceController extends Controller
         $user = $request->user();
         $student = $user->student;
         abort_unless($student, 422, SchoolFeeAccess::BLOCKED_MESSAGE);
+        $data = $request->validate([
+            'installment_percent' => ['required', 'integer', Rule::in(FeeSchedule::INSTALLMENT_PERCENTS)],
+        ]);
+        $percent = (int) $data['installment_percent'];
+
+        if ($blocked = $this->tuitionInstallmentBlocker($student, $percent)) {
+            return $blocked;
+        }
+
+        try {
+            $invoice = $this->invoices->createTuitionInvoice($student->load(['user', 'program']), $percent);
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+        $this->audit->record('invoice.created', 'Tuition installment '.$invoice->number, 'fees', 'invoice', $invoice->id, null, $invoice, null, $user);
+
+        return $invoice;
+    }
+
+    /**
+     * Same checks and amounts as createTuitionInstallment, but everything is rolled back so nothing is billed.
+     */
+    public function previewTuitionInstallment(Request $request)
+    {
+        $student = $request->user()->student;
+        abort_unless($student, 422, SchoolFeeAccess::BLOCKED_MESSAGE);
+        $data = $request->validate([
+            'installment_percent' => ['required', 'integer', Rule::in(FeeSchedule::INSTALLMENT_PERCENTS)],
+        ]);
+        $percent = (int) $data['installment_percent'];
+
+        DB::beginTransaction();
+        try {
+            if ($blocked = $this->tuitionInstallmentBlocker($student, $percent)) {
+                return $blocked;
+            }
+
+            $invoice = $this->invoices->createTuitionInvoice($student->load(['user', 'program']), $percent);
+
+            return [
+                'installment_percent' => $percent,
+                'amount' => round((float) $invoice->amount, 2),
+                'full_amount' => round((float) $invoice->full_amount, 2),
+                'items' => $invoice->items
+                    ->map(fn ($item) => [
+                        'description' => $item->description,
+                        'amount' => round((float) $item->amount, 2),
+                    ])
+                    ->values()
+                    ->all(),
+            ];
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        } finally {
+            DB::rollBack();
+        }
+    }
+
+    private function tuitionInstallmentBlocker(Student $student, int $percent): ?JsonResponse
+    {
         $this->arrears->ensureForStudent($student);
         if (SemesterFeeAccess::catalogIsCompulsory() && AcademicTerm::current()) {
             try {
@@ -1652,10 +1714,6 @@ class FinanceController extends Controller
                 return response()->json(['message' => $e->getMessage()], 422);
             }
         }
-
-        $data = $request->validate([
-            'installment_percent' => ['required', 'integer', Rule::in(FeeSchedule::INSTALLMENT_PERCENTS)],
-        ]);
 
         try {
             $this->arrears->assertPriorSettled($student);
@@ -1680,7 +1738,6 @@ class FinanceController extends Controller
             return response()->json(['message' => 'Pay or clear your open tuition invoice before creating another installment.'], 422);
         }
 
-        $percent = (int) $data['installment_percent'];
         $available = TuitionProgress::availableInstallmentPercents($student);
         if (! in_array($percent, $available, true)) {
             return response()->json([
@@ -1690,14 +1747,7 @@ class FinanceController extends Controller
             ], 422);
         }
 
-        try {
-            $invoice = $this->invoices->createTuitionInvoice($student->load(['user', 'program']), $percent);
-        } catch (RuntimeException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        }
-        $this->audit->record('invoice.created', 'Tuition installment '.$invoice->number, 'fees', 'invoice', $invoice->id, null, $invoice, null, $user);
-
-        return $invoice;
+        return null;
     }
 
     private function paymentMethodLabel(?string $method): string

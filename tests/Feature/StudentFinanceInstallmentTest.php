@@ -450,6 +450,33 @@ class StudentFinanceInstallmentTest extends TestCase
             ->assertJsonFragment(['message' => 'This installment has already been paid. Choose the next unpaid share.']);
     }
 
+    public function test_preview_shows_installment_amount_without_creating_an_invoice(): void
+    {
+        $student = $this->studentOnProgrammeWithSchoolFees(400000);
+        Sanctum::actingAs($student->user);
+
+        $this->postJson('/api/invoices/tuition-installment/preview', ['installment_percent' => 25])
+            ->assertOk()
+            ->assertJsonPath('installment_percent', 25)
+            ->assertJsonPath('amount', 100000)
+            ->assertJsonPath('full_amount', 400000)
+            ->assertJsonPath('items.0.amount', 100000);
+
+        $this->assertSame(0, Invoice::query()->where('student_id', $student->id)->where('category', 'tuition')->count());
+
+        $previewAgain = $this->postJson('/api/invoices/tuition-installment/preview', ['installment_percent' => 50])
+            ->assertOk();
+        $this->assertEquals(200000, $previewAgain->json('amount'));
+
+        $created = $this->postJson('/api/invoices/tuition-installment', ['installment_percent' => 25])->assertOk();
+        $this->assertEquals(100000, (float) $created->json('amount'));
+        $this->assertSame(1, Invoice::query()->where('student_id', $student->id)->where('category', 'tuition')->count());
+
+        $this->postJson('/api/invoices/tuition-installment/preview', ['installment_percent' => 50])
+            ->assertStatus(422)
+            ->assertJsonFragment(['message' => 'Pay or clear your open tuition invoice before creating another installment.']);
+    }
+
     public function test_hostel_and_progress_follow_paid_tuition_session_when_current_term_differs(): void
     {
         [$student, $tuition] = $this->studentWithPaidQuarterTuition();

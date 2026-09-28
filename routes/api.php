@@ -549,6 +549,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
         Route::post('/invoices/{invoice}/rebates', [RebateController::class, 'apply']);
         Route::post('/invoices/{invoice}/rebates/{rebate}/reverse', [RebateController::class, 'reverse']);
     });
+    Route::post('/invoices/tuition-installment/preview', [FinanceController::class, 'previewTuitionInstallment']);
     Route::post('/invoices/tuition-installment', [FinanceController::class, 'createTuitionInstallment']);
 
     Route::get('/me/clinic', [ClinicController::class, 'me']);

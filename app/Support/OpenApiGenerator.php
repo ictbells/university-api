@@ -235,6 +235,10 @@ class OpenApiGenerator
             'summary' => 'Create tuition installment invoice',
             'description' => 'Student creates the next unpaid tuition installment. Blocked when prior-session arrears remain, or when a current academic term is set and the current-term semester fee is unpaid/partial (or could not be billed). With no current semester, the semester-fee gate does not apply.',
         ],
+        'post_/api/invoices/tuition-installment/preview' => [
+            'summary' => 'Preview tuition installment amount',
+            'description' => 'Returns `amount`, `full_amount`, and line `items` the selected `installment_percent` would bill, using the same rules and blocks as `POST /api/invoices/tuition-installment`. Nothing is saved and no invoice number is used.',
+        ],
         'post_/api/wallet/pay/{invoice}' => [
             'summary' => 'Pay invoice from campus wallet',
             'description' => 'Debits the student wallet to settle an invoice. When a current academic term is set and the current-term semester fee is unpaid, other categories are blocked until that semester fee is paid (paying the semester fee itself is always allowed). With no current semester, other wallet payments proceed. Application, acceptance, and transcript fees cannot be paid from wallet.',

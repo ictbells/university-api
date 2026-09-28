@@ -618,6 +618,8 @@ The bursary sheet is four stacks of named lines (1st–4th 25%) with fixed naira
 3. **Programme fees** — for each spreadsheet column, pick one programme in that group, assign every non-dash cell with its naira override (and slice if the catalog item is untagged), then **Copy schedule** to the other programmes in the same college (use Select all in this department when the group is one department). When 200–500 pay the same amount, select those levels together instead of repeating the assignment. **All levels** is one shared line. Dashes stay unassigned. Blank or 0 amounts are skipped on invoices.
 4. Skip **Full 100% (pay at once)** unless bursary wants a discounted lump sum. The sheet grand total is 1st + 2nd + 3rd + 4th 25%. Students who choose 50% or 75% still receive the next unpaid slices, not a pro-rata of that grand total.
 
+When a student clicks **Create tuition invoice** in Transaction history, a popup first shows the exact amount and fee lines for the chosen share. The invoice is only created when they confirm.
+
 If a wrong programme-fee amount led students to pay a **Full 100%** invoice for far less than the schedule total (for example ₦10,000 of ₦742,000), tuition progress no longer treats that receipt as fully paid. Correct the **Programme fees** schedule, then students can create the next installment from Transaction history for unpaid lines. Keep the underpaid receipt; do not void it unless bursary requires that.
 
 #### Semester fee (all enrolled students)
@@ -849,6 +851,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.67 | Sep 2026 | Platform team | Offerings show registered counts, download the offering list with counts (Excel/PDF) by session/semester/level, and open or download each offering's class list of registered students |
 | 1.68 | Sep 2026 | Platform team | Staff Hostel queue, allocations, and allocation downloads show JUPEB (not 100L) for JUPEB students; postgraduate students show their Year label |
 | 1.69 | Sep 2026 | Platform team | Overview → Students filters by College, Department, and Programme, and has a dedicated Matric no. search |
+| 1.70 | Sep 2026 | Platform team | Students see the exact amount and fee-line breakdown for the chosen tuition installment in a confirmation popup before the invoice is created; Cancel creates nothing |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 
