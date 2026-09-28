@@ -15,11 +15,13 @@ use App\Models\Department;
 use App\Models\Document;
 use App\Models\Enrollment;
 use App\Models\Faculty;
+use App\Models\FeeItem;
 use App\Models\Grade;
 use App\Models\HostelAllocation;
 use App\Models\HostelBed;
 use App\Models\Intake;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\MedicalBill;
 use App\Models\Payment;
 use App\Models\Program;
@@ -53,6 +55,7 @@ class ReportDatasetCatalog
             self::attendance(),
             self::invoices(),
             self::payments(),
+            self::feeItemCollections(),
             self::wallets(),
             self::walletTransactions(),
             self::hostelAllocations(),
@@ -545,6 +548,135 @@ class ReportDatasetCatalog
             defaultColumns: ['receipt_no', 'payer', 'amount', 'method', 'status', 'created_at'],
             defaultSort: [['field' => 'created_at', 'dir' => 'desc']],
         );
+    }
+
+    /**
+     * Invoice lines with successful payments attributed pro rata across each invoice's positive fee lines,
+     * so rebates (negative lines) and part-payments are shared proportionally.
+     */
+    private static function feeItemCollections(): ReportDataset
+    {
+        $share = 'invoice_items.amount / NULLIF(inv_lines.line_total, 0)';
+
+        return new ReportDataset(
+            key: 'fee_item_collections',
+            label: 'Fee item collections',
+            category: 'Finance',
+            description: 'Amount billed, paid and outstanding per fee item. Group by fee item to see totals collected.',
+            permissions: ['finance.invoices.manage'],
+            columns: [
+                self::col('fee_item', 'Fee item', 'enum', 'COALESCE(fee_items.name, invoice_items.description)', options: self::feeItemNames()),
+                self::col('fee_category', 'Fee category', 'enum', 'COALESCE(fee_items.category, invoices.category)', options: self::feeCategories()),
+                self::col('invoice_number', 'Invoice', 'string', 'invoices.number'),
+                self::col('payer', 'Payer', 'string', 'users.name'),
+                self::col('matric_number', 'Matric no.', 'string', 'students.matric_number'),
+                self::col('programme', 'Programme', 'enum', 'programs.name', options: self::programmeNames()),
+                self::col('session', 'Session', 'enum', 'academic_sessions.label', options: self::sessionLabels()),
+                self::col('level_code', 'Level', 'enum', 'invoices.level_code', options: self::invoiceLevelCodes()),
+                self::col('invoice_status', 'Invoice status', 'enum', 'invoices.status', options: ['unpaid', 'partial', 'paid']),
+                self::col('billed', 'Billed', 'number', 'invoice_items.amount', aggregatable: true),
+                self::col('rebate', 'Rebate', 'number', "COALESCE(ROUND(COALESCE(invoices.rebate_total, 0) * {$share}, 2), 0)", aggregatable: true),
+                self::col('paid', 'Paid', 'number', "COALESCE(ROUND(COALESCE(inv_paid.paid_total, 0) * {$share}, 2), 0)", aggregatable: true),
+                self::col('outstanding', 'Outstanding', 'number', "COALESCE(ROUND(invoices.balance * {$share}, 2), 0)", aggregatable: true),
+                self::col('last_paid_at', 'Last paid', 'datetime', 'inv_paid.last_paid_at'),
+                self::col('created_at', 'Invoiced', 'datetime', 'invoices.created_at'),
+            ],
+            query: function () {
+                $paid = Payment::query()
+                    ->toBase()
+                    ->whereNotNull('invoice_id')
+                    ->whereIn('status', ['successful', 'paid'])
+                    ->where(function ($query) {
+                        $query->whereNull('purpose')
+                            ->orWhereNotIn('purpose', ['wallet_topup', 'wallet_funding']);
+                    })
+                    ->groupBy('invoice_id')
+                    ->selectRaw('invoice_id, SUM(amount) as paid_total, MAX(created_at) as last_paid_at');
+
+                $lines = InvoiceItem::query()
+                    ->toBase()
+                    ->where('amount', '>', 0)
+                    ->groupBy('invoice_id')
+                    ->selectRaw('invoice_id, SUM(amount) as line_total');
+
+                return InvoiceItem::query()
+                    ->join('invoices', 'invoices.id', '=', 'invoice_items.invoice_id')
+                    ->whereNull('invoices.deleted_at')
+                    ->whereNotIn('invoices.status', ['cancelled', 'disabled'])
+                    ->where('invoice_items.amount', '>', 0)
+                    ->leftJoin('fee_items', 'fee_items.id', '=', 'invoice_items.fee_item_id')
+                    ->leftJoin('users', 'users.id', '=', 'invoices.user_id')
+                    ->leftJoin('students', 'students.id', '=', 'invoices.student_id')
+                    ->leftJoin('programs', 'programs.id', '=', 'students.program_id')
+                    ->leftJoin('academic_sessions', 'academic_sessions.id', '=', 'invoices.academic_session_id')
+                    ->leftJoinSub($paid, 'inv_paid', 'inv_paid.invoice_id', '=', 'invoice_items.invoice_id')
+                    ->leftJoinSub($lines, 'inv_lines', 'inv_lines.invoice_id', '=', 'invoice_items.invoice_id');
+            },
+            countColumn: 'invoice_items.id',
+            defaultColumns: ['fee_item', 'invoice_number', 'payer', 'billed', 'paid', 'outstanding', 'invoice_status'],
+            defaultSort: [['field' => 'created_at', 'dir' => 'desc']],
+        );
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function feeItemNames(): array
+    {
+        return FeeItem::query()->withTrashed()->distinct()->orderBy('name')->pluck('name')
+            ->filter(fn ($name) => (string) $name !== '')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Application fee lines carry no fee item, so their category comes from the invoice.
+     *
+     * @return list<string>
+     */
+    private static function feeCategories(): array
+    {
+        return FeeItem::query()->withTrashed()->distinct()->pluck('category')
+            ->push('application_fee')
+            ->filter(fn ($category) => (string) $category !== '')
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function programmeNames(): array
+    {
+        return Program::query()->withTrashed()->distinct()->orderBy('name')->pluck('name')
+            ->filter(fn ($name) => (string) $name !== '')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function sessionLabels(): array
+    {
+        return AcademicSession::query()->withTrashed()->distinct()->orderByDesc('label')->pluck('label')
+            ->filter(fn ($label) => (string) $label !== '')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function invoiceLevelCodes(): array
+    {
+        return Invoice::query()->withTrashed()->whereNotNull('level_code')->distinct()->orderBy('level_code')->pluck('level_code')
+            ->map(fn ($code) => (string) $code)
+            ->filter(fn ($code) => $code !== '')
+            ->values()
+            ->all();
     }
 
     private static function wallets(): ReportDataset

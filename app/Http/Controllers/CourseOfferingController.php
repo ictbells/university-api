@@ -2,15 +2,18 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AcademicSession;
 use App\Models\AcademicTerm;
 use App\Models\Course;
 use App\Models\CourseOffering;
 use App\Models\Program;
 use App\Models\Staff;
 use App\Services\AuditWriter;
+use App\Services\CourseOfferingExportService;
 use App\Services\CourseRegistrationService;
 use App\Support\ListSessionLevelFilter;
 use App\Support\ResultOfficerScope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -25,8 +28,127 @@ class CourseOfferingController extends Controller
 
     public function index(Request $request)
     {
+        return $this->filteredQuery($request)->orderByDesc('id')->get()->map(function (CourseOffering $offering) {
+            $taken = (int) $offering->enrolled_count;
+            $offering->setAttribute('seats_left', $offering->seatsLeft($taken));
+            $offering->setAttribute('unlimited', $offering->hasUnlimitedCapacity());
+
+            return $offering;
+        });
+    }
+
+    public function export(Request $request, CourseOfferingExportService $exporter)
+    {
+        $data = $request->validate([
+            'format' => 'required|in:excel,pdf',
+            'academic_session_id' => 'nullable|integer',
+            'academic_term_id' => 'nullable|integer',
+            'level' => 'nullable|string|max:40',
+        ]);
+
+        $offerings = $this->filteredQuery($request)->get()->sortBy([
+            ['academic_term_id', 'asc'],
+            fn (CourseOffering $a, CourseOffering $b) => strcmp((string) $a->course?->code, (string) $b->course?->code),
+            ['section', 'asc'],
+        ])->values();
+
+        $rows = $offerings->map(fn (CourseOffering $offering) => [
+            'code' => (string) ($offering->course?->code ?? '—'),
+            'title' => (string) ($offering->course?->title ?? '—'),
+            'units' => (int) ($offering->course?->units ?? 0),
+            'type' => ucfirst((string) ($offering->course?->course_type ?: 'general')),
+            'programmes' => $offering->course?->programs->map(fn ($p) => $p->code ?: $p->name)->filter()->implode(', ') ?: '—',
+            'section' => (string) ($offering->section ?: 'A'),
+            'session' => (string) ($offering->term?->session_label ?: $offering->term?->session?->label ?: '—'),
+            'semester' => (string) ($offering->term?->name ?? '—'),
+            'lecturer' => (string) ($offering->lecturer_display_name ?: '—'),
+            'capacity' => $offering->hasUnlimitedCapacity() ? 'Unlimited' : (string) $offering->capacity,
+            'registered' => (int) $offering->enrolled_count,
+        ]);
+
+        $summary = [];
+        $sessionLabel = null;
+        if (! empty($data['academic_session_id'])) {
+            $sessionLabel = AcademicSession::query()->whereKey($data['academic_session_id'])->value('label');
+            $summary[] = 'Session: '.($sessionLabel ?: '#'.$data['academic_session_id']);
+        }
+        $termName = null;
+        if (! empty($data['academic_term_id'])) {
+            $term = AcademicTerm::query()->find($data['academic_term_id']);
+            $termName = $term?->name;
+            $summary[] = 'Semester: '.trim(($term?->session_label ?: '').' '.($term?->name ?: '#'.$data['academic_term_id']));
+        }
+        if (! empty($data['level'])) {
+            $summary[] = 'Level: '.$data['level'];
+        }
+
+        $title = trim('Course Registration Summary '.($sessionLabel ?: '').' '.($termName ?: ''));
+
+        return $exporter->export($data['format'], $rows, $title, $summary);
+    }
+
+    public function students(CourseOffering $offering)
+    {
+        $offering->load(['course', 'term.session', 'lecturer.user']);
+
+        return [
+            'offering' => [
+                'id' => $offering->id,
+                'course_code' => $offering->course?->code,
+                'course_title' => $offering->course?->title,
+                'section' => $offering->section ?: 'A',
+                'semester' => trim(($offering->term?->session_label ?: '').' '.($offering->term?->name ?: '')),
+                'lecturer' => $offering->lecturer_display_name,
+            ],
+            'students' => $this->rosterRows($offering)->values(),
+        ];
+    }
+
+    public function studentsExport(Request $request, CourseOffering $offering, CourseOfferingExportService $exporter)
+    {
+        $data = $request->validate(['format' => 'required|in:excel,pdf']);
+        $offering->load(['course', 'term.session', 'lecturer.user']);
+
+        return $exporter->roster($data['format'], $offering, $this->rosterRows($offering));
+    }
+
+    /**
+     * @return \Illuminate\Support\Collection<int, array<string, mixed>>
+     */
+    private function rosterRows(CourseOffering $offering)
+    {
+        return $offering->enrollments()
+            ->enrolled()
+            ->with(['student.program:id,name,code', 'student.user:id,email'])
+            ->get()
+            ->filter(fn ($enrollment) => $enrollment->student !== null)
+            ->map(function ($enrollment) {
+                $student = $enrollment->student;
+
+                return [
+                    'student_id' => $student->id,
+                    'matric' => (string) ($student->matric_number ?: $student->student_number ?: '—'),
+                    'surname' => (string) ($student->last_name ?: '—'),
+                    'other_names' => trim(($student->first_name ?: '').' '.($student->middle_name ?: '')) ?: '—',
+                    'gender' => $student->gender ? ucfirst((string) $student->gender) : '—',
+                    'programme' => (string) ($student->program?->name ?: '—'),
+                    'level' => (string) ($student->level_label ?: $student->current_level ?: '—'),
+                    'email' => (string) ($student->user?->email ?: '—'),
+                    'carry_over' => $enrollment->is_carry_over ? 'Yes' : 'No',
+                    'registered_at' => $enrollment->registered_at?->format('d M Y') ?? $enrollment->created_at?->format('d M Y') ?? '—',
+                ];
+            })
+            ->sortBy([
+                fn ($a, $b) => strcmp($a['matric'] === '—' ? "\u{FFFF}" : $a['matric'], $b['matric'] === '—' ? "\u{FFFF}" : $b['matric']),
+                ['surname', 'asc'],
+            ])
+            ->values();
+    }
+
+    private function filteredQuery(Request $request): Builder
+    {
         $query = CourseOffering::query()
-            ->with(['course.department', 'course.programs:id,name,code', 'term', 'lecturer.user'])
+            ->with(['course.department', 'course.programs:id,name,code', 'term.session', 'lecturer.user'])
             ->withCount(['enrollments as enrolled_count' => fn ($q) => $q->enrolled()]);
 
         if ($request->boolean('upload_lane_only')) {
@@ -42,13 +164,7 @@ class CourseOfferingController extends Controller
         ListSessionLevelFilter::applySessionToTermRelation($query, $request);
         ListSessionLevelFilter::applyLevelToCoursePrograms($query, $request, 'course');
 
-        return $query->orderByDesc('id')->get()->map(function (CourseOffering $offering) {
-            $taken = (int) $offering->enrolled_count;
-            $offering->setAttribute('seats_left', $offering->seatsLeft($taken));
-            $offering->setAttribute('unlimited', $offering->hasUnlimitedCapacity());
-
-            return $offering;
-        });
+        return $query;
     }
 
     public function store(Request $request)

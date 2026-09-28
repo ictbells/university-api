@@ -1737,6 +1737,44 @@
                 }
             }
         },
+        "/api/academic/offerings/export": {
+            "get": {
+                "operationId": "getCourseOfferingExport",
+                "summary": "Download course offerings with registration counts",
+                "tags": [
+                    "Academic"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Excel or PDF list of course offerings with the number of students registered (enrolment status `enrolled`) per offering, plus a total row. Filters match `GET /api/academic/offerings`: `academic_session_id` (whole session, all semesters), `academic_term_id` (one semester), and `level`. Query `format` is required: `excel` or `pdf`. Requires the Course offerings or Course registration workspace.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/academic/offerings/from-curriculum": {
             "post": {
                 "operationId": "postCourseOfferingPublishFromCurriculum",
@@ -1862,6 +1900,82 @@
                     }
                 },
                 "description": "Requires permission: `academic resource access (offerings)`.",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/academic/offerings/{offering}/students": {
+            "get": {
+                "operationId": "getCourseOfferingStudents",
+                "summary": "Students registered on a course offering",
+                "tags": [
+                    "Academic"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Class list for one offering: students whose enrolment status is `enrolled`, sorted by matric number. Returns `offering` (course code, title, section, semester, lecturer) and `students` (matric, surname, other names, gender, programme, level, email, carry-over, registered date).",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/academic/offerings/{offering}/students/export": {
+            "get": {
+                "operationId": "getCourseOfferingStudentsExport",
+                "summary": "Download the class list for a course offering",
+                "tags": [
+                    "Academic"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "description": "Excel or PDF class list of students registered on the offering. Query `format` is required: `excel` or `pdf`.",
                 "security": [
                     {
                         "bearerAuth": []

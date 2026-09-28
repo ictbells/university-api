@@ -418,6 +418,12 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
 
     Route::get('/academic/offerings', [CourseOfferingController::class, 'index'])
         ->middleware('academic.resource:offerings,course-registration');
+    Route::get('/academic/offerings/export', [CourseOfferingController::class, 'export'])
+        ->middleware('academic.resource:offerings,course-registration');
+    Route::get('/academic/offerings/{offering}/students', [CourseOfferingController::class, 'students'])
+        ->middleware('academic.resource:offerings,course-registration');
+    Route::get('/academic/offerings/{offering}/students/export', [CourseOfferingController::class, 'studentsExport'])
+        ->middleware('academic.resource:offerings,course-registration');
     Route::get('/academic/lecturers', [CourseOfferingController::class, 'lecturers'])
         ->middleware('academic.resource:offerings');
     Route::middleware('academic.resource:offerings')->group(function () {

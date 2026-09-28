@@ -199,6 +199,18 @@ class OpenApiGenerator
                 ],
             ],
         ],
+        'get_/api/academic/offerings/export' => [
+            'summary' => 'Download course offerings with registration counts',
+            'description' => 'Excel or PDF list of course offerings with the number of students registered (enrolment status `enrolled`) per offering, plus a total row. Filters match `GET /api/academic/offerings`: `academic_session_id` (whole session, all semesters), `academic_term_id` (one semester), and `level`. Query `format` is required: `excel` or `pdf`. Requires the Course offerings or Course registration workspace.',
+        ],
+        'get_/api/academic/offerings/{offering}/students' => [
+            'summary' => 'Students registered on a course offering',
+            'description' => 'Class list for one offering: students whose enrolment status is `enrolled`, sorted by matric number. Returns `offering` (course code, title, section, semester, lecturer) and `students` (matric, surname, other names, gender, programme, level, email, carry-over, registered date).',
+        ],
+        'get_/api/academic/offerings/{offering}/students/export' => [
+            'summary' => 'Download the class list for a course offering',
+            'description' => 'Excel or PDF class list of students registered on the offering. Query `format` is required: `excel` or `pdf`.',
+        ],
         'get_/api/fees/meta' => [
             'summary' => 'Fee catalog metadata',
             'description' => 'Categories, installment options, transcript types, and semester-fee catalog amount plus recent academic terms for bulk generation. Requires `finance.invoices.manage`.',

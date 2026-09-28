@@ -75,8 +75,6 @@ class StudentController extends Controller
             });
         }
 
-        ListSessionLevelFilter::applyToStudents($query, $request);
-
         return $query->paginate($perPage);
     }
 
