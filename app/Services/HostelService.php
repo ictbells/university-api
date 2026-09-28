@@ -18,6 +18,7 @@ use App\Models\Student;
 use App\Support\ApplicantPassport;
 use App\Support\InstitutionLogo;
 use App\Support\StudentAcademicLevel;
+use App\Support\StudyLevel;
 use App\Support\TuitionProgress;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -167,15 +168,11 @@ class HostelService
 
     public function studentCategory(Student $student): string
     {
-        $student->loadMissing('application');
-
-        if ($student->study_level === 'postgraduate' || $student->application?->entry_mode === 'pg') {
-            return Hostel::CATEGORY_POSTGRADUATE;
-        }
-
-        return $student->application?->entry_mode === 'jupeb'
-            ? Hostel::CATEGORY_JUPEB
-            : Hostel::CATEGORY_UNDERGRADUATE;
+        return match (StudyLevel::ofStudent($student->loadMissing(['application', 'program']))) {
+            StudyLevel::POSTGRADUATE => Hostel::CATEGORY_POSTGRADUATE,
+            StudyLevel::JUPEB => Hostel::CATEGORY_JUPEB,
+            default => Hostel::CATEGORY_UNDERGRADUATE,
+        };
     }
 
     public function levelWindows(string $category, ?int $termId = null): Collection
@@ -313,6 +310,10 @@ class HostelService
 
     public function priorityLabel(Student $student): string
     {
+        if ($this->studentCategory($student) !== Hostel::CATEGORY_UNDERGRADUATE) {
+            return StudentAcademicLevel::label($student) ?? (string) $student->current_level;
+        }
+
         return match ((int) $student->current_level) {
             100 => 'Highest (100L)',
             200 => '200L',
@@ -837,8 +838,9 @@ class HostelService
     {
         $query = HostelAllocation::query()
             ->with([
-                'student:id,first_name,last_name,current_level,matric_number,student_number,program_id',
-                'student.program:id,name',
+                'student',
+                'student.program',
+                'student.application:id,entry_mode',
                 'bed:id,label,bunk_position,bunk_pair,hostel_room_id',
                 'bed.room:id,number,hostel_block_id,bedding_type',
                 'bed.room.block:id,name,hostel_id',
@@ -887,6 +889,7 @@ class HostelService
             'student_name' => $student ? trim("{$student->first_name} {$student->last_name}") : null,
             'matric_number' => $matric,
             'student_level' => $student?->current_level,
+            'level_label' => $student ? StudentAcademicLevel::label($student) : null,
             'program' => $student?->program?->name,
             'hostel_id' => $hostel?->id,
             'hostel_name' => $hostel?->name,

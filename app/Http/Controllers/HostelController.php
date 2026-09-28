@@ -17,6 +17,7 @@ use App\Services\HostelService;
 use App\Services\InvoiceService;
 use App\Services\Notifier;
 use App\Services\OfficeApprovalService;
+use App\Support\StudentAcademicLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -166,6 +167,7 @@ class HostelController extends Controller
                 'name' => trim("{$student->first_name} {$student->last_name}"),
                 'matric_number' => $student->matric_number,
                 'current_level' => $student->current_level,
+                'level_label' => StudentAcademicLevel::label($student),
                 'priority' => $this->hostels->priorityLabel($student),
                 'gender' => $student->gender,
                 'program' => $student->program?->name,
@@ -562,7 +564,7 @@ class HostelController extends Controller
                 'student' => $row['student_name'] ?: '—',
                 'matric' => $row['matric_number'] ?: '—',
                 'programme' => $row['program'] ?: '—',
-                'level' => $row['student_level'] ? $row['student_level'].'L' : '—',
+                'level' => $row['level_label'] ?: ($row['student_level'] ? $row['student_level'].'L' : '—'),
                 'hostel' => $row['hostel_name'] ?: '—',
                 'category' => match ($row['hostel_category']) {
                     'jupeb' => 'JUPEB',

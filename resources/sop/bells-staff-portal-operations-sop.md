@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.67  
+**Version:** 1.68  
 **Effective date:** September 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -847,6 +847,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.65 | Sep 2026 | Platform team | Changing a student's or applicant's NIN clears the old NIN passport photo. Applicants (including postgraduate) can add a second O'Level sitting on the application form |
 | 1.66 | Sep 2026 | Platform team | Overview → Students is paged (25/50/100) with search and a true total count |
 | 1.67 | Sep 2026 | Platform team | Offerings show registered counts, download the offering list with counts (Excel/PDF) by session/semester/level, and open or download each offering's class list of registered students |
+| 1.68 | Sep 2026 | Platform team | Staff Hostel queue, allocations, and allocation downloads show JUPEB (not 100L) for JUPEB students; postgraduate students show their Year label |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
 

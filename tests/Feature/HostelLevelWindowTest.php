@@ -310,6 +310,31 @@ class HostelLevelWindowTest extends TestCase
         $this->assertNotContains($ugLevel->id, $ids);
     }
 
+    public function test_staff_hostel_labels_jupeb_students_as_jupeb_not_100l(): void
+    {
+        [$ugStudent] = $this->studentWithLevel();
+        AcademicLevel::query()->create([
+            'name' => 'JUPEB',
+            'code' => 'JUPEB',
+            'study_level' => 'jupeb',
+            'sort_order' => 1,
+            'is_active' => true,
+        ]);
+        $jupeb = Student::query()->create([
+            'user_id' => User::factory()->create(['status' => 'active'])->id,
+            'first_name' => 'Tobi',
+            'last_name' => 'Ade',
+            'current_level' => 100,
+            'study_level' => 'jupeb',
+            'status' => 'active',
+        ]);
+        $hostels = app(HostelService::class);
+
+        $this->assertSame('JUPEB', $hostels->priorityLabel($jupeb->fresh()));
+        $this->assertStringNotContainsString('100L', $hostels->priorityLabel($jupeb->fresh()));
+        $this->assertSame('Highest (100L)', $hostels->priorityLabel($ugStudent->fresh()));
+    }
+
     /**
      * @return array{0: Student, 1: AcademicLevel, 2: AcademicTerm}
      */
