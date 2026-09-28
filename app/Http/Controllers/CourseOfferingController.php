@@ -12,6 +12,7 @@ use App\Services\AuditWriter;
 use App\Services\CourseOfferingExportService;
 use App\Services\CourseRegistrationService;
 use App\Support\ListSessionLevelFilter;
+use App\Support\ReceiptPayer;
 use App\Support\ResultOfficerScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -119,7 +120,7 @@ class CourseOfferingController extends Controller
     {
         return $offering->enrollments()
             ->enrolled()
-            ->with(['student.program:id,name,code', 'student.user:id,email'])
+            ->with(['student.program', 'student.application.program', 'student.application.steps', 'student.programmeChanges', 'student.user:id,email'])
             ->get()
             ->filter(fn ($enrollment) => $enrollment->student !== null)
             ->map(function ($enrollment) {
@@ -131,7 +132,7 @@ class CourseOfferingController extends Controller
                     'surname' => (string) ($student->last_name ?: '—'),
                     'other_names' => trim(($student->first_name ?: '').' '.($student->middle_name ?: '')) ?: '—',
                     'gender' => $student->gender ? ucfirst((string) $student->gender) : '—',
-                    'programme' => (string) ($student->program?->name ?: '—'),
+                    'programme' => ReceiptPayer::programmeForStudent($student) ?: '—',
                     'level' => (string) ($student->level_label ?: $student->current_level ?: '—'),
                     'email' => (string) ($student->user?->email ?: '—'),
                     'carry_over' => $enrollment->is_carry_over ? 'Yes' : 'No',

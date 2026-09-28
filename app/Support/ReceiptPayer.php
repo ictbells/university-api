@@ -159,6 +159,11 @@ class ReceiptPayer
         return ['id' => null, 'id_label' => 'Matric number'];
     }
 
+    public static function programmeForStudent(Student $student): ?string
+    {
+        return self::programme($student, null);
+    }
+
     private static function programme(?Student $student, ?Application $application): ?string
     {
         if ($student) {

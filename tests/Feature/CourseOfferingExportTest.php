@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\AcademicSession;
+use App\Models\Application;
+use App\Models\Intake;
 use App\Models\AcademicTerm;
 use App\Models\Campus;
 use App\Models\Course;
@@ -133,6 +135,55 @@ class CourseOfferingExportTest extends TestCase
 
         $matrics = collect($sheet)->pluck(1)->filter(fn ($v) => is_string($v) && str_starts_with($v, 'BU/'))->values()->all();
         $this->assertSame(['BU/22/001', 'BU/22/002'], $matrics);
+    }
+
+    public function test_class_list_programme_falls_back_to_application_programme(): void
+    {
+        [$user, $department, $first] = $this->seedContext();
+        $course = Course::query()->create(['department_id' => $department->id, 'code' => 'MEE101', 'title' => 'Intro Mechanical', 'units' => 2, 'course_type' => 'departmental']);
+        $offering = CourseOffering::query()->create(['course_id' => $course->id, 'academic_term_id' => $first->id, 'section' => 'A']);
+        $program = Program::query()->create([
+            'department_id' => $department->id,
+            'name' => 'Mechanical Engineering',
+            'code' => 'MEE',
+            'award_type' => 'BEng',
+            'study_level' => 'undergraduate',
+            'duration_years' => 5,
+            'is_active' => true,
+        ]);
+        $studentUser = User::factory()->create();
+        $intake = Intake::query()->create([
+            'academic_term_id' => $first->id,
+            'name' => 'UTME 2026',
+            'entry_mode' => 'utme',
+            'is_open' => true,
+            'application_fee_amount' => 5000,
+        ]);
+        $application = Application::query()->create([
+            'application_number' => 'APP/2026/00001',
+            'user_id' => $studentUser->id,
+            'intake_id' => $intake->id,
+            'program_id' => $program->id,
+            'entry_mode' => 'utme',
+            'stage' => 'matriculated',
+        ]);
+        $student = Student::query()->create([
+            'user_id' => $studentUser->id,
+            'application_id' => $application->id,
+            'program_id' => null,
+            'matric_number' => '2024/000001',
+            'first_name' => 'Glorious',
+            'last_name' => 'Anjorin',
+            'current_level' => 100,
+            'study_level' => 'undergraduate',
+            'status' => 'active',
+        ]);
+        Enrollment::query()->create(['student_id' => $student->id, 'course_offering_id' => $offering->id, 'status' => 'enrolled']);
+
+        Sanctum::actingAs($user);
+        $this->getJson("/api/academic/offerings/{$offering->id}/students")
+            ->assertOk()
+            ->assertJsonPath('students.0.programme', 'Mechanical Engineering');
     }
 
     public function test_export_rejects_unknown_format(): void
