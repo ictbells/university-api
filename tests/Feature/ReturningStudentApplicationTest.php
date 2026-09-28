@@ -316,6 +316,7 @@ class ReturningStudentApplicationTest extends TestCase
                     'gender' => 'm',
                 ],
             ], 200),
+            'https://api.prembly.com/identitypass/verification/nin' => Http::response(['status' => false, 'detail' => 'Not available'], 404),
         ]);
 
         Sanctum::actingAs($user);

@@ -613,7 +613,7 @@ class PremblyService
                 'number' => $nin,
             ]);
             $fromNin = $this->mapPremblyResponse($response);
-        } catch (RuntimeException) {
+        } catch (RuntimeException|\Illuminate\Http\Client\ConnectionException) {
             return $mapped;
         }
 

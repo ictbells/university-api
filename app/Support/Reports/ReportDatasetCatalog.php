@@ -567,6 +567,10 @@ class ReportDatasetCatalog
             columns: [
                 self::col('fee_item', 'Fee item', 'enum', 'COALESCE(fee_items.name, invoice_items.description)', options: fn () => self::feeItemNames()),
                 self::col('fee_category', 'Fee category', 'enum', 'COALESCE(fee_items.category, invoices.category)', options: fn () => self::feeCategories()),
+                self::col('line_description', 'Invoice line', 'string', 'invoice_items.description'),
+                self::col('schedule_level', 'Schedule level', 'string', 'programme_fees.level_code'),
+                self::col('schedule_semester', 'Schedule semester', 'string', 'programme_fees.semester'),
+                self::col('schedule_tranche', 'Schedule installment', 'string', 'programme_fees.installment_tranche'),
                 self::col('invoice_number', 'Invoice', 'string', 'invoices.number'),
                 self::col('payer', 'Payer', 'string', 'users.name'),
                 self::col('matric_number', 'Matric no.', 'string', 'students.matric_number'),
@@ -605,6 +609,7 @@ class ReportDatasetCatalog
                     ->whereNotIn('invoices.status', ['cancelled', 'disabled'])
                     ->where('invoice_items.amount', '>', 0)
                     ->leftJoin('fee_items', 'fee_items.id', '=', 'invoice_items.fee_item_id')
+                    ->leftJoin('programme_fees', 'programme_fees.id', '=', 'invoice_items.programme_fee_id')
                     ->leftJoin('users', 'users.id', '=', 'invoices.user_id')
                     ->leftJoin('students', 'students.id', '=', 'invoices.student_id')
                     ->leftJoin('programs', 'programs.id', '=', 'students.program_id')
@@ -613,7 +618,7 @@ class ReportDatasetCatalog
                     ->leftJoinSub($lines, 'inv_lines', 'inv_lines.invoice_id', '=', 'invoice_items.invoice_id');
             },
             countColumn: 'invoice_items.id',
-            defaultColumns: ['fee_item', 'invoice_number', 'payer', 'billed', 'paid', 'outstanding', 'invoice_status'],
+            defaultColumns: ['fee_item', 'line_description', 'invoice_number', 'payer', 'billed', 'paid', 'outstanding', 'invoice_status'],
             defaultSort: [['field' => 'created_at', 'dir' => 'desc']],
         );
     }
