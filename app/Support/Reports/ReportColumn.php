@@ -2,10 +2,12 @@
 
 namespace App\Support\Reports;
 
+use Closure;
+
 class ReportColumn
 {
     /**
-     * @param  list<string>|null  $options
+     * @param  list<string>|(Closure(): list<string>)|null  $options  Closures are resolved only when the schema is built, so the catalog can load without a database.
      */
     public function __construct(
         public string $key,
@@ -14,11 +16,11 @@ class ReportColumn
         public string $sql,
         public bool $sortable = true,
         public bool $aggregatable = false,
-        public ?array $options = null,
+        public array|Closure|null $options = null,
     ) {}
 
     /**
-     * @param  list<string>|null  $options
+     * @param  list<string>|(Closure(): list<string>)|null  $options
      */
     public static function make(
         string $key,
@@ -26,7 +28,7 @@ class ReportColumn
         string $type,
         string $sql,
         bool $aggregatable = false,
-        ?array $options = null,
+        array|Closure|null $options = null,
         bool $sortable = true,
     ): self {
         return new self($key, $label, $type, $sql, $sortable, $aggregatable, $options);
@@ -44,7 +46,7 @@ class ReportColumn
             'sortable' => $this->sortable,
             'aggregatable' => $this->aggregatable,
             'operators' => $this->operators(),
-            'options' => $this->options,
+            'options' => $this->options instanceof Closure ? ($this->options)() : $this->options,
         ];
     }
 

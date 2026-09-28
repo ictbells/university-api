@@ -565,14 +565,14 @@ class ReportDatasetCatalog
             description: 'Amount billed, paid and outstanding per fee item. Group by fee item to see totals collected.',
             permissions: ['finance.invoices.manage'],
             columns: [
-                self::col('fee_item', 'Fee item', 'enum', 'COALESCE(fee_items.name, invoice_items.description)', options: self::feeItemNames()),
-                self::col('fee_category', 'Fee category', 'enum', 'COALESCE(fee_items.category, invoices.category)', options: self::feeCategories()),
+                self::col('fee_item', 'Fee item', 'enum', 'COALESCE(fee_items.name, invoice_items.description)', options: fn () => self::feeItemNames()),
+                self::col('fee_category', 'Fee category', 'enum', 'COALESCE(fee_items.category, invoices.category)', options: fn () => self::feeCategories()),
                 self::col('invoice_number', 'Invoice', 'string', 'invoices.number'),
                 self::col('payer', 'Payer', 'string', 'users.name'),
                 self::col('matric_number', 'Matric no.', 'string', 'students.matric_number'),
-                self::col('programme', 'Programme', 'enum', 'programs.name', options: self::programmeNames()),
-                self::col('session', 'Session', 'enum', 'academic_sessions.label', options: self::sessionLabels()),
-                self::col('level_code', 'Level', 'enum', 'invoices.level_code', options: self::invoiceLevelCodes()),
+                self::col('programme', 'Programme', 'enum', 'programs.name', options: fn () => self::programmeNames()),
+                self::col('session', 'Session', 'enum', 'academic_sessions.label', options: fn () => self::sessionLabels()),
+                self::col('level_code', 'Level', 'enum', 'invoices.level_code', options: fn () => self::invoiceLevelCodes()),
                 self::col('invoice_status', 'Invoice status', 'enum', 'invoices.status', options: ['unpaid', 'partial', 'paid']),
                 self::col('billed', 'Billed', 'number', 'invoice_items.amount', aggregatable: true),
                 self::col('rebate', 'Rebate', 'number', "COALESCE(ROUND(COALESCE(invoices.rebate_total, 0) * {$share}, 2), 0)", aggregatable: true),
@@ -901,7 +901,7 @@ class ReportDatasetCatalog
     }
 
     /**
-     * @param  list<string>|null  $options
+     * @param  list<string>|(\Closure(): list<string>)|null  $options
      */
     private static function col(
         string $key,
@@ -909,7 +909,7 @@ class ReportDatasetCatalog
         string $type,
         string $sql,
         bool $aggregatable = false,
-        ?array $options = null,
+        array|\Closure|null $options = null,
     ): ReportColumn {
         return ReportColumn::make($key, $label, $type, $sql, $aggregatable, $options);
     }
