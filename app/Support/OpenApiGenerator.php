@@ -199,6 +199,14 @@ class OpenApiGenerator
                 ],
             ],
         ],
+        'get_/api/students' => [
+            'summary' => 'List students (paged)',
+            'description' => 'Staff with `students.view_any` get a paginator (`per_page` 10–100, default 25). Filters: `status` (current, alumni, all, or a status), `academic_session_id`, `level`, `faculty_id` (college), `department_id`, `program_id` (most specific wins), `matric_contains` (partial matric/student number, spaces ignored), `matric` (exact), `search` (name, matric, email). Students without the permission get their own record.',
+        ],
+        'get_/api/students/filter-meta' => [
+            'summary' => 'Student list filter options',
+            'description' => 'Colleges (`faculties`), `departments` (with `faculty_id`), and `programs` (with `department_id` and `faculty_id`) for the staff Students filters. Requires `students.view_any`.',
+        ],
         'get_/api/academic/offerings/export' => [
             'summary' => 'Download course offerings with registration counts',
             'description' => 'Excel or PDF list of course offerings with the number of students registered (enrolment status `enrolled`) per offering, plus a total row. Filters match `GET /api/academic/offerings`: `academic_session_id` (whole session, all semesters), `academic_term_id` (one semester), and `level`. Query `format` is required: `excel` or `pdf`. Requires the Course offerings or Course registration workspace.',

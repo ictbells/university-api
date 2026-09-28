@@ -17124,7 +17124,7 @@
         "/api/students": {
             "get": {
                 "operationId": "getStudentIndex",
-                "summary": "Get Index",
+                "summary": "List students (paged)",
                 "tags": [
                     "Students"
                 ],
@@ -17155,7 +17155,46 @@
                     {
                         "bearerAuth": []
                     }
-                ]
+                ],
+                "description": "Staff with `students.view_any` get a paginator (`per_page` 10\u2013100, default 25). Filters: `status` (current, alumni, all, or a status), `academic_session_id`, `level`, `faculty_id` (college), `department_id`, `program_id` (most specific wins), `matric_contains` (partial matric/student number, spaces ignored), `matric` (exact), `search` (name, matric, email). Students without the permission get their own record."
+            }
+        },
+        "/api/students/filter-meta": {
+            "get": {
+                "operationId": "getStudentFilterMeta",
+                "summary": "Student list filter options",
+                "tags": [
+                    "Students"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "204": {
+                        "description": "No content"
+                    },
+                    "401": {
+                        "description": "Unauthenticated"
+                    },
+                    "403": {
+                        "description": "Forbidden or permission denied"
+                    },
+                    "404": {
+                        "description": "Not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "description": "Colleges (`faculties`), `departments` (with `faculty_id`), and `programs` (with `department_id` and `faculty_id`) for the staff Students filters. Requires `students.view_any`."
             }
         },
         "/api/students/import": {

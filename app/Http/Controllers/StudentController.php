@@ -3,6 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\AcademicTerm;
+use App\Models\Department;
+use App\Models\Faculty;
+use App\Models\Program;
 use App\Models\Student;
 use App\Models\StudentTermRemark;
 use App\Models\StudentTermSanction;
@@ -54,6 +57,23 @@ class StudentController extends Controller
             $query->where('status', \App\Support\Studentship::STATUS_ALUMNI);
         } elseif (in_array($status, \App\Support\Studentship::STATUSES, true)) {
             $query->where('status', $status);
+        }
+
+        if ($request->filled('program_id')) {
+            $query->where('program_id', (int) $request->input('program_id'));
+        } elseif ($request->filled('department_id')) {
+            $query->whereHas('program', fn ($p) => $p->where('department_id', (int) $request->input('department_id')));
+        } elseif ($request->filled('faculty_id')) {
+            $query->whereHas('program.department', fn ($d) => $d->where('faculty_id', (int) $request->input('faculty_id')));
+        }
+
+        if ($request->filled('matric_contains')) {
+            $key = strtoupper(preg_replace('/\s+/', '', trim((string) $request->input('matric_contains'))) ?: '');
+            $like = '%'.str_replace(['%', '_'], ['\\%', '\\_'], $key).'%';
+            $query->where(function ($builder) use ($like) {
+                $builder->whereRaw('UPPER(REPLACE(COALESCE(matric_number, ""), " ", "")) LIKE ?', [$like])
+                    ->orWhereRaw('UPPER(REPLACE(COALESCE(student_number, ""), " ", "")) LIKE ?', [$like]);
+            });
         }
 
         if ($request->filled('matric')) {
@@ -146,6 +166,27 @@ class StudentController extends Controller
         }
 
         return $execute();
+    }
+
+    public function filterMeta(Request $request)
+    {
+        abort_unless($request->user()->hasPermission('students.view_any'), 403);
+
+        return [
+            'faculties' => Faculty::query()->orderBy('name')->get(['id', 'name']),
+            'departments' => Department::query()->orderBy('name')->get(['id', 'name', 'faculty_id']),
+            'programs' => Program::query()
+                ->with('department:id,faculty_id')
+                ->orderBy('name')
+                ->get(['id', 'name', 'code', 'department_id'])
+                ->map(fn (Program $program) => [
+                    'id' => $program->id,
+                    'name' => $program->name,
+                    'code' => $program->code,
+                    'department_id' => $program->department_id,
+                    'faculty_id' => $program->department?->faculty_id,
+                ]),
+        ];
     }
 
     public function termMeta(Request $request)

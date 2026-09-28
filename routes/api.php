@@ -211,6 +211,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
 
     Route::get('/students', [StudentController::class, 'index']);
     Route::get('/students/term-meta', [StudentController::class, 'termMeta']);
+    Route::get('/students/filter-meta', [StudentController::class, 'filterMeta']);
     Route::get('/students/{student}', [StudentController::class, 'show']);
     Route::patch('/students/{student}', [StudentController::class, 'update']);
     Route::post('/students/{student}/term-sanctions', [StudentController::class, 'storeTermSanction']);
