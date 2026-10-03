@@ -250,7 +250,7 @@ class AcademicCatalogImportService
         if ($code === '' || $title === '') {
             throw new RuntimeException('code and title are required.');
         }
-        if ($this->findByCode(Course::query(), $code)) {
+        if (Course::findByNormalizedCode($code)) {
             throw new CatalogImportSkipped('A course with this code already exists.');
         }
 

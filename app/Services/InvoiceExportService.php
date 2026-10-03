@@ -27,7 +27,9 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class InvoiceExportService
 {
-    public const MAX_ROWS = 15000;
+    public const MAX_ROWS = 25000;
+
+    public const MAX_ROWS_CSV = 100000;
 
     public const MAX_ROWS_PDF = 1000;
 
@@ -38,6 +40,7 @@ class InvoiceExportService
         return match ($format) {
             'pdf' => self::MAX_ROWS_PDF,
             'word' => self::MAX_ROWS_WORD,
+            'csv' => self::MAX_ROWS_CSV,
             default => self::MAX_ROWS,
         };
     }
@@ -48,7 +51,7 @@ class InvoiceExportService
      */
     public function export(string $format, Collection $invoices, string $title, array $filterSummary = []): Response
     {
-        @ini_set('memory_limit', '1024M');
+        @ini_set('memory_limit', '2048M');
         if (function_exists('set_time_limit')) {
             @set_time_limit(300);
         }
@@ -67,8 +70,72 @@ class InvoiceExportService
             'pdf' => $this->pdf($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename),
             'excel' => $this->excel($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename),
             'word' => $this->word($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename),
+            'csv' => $this->streamCsv($title, $filterSummary, function (callable $emit) use ($invoices) {
+                foreach ($invoices as $invoice) {
+                    $emit($this->rowData($invoice));
+                }
+            }),
             default => throw new \InvalidArgumentException('Unsupported export format.'),
         };
+    }
+
+    /**
+     * Stream CSV while invoices are produced in chunks.
+     *
+     * @param  list<string>  $filterSummary
+     * @param  callable(callable(array<string, mixed>): void): void  $producer
+     */
+    public function streamCsv(string $title, array $filterSummary, callable $producer): StreamedResponse
+    {
+        @ini_set('memory_limit', '512M');
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(600);
+        }
+
+        $institution = $this->institution();
+        $generatedAt = now()->format('d M Y H:i:s');
+        $safeTitle = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $title) ?: 'invoices';
+        $filename = $safeTitle.'_'.now()->format('Ymd_His');
+
+        return response()->streamDownload(function () use ($institution, $title, $filterSummary, $producer, $generatedAt) {
+            $handle = fopen('php://output', 'w');
+            if ($handle === false) {
+                return;
+            }
+            fwrite($handle, "\xEF\xBB\xBF");
+            fputcsv($handle, [$institution['name']]);
+            fputcsv($handle, [(string) ($institution['motto'] ?? '')]);
+            fputcsv($handle, [$title]);
+            $meta = 'Generated '.$generatedAt;
+            if ($filterSummary !== []) {
+                $meta .= ' · Filters: '.implode('; ', $filterSummary);
+            }
+            fputcsv($handle, [$meta]);
+            fputcsv($handle, []);
+            fputcsv($handle, $this->headers());
+
+            $sn = 0;
+            $totals = ['amount' => 0.0, 'balance' => 0.0];
+            $emit = function (array $row) use ($handle, &$sn, &$totals) {
+                $sn++;
+                $totals['amount'] = round($totals['amount'] + (float) $row['amount'], 2);
+                $totals['balance'] = round($totals['balance'] + (float) $row['balance'], 2);
+                fputcsv($handle, $this->rowValues($row, $sn));
+            };
+            $producer($emit);
+
+            fputcsv($handle, [
+                'Total', '', '', '', '', '', '',
+                $totals['amount'],
+                $totals['balance'],
+                '',
+                '',
+            ]);
+            fputcsv($handle, [$sn.' record(s)']);
+            fclose($handle);
+        }, $filename.'.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
     }
 
     /**
@@ -85,6 +152,14 @@ class InvoiceExportService
             'address' => trim(collect([$campus?->address, $campus?->city])->filter()->implode(', ')),
             'contact' => (string) Setting::getValue('university_contact', ''),
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function mapRow(Invoice $invoice): array
+    {
+        return $this->rowData($invoice);
     }
 
     /**
@@ -296,11 +371,25 @@ class InvoiceExportService
             ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E0F2FE');
         $rowIndex++;
 
-        $sheet->getStyle('A'.$headerRow.':'.$lastCol.max($headerRow, $rowIndex - 1))->getBorders()->getAllBorders()
-            ->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('CBD5E1');
-        if ($logoPath === null) {
-            foreach ($columns as $column) {
-                $sheet->getColumnDimension($column)->setAutoSize(true);
+        // AutoSize + full-sheet borders choke on multi-thousand invoice exports.
+        if ($rows->count() <= 250) {
+            $sheet->getStyle('A'.$headerRow.':'.$lastCol.max($headerRow, $rowIndex - 1))->getBorders()->getAllBorders()
+                ->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('CBD5E1');
+            if ($logoPath === null) {
+                foreach ($columns as $column) {
+                    $sheet->getColumnDimension($column)->setAutoSize(true);
+                }
+            }
+        } else {
+            $sheet->getStyle($headerRange)->getBorders()->getAllBorders()
+                ->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('CBD5E1');
+            $sheet->getStyle('A'.$totalRow.':'.$lastCol.$totalRow)->getBorders()->getAllBorders()
+                ->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('CBD5E1');
+            if ($logoPath === null) {
+                $widths = [8, 18, 20, 16, 14, 22, 18, 12, 12, 12, 20];
+                foreach ($columns as $index => $column) {
+                    $sheet->getColumnDimension($column)->setWidth($widths[$index] ?? 14);
+                }
             }
         }
 

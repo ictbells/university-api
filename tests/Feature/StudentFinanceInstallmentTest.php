@@ -324,7 +324,36 @@ class StudentFinanceInstallmentTest extends TestCase
         );
         $this->assertSame(1000, \App\Services\StudentFinanceExportService::maxRowsFor('pdf'));
         $this->assertSame(2000, \App\Services\StudentFinanceExportService::maxRowsFor('word'));
-        $this->assertSame(15000, \App\Services\StudentFinanceExportService::maxRowsFor('excel'));
+        $this->assertSame(25000, \App\Services\StudentFinanceExportService::maxRowsFor('excel'));
+        $this->assertSame(100000, \App\Services\StudentFinanceExportService::maxRowsFor('csv'));
+
+        $csv = $this->get('/api/finance/student-roster/export?format=csv&student_id='.$student->id);
+        $csv->assertOk();
+        $this->assertStringContainsString('text/csv', (string) $csv->headers->get('content-type'));
+        $csvBody = $csv->streamedContent();
+        $this->assertStringContainsString('Matric', $csvBody);
+        $this->assertStringContainsString((string) $student->matric_number, $csvBody);
+
+        // Large Excel builds must not rely on AutoSize (timeouts ~1k+ rows in production).
+        $bulk = collect(range(1, 1200))->map(fn (int $i) => [
+            'name' => "Student {$i}",
+            'matric' => "BUT/{$i}",
+            'programme' => 'B.Sc Computer Science',
+            'college' => 'COLNAS',
+            'level' => '100 Level',
+            'wallet' => 0.0,
+            'billed' => 1000.0,
+            'paid' => 250.0,
+            'outstanding' => 750.0,
+            'clearance' => 'Outstanding',
+        ]);
+        $bulkResponse = app(\App\Services\StudentFinanceExportService::class)
+            ->export('excel', $bulk, 'Students Financial Status', ['Test filter']);
+        ob_start();
+        $bulkResponse->sendContent();
+        $xlsx = (string) ob_get_clean();
+        $this->assertNotSame('', $xlsx);
+        $this->assertSame('PK', substr($xlsx, 0, 2));
     }
 
     public function test_cleared_only_when_total_outstanding_is_zero(): void

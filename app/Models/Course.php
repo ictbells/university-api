@@ -25,6 +25,28 @@ class Course extends BaseModel
         };
     }
 
+    /** Compare codes ignoring case and spaces (CSC201 = CSC 201 = csc201). */
+    public static function normalizeCode(string $code): string
+    {
+        return strtoupper(str_replace(' ', '', trim($code)));
+    }
+
+    public static function findByNormalizedCode(string $code, ?int $ignoreId = null): ?self
+    {
+        $normalized = self::normalizeCode($code);
+        if ($normalized === '') {
+            return null;
+        }
+
+        $query = static::query()
+            ->whereRaw("UPPER(REPLACE(COALESCE(code, ''), ' ', '')) = ?", [$normalized]);
+        if ($ignoreId !== null) {
+            $query->where('id', '!=', $ignoreId);
+        }
+
+        return $query->first();
+    }
+
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);

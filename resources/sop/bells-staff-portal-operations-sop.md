@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.72  
+**Version:** 1.73  
 **Effective date:** September 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -213,7 +213,7 @@ When a section (for example Administration) contains a single dropdown whose lab
 
 **Results** contains: Results dashboard, Result entry, Upload Score, College, Committee of Deans, Senate, Release, Grading scale. Grade changes appear under System → Audit (module `results`).
 
-**Fees & payments** contains: Payment dashboard (university financial statement), Fee categories, Fee items, Rebates, Programme fees, Generate invoice (including **Generate semester fee** for all enrolled students), Payments, Students Financial Status, Import invoices, Import wallet history. On Students Financial Status, **Billed** is 100% school fees plus other invoices; **Cleared** only when **total outstanding is ₦0** (school fees, semester fee, and every other charge paid). Downloads: **Excel** up to 15,000 rows; **Word** up to 2,000; **PDF** up to 1,000 — for larger lists use Excel or narrow the filters (session, college, programme, clearance). The same limits apply on **Payments** invoice downloads. Disabled invoices and rebates on those invoices are excluded from billed, rebated, paid, outstanding, and the university statement. On Payments and Students Financial Status, staff can **View receipt** for a paid invoice (and for a successful wallet top-up); the HTML is the same **Official Receipt** students receive (see §8.7). Admitted students see the same bursary position on the student portal **Financial status** page. On the Payment dashboard, **Collected** is fee payments (wallet top-ups are shown separately); **Cleared** student status is not the same as university receipts.
+**Fees & payments** contains: Payment dashboard (university financial statement), Fee categories, Fee items, Rebates, Programme fees, Generate invoice (including **Generate semester fee** for all enrolled students), Payments, Students Financial Status, Import invoices, Import wallet history. On Students Financial Status, **Billed** is 100% school fees plus other invoices; **Cleared** only when **total outstanding is ₦0** (school fees, semester fee, and every other charge paid). Downloads: **CSV** up to 100,000 rows (best for large lists); **Excel** up to 25,000; **Word** up to 2,000; **PDF** up to 1,000 — for very large lists prefer CSV or narrow the filters (session, college, programme, clearance). The same limits apply on **Payments** invoice downloads. Disabled invoices and rebates on those invoices are excluded from billed, rebated, paid, outstanding, and the university statement. On Payments and Students Financial Status, staff can **View receipt** for a paid invoice (and for a successful wallet top-up); the HTML is the same **Official Receipt** students receive (see §8.7). Admitted students see the same bursary position on the student portal **Financial status** page. On the Payment dashboard, **Collected** is fee payments (wallet top-ups are shown separately); **Cleared** student status is not the same as university receipts.
 
 ### 6.3 Office hierarchy
 
@@ -854,6 +854,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.70 | Oct 2026 | Platform team | Students Financial Status and Payments downloads: Excel up to 15,000 rows; PDF/Word capped (1,000/2,000) with a clear message; lighter finance hydration so large Excel exports finish; academic-level and programme-fee lookups cached to avoid N+1 on large rosters |
 | 1.71 | Oct 2026 | Platform team | Financial status **Cleared** means total outstanding is ₦0 (including semester fee and other charges), not school fees alone |
 | 1.72 | Oct 2026 | Platform team | Students Financial Status tuition installment rows show **Balance due** as school fees still owing after that payment and every earlier tuition payment (not billed minus that receipt alone); status reflects whether the installment document itself is paid |
+| 1.73 | Oct 2026 | Platform team | Students Financial Status and Payments downloads add **CSV** (streaming, up to 100,000 rows) for large lists; Excel up to 25,000; PDF/Word stay capped at 1,000/2,000 |
 | 1.70 | Sep 2026 | Platform team | Students see the exact amount and fee-line breakdown for the chosen tuition installment in a confirmation popup before the invoice is created; Cancel creates nothing |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.

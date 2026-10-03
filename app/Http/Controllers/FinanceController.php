@@ -433,7 +433,7 @@ class FinanceController extends Controller
         abort_unless($request->user()->hasPermission('finance.invoices.manage'), 403);
 
         $data = $request->validate([
-            'format' => 'required|in:pdf,excel,word',
+            'format' => 'required|in:pdf,excel,word,csv',
             'status' => 'nullable|string',
             'category' => 'nullable|string',
             'faculty_id' => 'nullable|integer',
@@ -445,13 +445,11 @@ class FinanceController extends Controller
             'search' => 'nullable|string',
             'from' => 'nullable|date',
             'to' => 'nullable|date',
-            'academic_session_id' => 'nullable',
-            'level' => 'nullable|string',
         ]);
 
-        @ini_set('memory_limit', '1024M');
+        @ini_set('memory_limit', '2048M');
         if (function_exists('set_time_limit')) {
-            @set_time_limit(300);
+            @set_time_limit($data['format'] === 'csv' ? 600 : 300);
         }
 
         $format = $data['format'];
@@ -459,35 +457,73 @@ class FinanceController extends Controller
         $query = $this->invoiceListQuery($request);
         $total = (clone $query)->count();
         if ($total > $maxRows) {
-            $label = $format === 'excel' ? 'Excel' : strtoupper($format);
+            $label = match ($format) {
+                'excel' => 'Excel',
+                'csv' => 'CSV',
+                default => strtoupper($format),
+            };
 
             return response()->json([
                 'message' => "Too many invoices for {$label} ({$total}). "
-                    .($format === 'excel'
+                    .($format === 'csv'
                         ? "Narrow the filters so the list is at most {$maxRows}."
-                        : "Use Excel, or narrow the filters to at most {$maxRows} invoices."),
+                        : ($format === 'excel'
+                            ? "Use CSV for larger lists, or narrow the filters to at most {$maxRows}."
+                            : "Use Excel or CSV, or narrow the filters to at most {$maxRows} invoices.")),
                 'total' => $total,
                 'max_rows' => $maxRows,
                 'format' => $format,
             ], 422);
         }
 
-        $invoices = $query
-            ->with([
-                'user:id,name,email,jamb_registration',
-                'user.latestApplication',
-                'application:id,user_id,application_number,jamb_registration',
-                'student.program.department.faculty',
-            ])
-            ->limit($maxRows)
-            ->get();
+        $with = [
+            'user:id,name,email,jamb_registration',
+            'user.latestApplication',
+            'application:id,user_id,application_number,jamb_registration',
+            'student.program.department.faculty',
+        ];
+        $filters = $this->invoiceFilterSummary($request);
 
-        return $this->invoiceExports->export(
-            $format,
-            $invoices,
-            'Invoices report',
-            $this->invoiceFilterSummary($request),
-        );
+        try {
+            if ($format === 'csv') {
+                return $this->invoiceExports->streamCsv('Invoices report', $filters, function (callable $emit) use ($query, $maxRows, $with) {
+                    $written = 0;
+                    (clone $query)->with($with)
+                        ->reorder()
+                        ->orderBy('invoices.id')
+                        ->chunkById(400, function ($chunk) use ($emit, &$written, $maxRows) {
+                            foreach ($chunk as $invoice) {
+                                if ($written >= $maxRows) {
+                                    return false;
+                                }
+                                $written++;
+                                $emit($this->invoiceExports->mapRow($invoice));
+                            }
+
+                            return $written < $maxRows;
+                        }, 'invoices.id', 'id');
+                });
+            }
+
+            $invoices = $query->with($with)->limit($maxRows)->get();
+
+            return $this->invoiceExports->export(
+                $format,
+                $invoices,
+                'Invoices report',
+                $filters,
+            );
+        } catch (\Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'message' => 'Could not build the '.match ($format) {
+                    'excel' => 'Excel',
+                    'csv' => 'CSV',
+                    default => strtoupper($format),
+                }.' file for '.$total.' invoices. Narrow the filters and try again.',
+            ], 500);
+        }
     }
 
     public function disableInvoice(Request $request, Invoice $invoice)
@@ -1281,12 +1317,12 @@ class FinanceController extends Controller
         abort_unless($request->user()->hasPermission('finance.invoices.manage'), 403);
 
         $data = $request->validate([
-            'format' => 'required|in:pdf,excel,word',
+            'format' => 'required|in:pdf,excel,word,csv',
         ]);
 
-        @ini_set('memory_limit', '1024M');
+        @ini_set('memory_limit', '2048M');
         if (function_exists('set_time_limit')) {
-            @set_time_limit(300);
+            @set_time_limit($data['format'] === 'csv' ? 600 : 300);
         }
 
         $format = $data['format'];
@@ -1295,55 +1331,108 @@ class FinanceController extends Controller
         $query = $this->studentRosterQuery($request, $session['id']);
         $total = (clone $query)->count();
         if ($total > $maxRows) {
-            $label = $format === 'excel' ? 'Excel' : strtoupper($format);
+            $label = match ($format) {
+                'excel' => 'Excel',
+                'csv' => 'CSV',
+                default => strtoupper($format),
+            };
 
             return response()->json([
                 'message' => "Too many students for {$label} ({$total}). "
-                    .($format === 'excel'
+                    .($format === 'csv'
                         ? "Narrow the filters (session, college, programme, or clearance) so the list is at most {$maxRows}."
-                        : "Use Excel, or narrow the filters to at most {$maxRows} students."),
+                        : ($format === 'excel'
+                            ? "Use CSV for larger lists, or narrow the filters to at most {$maxRows}."
+                            : "Use Excel or CSV, or narrow the filters to at most {$maxRows} students.")),
                 'total' => $total,
                 'max_rows' => $maxRows,
                 'format' => $format,
             ], 422);
         }
 
-        $students = $query->limit($maxRows)->get();
-        try {
-            $this->hydrateFinanceSummaries($students);
-        } finally {
-            ProgrammeFeeResolver::flushCache();
-            StudentAcademicLevel::flushCache();
-        }
-
-        $rows = $students->map(function (Student $student) {
-            $row = $this->mapStudentFinanceRow($student);
-
-            return [
-                'name' => $row['name'],
-                'matric' => $row['matric_number'] ?: ($row['student_number'] ?: '—'),
-                'programme' => $row['program'] ?: '—',
-                'college' => $row['college'] ?: '—',
-                'level' => $row['level_label'] ?: ($row['current_level'] ? $row['current_level'].'L' : '—'),
-                'wallet' => round((float) $row['wallet_balance'], 2),
-                'billed' => round((float) $row['billed'], 2),
-                'paid' => round((float) $row['paid'], 2),
-                'outstanding' => round((float) $row['outstanding'], 2),
-                'clearance' => $row['clearance'] === 'cleared' ? 'Cleared' : 'Outstanding',
-            ];
-        })->values();
-
         $title = 'Students Financial Status';
         if ($session['label']) {
             $title .= ' — '.$session['label'];
         }
+        $filters = $this->studentRosterFilterSummary($request, $session);
 
-        return $this->studentFinanceExports->export(
-            $format,
-            $rows,
-            $title,
-            $this->studentRosterFilterSummary($request, $session),
-        );
+        try {
+            if ($format === 'csv') {
+                return $this->studentFinanceExports->streamCsv($title, $filters, function (callable $emit) use ($query, $maxRows) {
+                    $written = 0;
+                    (clone $query)->reorder()
+                        ->orderBy('students.id')
+                        ->chunkById(400, function ($chunk) use ($emit, &$written, $maxRows) {
+                            if ($written >= $maxRows) {
+                                return false;
+                            }
+                            try {
+                                $this->hydrateFinanceSummaries($chunk);
+                                foreach ($chunk as $student) {
+                                    if ($written >= $maxRows) {
+                                        return false;
+                                    }
+                                    $written++;
+                                    $emit($this->studentFinanceExportRow($student));
+                                }
+                            } finally {
+                                ProgrammeFeeResolver::flushCache();
+                                StudentAcademicLevel::flushCache();
+                            }
+
+                            return $written < $maxRows;
+                        }, 'students.id', 'id');
+                });
+            }
+
+            $students = $query->limit($maxRows)->get();
+            try {
+                $this->hydrateFinanceSummaries($students);
+            } finally {
+                ProgrammeFeeResolver::flushCache();
+                StudentAcademicLevel::flushCache();
+            }
+
+            $rows = $students->map(fn (Student $student) => $this->studentFinanceExportRow($student))->values();
+
+            return $this->studentFinanceExports->export(
+                $format,
+                $rows,
+                $title,
+                $filters,
+            );
+        } catch (\Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'message' => 'Could not build the '.match ($format) {
+                    'excel' => 'Excel',
+                    'csv' => 'CSV',
+                    default => strtoupper($format),
+                }.' file for '.$total.' students. Narrow the filters and try again.',
+            ], 500);
+        }
+    }
+
+    /**
+     * @return array{name: string, matric: string, programme: string, college: string, level: string, wallet: float, billed: float, paid: float, outstanding: float, clearance: string}
+     */
+    private function studentFinanceExportRow(Student $student): array
+    {
+        $row = $this->mapStudentFinanceRow($student);
+
+        return [
+            'name' => $row['name'],
+            'matric' => $row['matric_number'] ?: ($row['student_number'] ?: '—'),
+            'programme' => $row['program'] ?: '—',
+            'college' => $row['college'] ?: '—',
+            'level' => $row['level_label'] ?: ($row['current_level'] ? $row['current_level'].'L' : '—'),
+            'wallet' => round((float) $row['wallet_balance'], 2),
+            'billed' => round((float) $row['billed'], 2),
+            'paid' => round((float) $row['paid'], 2),
+            'outstanding' => round((float) $row['outstanding'], 2),
+            'clearance' => $row['clearance'] === 'cleared' ? 'Cleared' : 'Outstanding',
+        ];
     }
 
     /**

@@ -238,6 +238,36 @@ class ProgrammeCourseAssignmentTest extends TestCase
         $this->assertSame(0, Course::query()->where('code', 'CSC201')->first()?->programs()->count());
     }
 
+    public function test_duplicate_course_codes_are_rejected(): void
+    {
+        [$user, $program] = $this->seedCatalog();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/academic/courses', [
+            'department_id' => $program->department_id,
+            'code' => 'CSC301',
+            'title' => 'Operating Systems',
+            'units' => 3,
+            'course_type' => 'departmental',
+            'status' => 'core',
+        ])->assertCreated();
+
+        $this->postJson('/api/academic/courses', [
+            'department_id' => $program->department_id,
+            'code' => 'csc 301',
+            'title' => 'Operating Systems Duplicate',
+            'units' => 3,
+            'course_type' => 'departmental',
+            'status' => 'core',
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['code']);
+
+        $this->assertSame(1, Course::query()
+            ->whereRaw("UPPER(REPLACE(COALESCE(code, ''), ' ', '')) = ?", ['CSC301'])
+            ->count());
+    }
+
     public function test_course_catalog_and_programme_courses_share_the_same_assignments(): void
     {
         [$user, $program, $course, $level, , $programB] = $this->seedCatalog();

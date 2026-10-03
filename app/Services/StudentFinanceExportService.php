@@ -21,7 +21,9 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class StudentFinanceExportService
 {
-    public const MAX_ROWS = 15000;
+    public const MAX_ROWS = 25000;
+
+    public const MAX_ROWS_CSV = 100000;
 
     public const MAX_ROWS_PDF = 1000;
 
@@ -32,6 +34,7 @@ class StudentFinanceExportService
         return match ($format) {
             'pdf' => self::MAX_ROWS_PDF,
             'word' => self::MAX_ROWS_WORD,
+            'csv' => self::MAX_ROWS_CSV,
             default => self::MAX_ROWS,
         };
     }
@@ -42,7 +45,7 @@ class StudentFinanceExportService
      */
     public function export(string $format, Collection $rows, string $title, array $filterSummary = []): Response
     {
-        @ini_set('memory_limit', '1024M');
+        @ini_set('memory_limit', '2048M');
         if (function_exists('set_time_limit')) {
             @set_time_limit(300);
         }
@@ -62,8 +65,75 @@ class StudentFinanceExportService
             'pdf' => $this->pdf($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename),
             'excel' => $this->excel($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename),
             'word' => $this->word($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename),
+            'csv' => $this->streamCsv($title, $filterSummary, function (callable $emit) use ($rows) {
+                foreach ($rows as $row) {
+                    $emit($row);
+                }
+            }),
             default => throw new \InvalidArgumentException('Unsupported export format.'),
         };
+    }
+
+    /**
+     * Stream CSV while rows are produced in chunks (keeps memory low for large rosters).
+     *
+     * @param  list<string>  $filterSummary
+     * @param  callable(callable(array<string, mixed>): void): void  $producer
+     */
+    public function streamCsv(string $title, array $filterSummary, callable $producer): StreamedResponse
+    {
+        @ini_set('memory_limit', '512M');
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(600);
+        }
+
+        $institution = $this->institution();
+        $generatedAt = now()->format('d M Y H:i:s');
+        $safeTitle = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $title) ?: 'student_finance';
+        $filename = $safeTitle.'_'.now()->format('Ymd_His');
+
+        return response()->streamDownload(function () use ($institution, $title, $filterSummary, $producer, $generatedAt) {
+            $handle = fopen('php://output', 'w');
+            if ($handle === false) {
+                return;
+            }
+            fwrite($handle, "\xEF\xBB\xBF");
+            fputcsv($handle, [$institution['name']]);
+            fputcsv($handle, [(string) ($institution['motto'] ?? '')]);
+            fputcsv($handle, [$title]);
+            $meta = 'Generated '.$generatedAt;
+            if ($filterSummary !== []) {
+                $meta .= ' · Filters: '.implode('; ', $filterSummary);
+            }
+            fputcsv($handle, [$meta]);
+            fputcsv($handle, []);
+            fputcsv($handle, $this->headers());
+
+            $sn = 0;
+            $totals = ['wallet' => 0.0, 'billed' => 0.0, 'paid' => 0.0, 'outstanding' => 0.0];
+            $emit = function (array $row) use ($handle, &$sn, &$totals) {
+                $sn++;
+                $totals['wallet'] = round($totals['wallet'] + (float) $row['wallet'], 2);
+                $totals['billed'] = round($totals['billed'] + (float) $row['billed'], 2);
+                $totals['paid'] = round($totals['paid'] + (float) $row['paid'], 2);
+                $totals['outstanding'] = round($totals['outstanding'] + (float) $row['outstanding'], 2);
+                fputcsv($handle, $this->values($row, $sn));
+            };
+            $producer($emit);
+
+            fputcsv($handle, [
+                'Total', '', '', '', '', '',
+                $totals['wallet'],
+                $totals['billed'],
+                $totals['paid'],
+                $totals['outstanding'],
+                '',
+            ]);
+            fputcsv($handle, [$sn.' record(s)']);
+            fclose($handle);
+        }, $filename.'.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
     }
 
     /**
@@ -226,10 +296,23 @@ class StudentFinanceExportService
             ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E0F2FE');
         $rowIndex++;
 
-        $sheet->getStyle('A'.$headerRow.':'.$lastCol.max($headerRow, $rowIndex - 1))->getBorders()->getAllBorders()
-            ->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('CBD5E1');
-        foreach (range('A', $lastCol) as $column) {
-            $sheet->getColumnDimension($column)->setAutoSize(true);
+        // AutoSize + per-cell borders on 1k+ rows routinely timeouts/OOM on the API host.
+        $columns = range('A', $lastCol);
+        if ($rows->count() <= 250) {
+            $sheet->getStyle('A'.$headerRow.':'.$lastCol.max($headerRow, $rowIndex - 1))->getBorders()->getAllBorders()
+                ->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('CBD5E1');
+            foreach ($columns as $column) {
+                $sheet->getColumnDimension($column)->setAutoSize(true);
+            }
+        } else {
+            $sheet->getStyle($headerRange)->getBorders()->getAllBorders()
+                ->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('CBD5E1');
+            $sheet->getStyle('A'.$totalRow.':'.$lastCol.$totalRow)->getBorders()->getAllBorders()
+                ->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('CBD5E1');
+            $widths = [6, 28, 16, 28, 22, 10, 12, 14, 14, 14, 12];
+            foreach ($columns as $index => $column) {
+                $sheet->getColumnDimension($column)->setWidth($widths[$index] ?? 14);
+            }
         }
 
         return response()->streamDownload(function () use ($spreadsheet) {

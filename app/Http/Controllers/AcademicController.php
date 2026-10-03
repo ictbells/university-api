@@ -210,7 +210,7 @@ class AcademicController extends Controller
     {
         $data = $request->validate([
             'department_id' => 'required|exists:departments,id',
-            'code' => 'required|string',
+            'code' => ['required', 'string', 'max:50', $this->uniqueCourseCodeRule()],
             'title' => 'required|string',
             'units' => 'required|integer|min:1',
             'course_type' => ['required', Rule::in(Course::TYPES)],
@@ -218,6 +218,7 @@ class AcademicController extends Controller
             'program_ids' => 'nullable|array',
             'program_ids.*' => 'integer|exists:programs,id',
         ]);
+        $data['code'] = strtoupper(trim($data['code']));
         $data['status'] = $data['status'] ?? 'core';
         $programIds = $this->normalizeIds($data['program_ids'] ?? []);
         unset($data['program_ids']);
@@ -235,7 +236,7 @@ class AcademicController extends Controller
         $before = $course->toArray();
         $data = $request->validate([
             'department_id' => 'sometimes|exists:departments,id',
-            'code' => 'sometimes|string',
+            'code' => ['sometimes', 'string', 'max:50', $this->uniqueCourseCodeRule($course->id)],
             'title' => 'sometimes|string',
             'units' => 'sometimes|integer|min:1',
             'course_type' => ['sometimes', Rule::in(Course::TYPES)],
@@ -243,6 +244,9 @@ class AcademicController extends Controller
             'program_ids' => 'sometimes|nullable|array',
             'program_ids.*' => 'integer|exists:programs,id',
         ]);
+        if (array_key_exists('code', $data)) {
+            $data['code'] = strtoupper(trim($data['code']));
+        }
         $hasProgramIds = $request->exists('program_ids');
         $programIds = $hasProgramIds ? $this->normalizeIds($data['program_ids'] ?? []) : null;
         unset($data['program_ids']);
@@ -306,6 +310,18 @@ class AcademicController extends Controller
     private function normalizeIds(array $ids): array
     {
         return array_values(array_unique(array_map('intval', $ids)));
+    }
+
+    private function uniqueCourseCodeRule(?int $ignoreId = null): \Closure
+    {
+        return function (string $attribute, mixed $value, \Closure $fail) use ($ignoreId) {
+            if (! is_string($value) || Course::normalizeCode($value) === '') {
+                return;
+            }
+            if (Course::findByNormalizedCode($value, $ignoreId)) {
+                $fail('A course with this code already exists.');
+            }
+        };
     }
 
     /**
