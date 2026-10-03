@@ -21,7 +21,20 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class StudentFinanceExportService
 {
-    public const MAX_ROWS = 5000;
+    public const MAX_ROWS = 15000;
+
+    public const MAX_ROWS_PDF = 1000;
+
+    public const MAX_ROWS_WORD = 2000;
+
+    public static function maxRowsFor(string $format): int
+    {
+        return match ($format) {
+            'pdf' => self::MAX_ROWS_PDF,
+            'word' => self::MAX_ROWS_WORD,
+            default => self::MAX_ROWS,
+        };
+    }
 
     /**
      * @param  Collection<int, array<string, mixed>>  $rows
@@ -29,6 +42,11 @@ class StudentFinanceExportService
      */
     public function export(string $format, Collection $rows, string $title, array $filterSummary = []): Response
     {
+        @ini_set('memory_limit', '1024M');
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(300);
+        }
+
         $institution = $this->institution();
         $generatedAt = now()->format('d M Y H:i:s');
         $safeTitle = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $title) ?: 'student_finance';

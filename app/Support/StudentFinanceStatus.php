@@ -35,7 +35,12 @@ class StudentFinanceStatus
 
         $settlements = [];
         foreach ($invoices as $invoice) {
-            $settlements[$invoice->id] = InvoiceSettlement::for($invoice, $invoice->payments ?? collect());
+            // Prefer an already-loaded payments relation or a SQL paid_sum; never lazy-load
+            // payments here (roster/export hydrates thousands of invoices).
+            $payments = $invoice->relationLoaded('payments')
+                ? $invoice->payments
+                : collect();
+            $settlements[$invoice->id] = InvoiceSettlement::for($invoice, $payments);
         }
 
         $tuition = $active->filter(fn (Invoice $invoice) => $invoice->category === 'tuition');
@@ -73,7 +78,8 @@ class StudentFinanceStatus
         $rebateTotal = round($tuitionRebate + $otherRebate, 2);
         $paid = round($tuitionPaid + $otherPaid, 2);
         $outstanding = round($tuitionOutstanding + $otherOutstanding, 2);
-        $cleared = $schoolFees > 0.009 && $tuitionOutstanding <= 0.009;
+        // Cleared only when nothing is left to pay (school fees + semester fee + other charges).
+        $cleared = $outstanding <= 0.009;
 
         $openCount = $active->filter(function (Invoice $invoice) use ($settlements) {
             return in_array($settlements[$invoice->id]['status'], ['unpaid', 'partial'], true);

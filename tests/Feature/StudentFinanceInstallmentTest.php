@@ -50,7 +50,9 @@ class StudentFinanceInstallmentTest extends TestCase
         $this->assertEquals(4250.0, $invoiceRow['installment_amount']);
         $this->assertEquals(4250.0, $invoiceRow['amount_paid']);
         $this->assertEquals(12750.0, $invoiceRow['balance']);
-        $this->assertEquals('partial', $invoiceRow['status']);
+        $this->assertEquals(4250.0, $invoiceRow['session_paid_to_date']);
+        // Installment document is fully paid; Balance due is still session remaining.
+        $this->assertEquals('paid', $invoiceRow['status']);
         $this->assertEquals(25, $invoiceRow['installment_percent']);
 
         Sanctum::actingAs($student->user);
@@ -61,6 +63,101 @@ class StudentFinanceInstallmentTest extends TestCase
         $this->assertEquals(4250.0, $own['summary']['paid']);
         $this->assertEquals(12750.0, $own['summary']['outstanding']);
         $this->assertEquals($student->id, $own['student']['id']);
+    }
+
+    public function test_tuition_installment_balances_are_cumulative_across_payments(): void
+    {
+        $staff = $this->financeStaff();
+        $user = User::factory()->create(['status' => 'active']);
+        $student = Student::query()->create([
+            'user_id' => $user->id,
+            'first_name' => 'Folake',
+            'last_name' => 'Adeyemi',
+            'matric_number' => 'BUT/2026/14941',
+            'status' => 'active',
+            'current_level' => '100',
+        ]);
+        Wallet::query()->create(['student_id' => $student->id, 'balance' => 0]);
+
+        $session = AcademicSession::query()->create([
+            'label' => '2025/2026',
+            'starts_on' => '2025-10-01',
+            'ends_on' => '2026-09-30',
+        ]);
+        AcademicTerm::query()->create([
+            'academic_session_id' => $session->id,
+            'name' => 'First',
+            'session_label' => '2025/2026',
+            'is_current' => true,
+        ]);
+
+        $first = Invoice::query()->create([
+            'number' => 'BUT/2026/1807',
+            'user_id' => $user->id,
+            'student_id' => $student->id,
+            'category' => 'tuition',
+            'installment_percent' => 25,
+            'amount' => 418438,
+            'full_amount' => 1317250,
+            'balance' => 0,
+            'status' => 'paid',
+            'wallet_allowed' => true,
+            'academic_session_id' => $session->id,
+            'level_code' => '100',
+            'created_at' => '2026-09-18 10:00:00',
+        ]);
+        Payment::query()->create([
+            'user_id' => $user->id,
+            'invoice_id' => $first->id,
+            'method' => 'paystack',
+            'amount' => 418438,
+            'status' => 'successful',
+            'reference' => 'PAY-1807',
+            'receipt_no' => 'RCP-1807',
+            'purpose' => 'tuition',
+            'created_at' => '2026-09-18 10:05:00',
+        ]);
+
+        $second = Invoice::query()->create([
+            'number' => 'BUT/2026/3011',
+            'user_id' => $user->id,
+            'student_id' => $student->id,
+            'category' => 'tuition',
+            'installment_percent' => 50,
+            'amount' => 332938,
+            'full_amount' => 1317250,
+            'balance' => 0,
+            'status' => 'paid',
+            'wallet_allowed' => true,
+            'academic_session_id' => $session->id,
+            'level_code' => '100',
+            'created_at' => '2026-09-23 09:00:00',
+        ]);
+        Payment::query()->create([
+            'user_id' => $user->id,
+            'invoice_id' => $second->id,
+            'method' => 'paystack',
+            'amount' => 332938,
+            'status' => 'successful',
+            'reference' => 'PAY-3011',
+            'receipt_no' => 'RCP-3011',
+            'purpose' => 'tuition',
+            'created_at' => '2026-09-23 09:05:00',
+        ]);
+
+        Sanctum::actingAs($staff);
+        $payload = $this->getJson('/api/finance/student-status?student_id='.$student->id)
+            ->assertOk()
+            ->json();
+
+        $byId = collect($payload['invoices'])->keyBy('id');
+        $this->assertEquals(898812.0, $byId[$first->id]['balance']);
+        $this->assertEquals(418438.0, $byId[$first->id]['session_paid_to_date']);
+        // Second payment reduces balance after the first, not school fees minus this receipt alone.
+        $this->assertEquals(565874.0, $byId[$second->id]['balance']);
+        $this->assertEquals(751376.0, $byId[$second->id]['session_paid_to_date']);
+        $this->assertEquals('paid', $byId[$first->id]['status']);
+        $this->assertEquals('paid', $byId[$second->id]['status']);
     }
 
     public function test_applicant_cannot_read_finance_status(): void
@@ -161,7 +258,7 @@ class StudentFinanceInstallmentTest extends TestCase
         $this->assertEquals(17000.0, $invoiceRow['amount']);
         $this->assertEquals(4250.0, $invoiceRow['amount_paid']);
         $this->assertEquals(12750.0, $invoiceRow['balance']);
-        $this->assertEquals('partial', $invoiceRow['status']);
+        $this->assertEquals('paid', $invoiceRow['status']);
     }
 
     public function test_billed_uses_programme_school_fees_when_invoice_omits_full_amount(): void
@@ -218,15 +315,25 @@ class StudentFinanceInstallmentTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.0.billed', 45000)
             ->assertJsonPath('data.0.clearance', 'outstanding');
+
+        $excel = $this->get('/api/finance/student-roster/export?format=excel&student_id='.$student->id);
+        $excel->assertOk();
+        $this->assertStringContainsString(
+            'spreadsheetml.sheet',
+            (string) $excel->headers->get('content-type'),
+        );
+        $this->assertSame(1000, \App\Services\StudentFinanceExportService::maxRowsFor('pdf'));
+        $this->assertSame(2000, \App\Services\StudentFinanceExportService::maxRowsFor('word'));
+        $this->assertSame(15000, \App\Services\StudentFinanceExportService::maxRowsFor('excel'));
     }
 
-    public function test_cleared_only_after_one_hundred_percent_school_fees(): void
+    public function test_cleared_only_when_total_outstanding_is_zero(): void
     {
         $staff = $this->financeStaff();
         [$student, $tuition] = $this->studentWithPaidQuarterTuition();
         $user = $student->user;
 
-        Invoice::query()->create([
+        $hostel = Invoice::query()->create([
             'number' => 'INV-HOSTEL-OPEN',
             'user_id' => $user->id,
             'student_id' => $student->id,
@@ -259,9 +366,34 @@ class StudentFinanceInstallmentTest extends TestCase
             ->assertOk()
             ->json();
 
-        $this->assertEquals('cleared', $payload['summary']['clearance']);
+        // School fees paid, but hostel ₦2,000 still open → not cleared.
+        $this->assertEquals('outstanding', $payload['summary']['clearance']);
         $this->assertEquals(19000.0, $payload['summary']['billed']);
         $this->assertEquals(2000.0, $payload['summary']['outstanding']);
+
+        $this->getJson('/api/finance/student-roster?clearance=cleared&student_id='.$student->id)
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+        $this->getJson('/api/finance/student-roster?clearance=outstanding&student_id='.$student->id)
+            ->assertOk()
+            ->assertJsonPath('data.0.clearance', 'outstanding');
+
+        Payment::query()->create([
+            'user_id' => $user->id,
+            'invoice_id' => $hostel->id,
+            'method' => 'wallet',
+            'amount' => 2000,
+            'status' => 'successful',
+            'reference' => 'WALLET-HOSTEL',
+            'receipt_no' => 'RCP-HOSTEL',
+            'purpose' => 'hostel',
+        ]);
+        $hostel->update(['balance' => 0, 'status' => 'paid']);
+
+        $this->getJson('/api/finance/student-status?student_id='.$student->id)
+            ->assertOk()
+            ->assertJsonPath('summary.clearance', 'cleared')
+            ->assertJsonPath('summary.outstanding', 0);
 
         $this->getJson('/api/finance/student-roster?clearance=cleared&student_id='.$student->id)
             ->assertOk()

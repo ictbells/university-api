@@ -8,6 +8,14 @@ use Illuminate\Support\Collection;
 
 class ProgrammeFeeResolver
 {
+    /** @var array<string, Collection<int, ProgrammeFee>> */
+    private static array $programCache = [];
+
+    public static function flushCache(): void
+    {
+        self::$programCache = [];
+    }
+
     /**
      * @param  string|list<string>|null  $levelCode
      * @return Collection<int, ProgrammeFee>
@@ -17,13 +25,18 @@ class ProgrammeFeeResolver
         string|array|null $levelCode = null,
         ?string $semester = null,
     ): Collection {
+        $codes = self::normalizeLevelCodes($levelCode);
+        $cacheKey = $programId.'|'.implode(',', $codes).'|'.(string) $semester;
+        if (isset(self::$programCache[$cacheKey])) {
+            return self::$programCache[$cacheKey];
+        }
+
         $query = ProgrammeFee::query()
             ->with('feeItem')
             ->where('program_id', $programId)
             ->where('is_active', true)
             ->whereHas('feeItem', fn ($fee) => $fee->where('is_active', true));
 
-        $codes = self::normalizeLevelCodes($levelCode);
         if ($codes !== []) {
             $query->where(function ($builder) use ($codes) {
                 $builder->where('level_code', 'all');
@@ -40,7 +53,7 @@ class ProgrammeFeeResolver
             });
         }
 
-        return $query->orderBy('display_order')->orderBy('id')->get();
+        return self::$programCache[$cacheKey] = $query->orderBy('display_order')->orderBy('id')->get();
     }
 
     /**

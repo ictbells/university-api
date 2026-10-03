@@ -17,50 +17,72 @@ use App\Models\Student;
  */
 class StudentAcademicLevel
 {
+    /** @var array<string, AcademicLevel|null> */
+    private static array $resolveCache = [];
+
+    /** @var \Illuminate\Support\Collection<int, AcademicLevel>|null */
+    private static $levelsCatalog = null;
+
+    public static function flushCache(): void
+    {
+        self::$resolveCache = [];
+        self::$levelsCatalog = null;
+    }
+
+    /** Prefetch active academic levels once for bulk roster/export work. */
+    public static function warmCatalog(): void
+    {
+        self::catalog();
+    }
+
     public static function resolve(Student $student): ?AcademicLevel
     {
         $student->loadMissing(['application', 'program']);
         $studyLevel = StudyLevel::ofStudent($student);
         $code = $student->current_level !== null ? (string) $student->current_level : '';
+        $cacheKey = $studyLevel.'|'.$code;
+        if (array_key_exists($cacheKey, self::$resolveCache)) {
+            return self::$resolveCache[$cacheKey];
+        }
 
-        $query = AcademicLevel::query()
+        return self::$resolveCache[$cacheKey] = self::resolveFromCatalog($studyLevel, $code);
+    }
+
+    private static function resolveFromCatalog(string $studyLevel, string $code): ?AcademicLevel
+    {
+        $levels = self::catalog()
             ->where('study_level', $studyLevel)
-            ->where('is_active', true);
+            ->values();
 
         // JUPEB students keep current_level=100 internally. Never resolve them to
         // a numeric 100-band row — use the JUPEB catalog level (name/code JUPEB).
         if ($studyLevel === StudyLevel::JUPEB) {
-            $named = (clone $query)
-                ->where(function ($builder) {
-                    $builder->where('code', 'like', 'JUPEB%')
-                        ->orWhere('name', 'like', 'JUPEB%');
-                })
-                ->orderBy('sort_order')
-                ->orderBy('id')
-                ->first();
-            if ($named) {
-                return $named;
-            }
+            $named = $levels->first(function (AcademicLevel $level) {
+                $levelCode = strtoupper((string) $level->code);
+                $name = strtoupper((string) $level->name);
 
-            return $query->orderBy('sort_order')->orderBy('id')->first();
+                return str_starts_with($levelCode, 'JUPEB') || str_starts_with($name, 'JUPEB');
+            });
+
+            return $named ?? $levels->first();
         }
 
         if ($code !== '') {
-            $matched = (clone $query)
-                ->where(function ($builder) use ($code) {
-                    $builder->where('code', $code)
-                        ->orWhere('code', $code.'L')
-                        ->orWhere('name', 'like', $code.'%');
-                })
-                ->orderBy('sort_order')
-                ->first();
+            $matched = $levels->first(function (AcademicLevel $level) use ($code) {
+                $levelCode = (string) $level->code;
+                $name = (string) $level->name;
+
+                return $levelCode === $code
+                    || $levelCode === $code.'L'
+                    || str_starts_with($name, $code);
+            });
             if ($matched) {
                 return $matched;
             }
 
             $year = self::progressionYear($code);
             if ($year !== null) {
-                $yearMatched = self::matchYearNamedLevel(clone $query, $year);
+                $yearMatched = self::matchYearNamedLevelFromCollection($levels, $year);
                 if ($yearMatched) {
                     return $yearMatched;
                 }
@@ -68,16 +90,27 @@ class StudentAcademicLevel
                 // PG Year 1/2 catalog rows often have empty codes and sort_order
                 // that is not the year index — pick the Nth level in track order.
                 if ($studyLevel === StudyLevel::POSTGRADUATE) {
-                    $ordered = (clone $query)->orderBy('sort_order')->orderBy('id')->get();
                     $index = $year - 1;
-                    if ($ordered->has($index)) {
-                        return $ordered->get($index);
+                    if ($levels->has($index)) {
+                        return $levels->get($index);
                     }
                 }
             }
         }
 
         return null;
+    }
+
+    /**
+     * @return \Illuminate\Support\Collection<int, AcademicLevel>
+     */
+    private static function catalog()
+    {
+        return self::$levelsCatalog ??= AcademicLevel::query()
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
     }
 
     /**
@@ -407,8 +440,17 @@ class StudentAcademicLevel
 
     private static function matchYearNamedLevel($query, int $year): ?AcademicLevel
     {
-        $levels = $query->orderBy('sort_order')->orderBy('id')->get();
+        return self::matchYearNamedLevelFromCollection(
+            $query->orderBy('sort_order')->orderBy('id')->get(),
+            $year,
+        );
+    }
 
+    /**
+     * @param  \Illuminate\Support\Collection<int, AcademicLevel>  $levels
+     */
+    private static function matchYearNamedLevelFromCollection($levels, int $year): ?AcademicLevel
+    {
         foreach ($levels as $level) {
             foreach ([trim((string) ($level->name ?: '')), trim((string) ($level->code ?: ''))] as $label) {
                 if ($label !== '' && self::yearFromLabel($label) === $year) {

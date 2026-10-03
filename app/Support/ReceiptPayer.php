@@ -199,16 +199,29 @@ class ReceiptPayer
         return $fromRelation !== '' ? $fromRelation : null;
     }
 
+    /** @var array<int, string|null> */
+    private static array $programmeNameCache = [];
+
+    public static function flushCache(): void
+    {
+        self::$programmeNameCache = [];
+    }
+
     private static function programmeNameById(?int $programId): ?string
     {
         if (! $programId) {
             return null;
         }
 
+        if (array_key_exists($programId, self::$programmeNameCache)) {
+            return self::$programmeNameCache[$programId];
+        }
+
         // Soft-deleted programmes must still print on historical receipts.
         $name = Program::withTrashed()->whereKey($programId)->value('name');
+        $resolved = is_string($name) && trim($name) !== '' ? trim($name) : null;
 
-        return is_string($name) && trim($name) !== '' ? trim($name) : null;
+        return self::$programmeNameCache[$programId] = $resolved;
     }
 
     private static function level(?Student $student, ?Invoice $invoice, ?Application $application): ?string

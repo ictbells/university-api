@@ -33,6 +33,9 @@ class InvoiceSettlement
         }
 
         $paid = self::sumPayments($payments);
+        if ($paid <= 0.0 && $invoice->getAttribute('paid_sum') !== null) {
+            $paid = (float) $invoice->getAttribute('paid_sum');
+        }
         $paid = round(min(max(0, $paid), max(0, $billed - $rebate)), 2);
         $balance = round(max(0, $billed - $rebate - $paid), 2);
         $status = $balance <= 0.009 ? 'paid' : ($paid > 0.009 ? 'partial' : 'unpaid');

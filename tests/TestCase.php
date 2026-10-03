@@ -2,6 +2,9 @@
 
 namespace Tests;
 
+use App\Support\ProgrammeFeeResolver;
+use App\Support\ReceiptPayer;
+use App\Support\StudentAcademicLevel;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 
 abstract class TestCase extends BaseTestCase
@@ -9,6 +12,9 @@ abstract class TestCase extends BaseTestCase
     protected function setUp(): void
     {
         parent::setUp();
+        ProgrammeFeeResolver::flushCache();
+        StudentAcademicLevel::flushCache();
+        ReceiptPayer::flushCache();
         $this->isolateMatricSequence();
     }
 

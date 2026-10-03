@@ -39,6 +39,7 @@ use App\Support\ReceiptPayer;
 use App\Support\ReceiptQr;
 use App\Support\SchoolFeeAccess;
 use App\Support\SemesterFeeAccess;
+use App\Support\StudentAcademicLevel;
 use App\Support\StudentFinanceStatus;
 use App\Support\TranscriptType;
 use App\Support\TuitionProgress;
@@ -448,18 +449,41 @@ class FinanceController extends Controller
             'level' => 'nullable|string',
         ]);
 
-        $invoices = $this->invoiceListQuery($request)
+        @ini_set('memory_limit', '1024M');
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(300);
+        }
+
+        $format = $data['format'];
+        $maxRows = InvoiceExportService::maxRowsFor($format);
+        $query = $this->invoiceListQuery($request);
+        $total = (clone $query)->count();
+        if ($total > $maxRows) {
+            $label = $format === 'excel' ? 'Excel' : strtoupper($format);
+
+            return response()->json([
+                'message' => "Too many invoices for {$label} ({$total}). "
+                    .($format === 'excel'
+                        ? "Narrow the filters so the list is at most {$maxRows}."
+                        : "Use Excel, or narrow the filters to at most {$maxRows} invoices."),
+                'total' => $total,
+                'max_rows' => $maxRows,
+                'format' => $format,
+            ], 422);
+        }
+
+        $invoices = $query
             ->with([
                 'user:id,name,email,jamb_registration',
                 'user.latestApplication',
                 'application:id,user_id,application_number,jamb_registration',
                 'student.program.department.faculty',
             ])
-            ->limit(InvoiceExportService::MAX_ROWS)
+            ->limit($maxRows)
             ->get();
 
         return $this->invoiceExports->export(
-            $data['format'],
+            $format,
             $invoices,
             'Invoices report',
             $this->invoiceFilterSummary($request),
@@ -934,6 +958,7 @@ class FinanceController extends Controller
 
         $settlements = [];
         foreach ($invoices as $invoice) {
+            // Sync writes payable (installment) status onto the invoice row.
             $settlements[$invoice->id] = InvoiceSettlement::sync($invoice, $invoice->payments);
         }
 
@@ -996,56 +1021,7 @@ class FinanceController extends Controller
                 'open_count' => $finance['open_count'],
                 ...$semesterFee,
             ],
-            'invoices' => $invoices->map(function (Invoice $invoice) use ($settlements) {
-                $settlement = $settlements[$invoice->id];
-
-                return [
-                    'id' => $invoice->id,
-                    'number' => $invoice->number,
-                    'category' => $invoice->category,
-                    'amount' => $settlement['billed'],
-                    'installment_amount' => $settlement['installment'],
-                    'full_amount' => (float) ($invoice->full_amount ?: $invoice->amount),
-                    'installment_percent' => $invoice->installment_percent !== null ? (int) $invoice->installment_percent : null,
-                    'amount_paid' => $settlement['paid'],
-                    'balance' => $settlement['balance'],
-                    'rebate_total' => $settlement['rebate'],
-                    'status' => $settlement['status'],
-                    'created_at' => $invoice->created_at,
-                    'items' => $invoice->items->map(function ($item) use ($invoice) {
-                        $description = $this->invoices->sanitizeItemDescription($invoice, (string) $item->description);
-                        if ($description !== (string) $item->description) {
-                            $item->forceFill(['description' => $description])->save();
-                        }
-
-                        return [
-                            'id' => $item->id,
-                            'description' => $description,
-                            'amount' => (float) $item->amount,
-                        ];
-                    })->values(),
-                    'payments' => $invoice->payments->map(fn (Payment $payment) => [
-                        'id' => $payment->id,
-                        'invoice_id' => $payment->invoice_id,
-                        'amount' => (float) $payment->amount,
-                        'method' => $payment->method,
-                        'purpose' => $payment->purpose,
-                        'reference' => $payment->reference,
-                        'receipt_no' => $payment->receipt_no,
-                        'status' => $payment->status,
-                        'created_at' => $payment->created_at,
-                    ])->values(),
-                    'rebates' => $invoice->rebates->map(fn ($rebate) => [
-                        'id' => $rebate->id,
-                        'type_name' => $rebate->rebateType?->name,
-                        'kind' => $rebate->kind,
-                        'value' => (float) $rebate->value,
-                        'amount' => (float) $rebate->amount,
-                        'reason' => $rebate->reason,
-                        'created_at' => $rebate->created_at,
-                    ])->values(),
-                ];
-            })->values(),
+            'invoices' => $this->mapFinanceStatusInvoices($invoices, $settlements, $finance),
             'payments' => $this->mapStudentPayments($payments, $invoices, $settlements),
             'wallet_transactions' => $walletTransactions->map(fn ($row) => [
                 'id' => $row->id,
@@ -1068,6 +1044,102 @@ class FinanceController extends Controller
                 ])->values(),
             ],
         ];
+    }
+
+    /**
+     * Tuition installments share one school-fee total. Balance on each row is the
+     * session remaining after that invoice and every earlier tuition payment.
+     *
+     * @param  Collection<int, Invoice>  $invoices
+     * @param  array<int, array{billed: float, installment: float, rebate: float, paid: float, balance: float, status: string}>  $settlements
+     * @param  array{school_fees: float}  $finance
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function mapFinanceStatusInvoices(Collection $invoices, array $settlements, array $finance): Collection
+    {
+        $schoolFees = round((float) ($finance['school_fees'] ?? 0), 2);
+        $tuitionRunning = [];
+        $cumPaid = 0.0;
+        $cumRebate = 0.0;
+
+        $tuitionChronological = $invoices
+            ->filter(fn (Invoice $invoice) => (string) $invoice->category === 'tuition'
+                && ! in_array((string) $invoice->status, ['cancelled', 'disabled'], true))
+            ->sortBy([
+                fn (Invoice $invoice) => $invoice->created_at?->timestamp ?? 0,
+                fn (Invoice $invoice) => $invoice->id,
+            ])
+            ->values();
+
+        foreach ($tuitionChronological as $invoice) {
+            $settlement = $settlements[$invoice->id] ?? InvoiceSettlement::for($invoice, $invoice->payments ?? collect());
+            $cumPaid = round($cumPaid + (float) $settlement['paid'], 2);
+            $cumRebate = round($cumRebate + (float) $settlement['rebate'], 2);
+            $remaining = round(max(0, $schoolFees - $cumRebate - $cumPaid), 2);
+            $tuitionRunning[$invoice->id] = [
+                'balance' => $remaining,
+                'session_paid_to_date' => $cumPaid,
+            ];
+        }
+
+        return $invoices->map(function (Invoice $invoice) use ($settlements, $tuitionRunning, $schoolFees) {
+            $settlement = $settlements[$invoice->id];
+            $isTuition = (string) $invoice->category === 'tuition';
+            $running = $tuitionRunning[$invoice->id] ?? null;
+            $installment = (float) $settlement['installment'];
+            // After sync(), invoice.status is the installment document status (not full-year vs this receipt).
+            $status = $isTuition ? (string) $invoice->status : $settlement['status'];
+
+            return [
+                'id' => $invoice->id,
+                'number' => $invoice->number,
+                'category' => $invoice->category,
+                'amount' => $isTuition ? $schoolFees : (float) $settlement['billed'],
+                'installment_amount' => $installment,
+                'full_amount' => $isTuition
+                    ? $schoolFees
+                    : (float) ($invoice->full_amount ?: $invoice->amount),
+                'installment_percent' => $invoice->installment_percent !== null ? (int) $invoice->installment_percent : null,
+                'amount_paid' => $settlement['paid'],
+                'balance' => $running['balance'] ?? $settlement['balance'],
+                'session_paid_to_date' => $running['session_paid_to_date'] ?? null,
+                'rebate_total' => $settlement['rebate'],
+                'status' => $status,
+                'created_at' => $invoice->created_at,
+                'items' => $invoice->items->map(function ($item) use ($invoice) {
+                    $description = $this->invoices->sanitizeItemDescription($invoice, (string) $item->description);
+                    if ($description !== (string) $item->description) {
+                        $item->forceFill(['description' => $description])->save();
+                    }
+
+                    return [
+                        'id' => $item->id,
+                        'description' => $description,
+                        'amount' => (float) $item->amount,
+                    ];
+                })->values(),
+                'payments' => $invoice->payments->map(fn (Payment $payment) => [
+                    'id' => $payment->id,
+                    'invoice_id' => $payment->invoice_id,
+                    'amount' => (float) $payment->amount,
+                    'method' => $payment->method,
+                    'purpose' => $payment->purpose,
+                    'reference' => $payment->reference,
+                    'receipt_no' => $payment->receipt_no,
+                    'status' => $payment->status,
+                    'created_at' => $payment->created_at,
+                ])->values(),
+                'rebates' => $invoice->rebates->map(fn ($rebate) => [
+                    'id' => $rebate->id,
+                    'type_name' => $rebate->rebateType?->name,
+                    'kind' => $rebate->kind,
+                    'value' => (float) $rebate->value,
+                    'amount' => (float) $rebate->amount,
+                    'reason' => $rebate->reason,
+                    'created_at' => $rebate->created_at,
+                ])->values(),
+            ];
+        })->values();
     }
 
     /**
@@ -1212,11 +1284,37 @@ class FinanceController extends Controller
             'format' => 'required|in:pdf,excel,word',
         ]);
 
+        @ini_set('memory_limit', '1024M');
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(300);
+        }
+
+        $format = $data['format'];
+        $maxRows = StudentFinanceExportService::maxRowsFor($format);
         $session = $this->resolveRosterSession($request);
-        $students = $this->studentRosterQuery($request, $session['id'])
-            ->limit(StudentFinanceExportService::MAX_ROWS)
-            ->get();
-        $this->hydrateFinanceSummaries($students);
+        $query = $this->studentRosterQuery($request, $session['id']);
+        $total = (clone $query)->count();
+        if ($total > $maxRows) {
+            $label = $format === 'excel' ? 'Excel' : strtoupper($format);
+
+            return response()->json([
+                'message' => "Too many students for {$label} ({$total}). "
+                    .($format === 'excel'
+                        ? "Narrow the filters (session, college, programme, or clearance) so the list is at most {$maxRows}."
+                        : "Use Excel, or narrow the filters to at most {$maxRows} students."),
+                'total' => $total,
+                'max_rows' => $maxRows,
+                'format' => $format,
+            ], 422);
+        }
+
+        $students = $query->limit($maxRows)->get();
+        try {
+            $this->hydrateFinanceSummaries($students);
+        } finally {
+            ProgrammeFeeResolver::flushCache();
+            StudentAcademicLevel::flushCache();
+        }
 
         $rows = $students->map(function (Student $student) {
             $row = $this->mapStudentFinanceRow($student);
@@ -1241,7 +1339,7 @@ class FinanceController extends Controller
         }
 
         return $this->studentFinanceExports->export(
-            $data['format'],
+            $format,
             $rows,
             $title,
             $this->studentRosterFilterSummary($request, $session),
@@ -1344,16 +1442,14 @@ class FinanceController extends Controller
         if ($clearance === 'outstanding' || $clearance === 'cleared') {
             [$schoolFeesSql, $schoolBindings] = $this->rosterSchoolFeesSql();
             [$paidSql, $paidBindings] = $this->rosterTuitionPaidSql();
+            [$otherSql, $otherBindings] = $this->rosterOtherOutstandingSql();
+            $tuitionOutstandingSql = 'CASE WHEN (('.$schoolFeesSql.') - ('.$paidSql.')) > 0 THEN (('.$schoolFeesSql.') - ('.$paidSql.')) ELSE 0 END';
+            $totalOutstandingSql = '('.$tuitionOutstandingSql.') + ('.$otherSql.')';
+            $bindings = array_merge($schoolBindings, $paidBindings, $schoolBindings, $paidBindings, $otherBindings);
             if ($clearance === 'cleared') {
-                $query->whereRaw(
-                    $schoolFeesSql.' > 0.009 AND '.$paidSql.' >= '.$schoolFeesSql.' - 0.009',
-                    array_merge($schoolBindings, $paidBindings, $schoolBindings)
-                );
+                $query->whereRaw($totalOutstandingSql.' <= 0.009', $bindings);
             } else {
-                $query->whereRaw(
-                    $schoolFeesSql.' <= 0.009 OR '.$paidSql.' < '.$schoolFeesSql.' - 0.009',
-                    array_merge($schoolBindings, $paidBindings, $schoolBindings)
-                );
+                $query->whereRaw($totalOutstandingSql.' > 0.009', $bindings);
             }
         }
 
@@ -1442,6 +1538,41 @@ class FinanceController extends Controller
     }
 
     /**
+     * Outstanding on non-tuition invoices (semester fee, hostel, etc.).
+     *
+     * @return array{0: string, 1: list<mixed>}
+     */
+    private function rosterOtherOutstandingSql(): array
+    {
+        $paidSub = Payment::query()
+            ->selectRaw('COALESCE(SUM(payments.amount), 0)')
+            ->whereColumn('payments.invoice_id', 'invoices.id')
+            ->whereIn('payments.status', ['successful', 'paid'])
+            ->where(function (Builder $query) {
+                $query->whereNull('payments.purpose')
+                    ->orWhereNotIn('payments.purpose', ['wallet_topup', 'wallet_funding']);
+            });
+
+        $lineOutstanding = 'COALESCE(full_amount, amount) - COALESCE(rebate_total, 0) - COALESCE(('.$paidSub->toSql().'), 0)';
+        $other = Invoice::query()
+            ->selectRaw(
+                'COALESCE(SUM(CASE WHEN ('.$lineOutstanding.') > 0 THEN ('.$lineOutstanding.') ELSE 0 END), 0)'
+            )
+            ->where('category', '!=', 'tuition')
+            ->whereNotIn('status', ['cancelled', 'disabled'])
+            ->where(function (Builder $query) {
+                $query->whereColumn('invoices.student_id', 'students.id')
+                    ->orWhereColumn('invoices.user_id', 'students.user_id');
+            });
+
+        // paidSub is embedded twice in the CASE expression.
+        return [
+            'COALESCE(('.$other->toSql().'), 0)',
+            array_merge($paidSub->getBindings(), $paidSub->getBindings(), $other->getBindings()),
+        ];
+    }
+
+    /**
      * @param  Collection<int, Student>  $students
      */
     private function hydrateFinanceSummaries(Collection $students): void
@@ -1450,31 +1581,49 @@ class FinanceController extends Controller
             return;
         }
 
-        $studentIds = $students->pluck('id')->all();
-        $userIds = $students->pluck('user_id')->filter()->unique()->values()->all();
-        foreach ($students as $student) {
-            $student->loadMissing('program');
-        }
+        $students = $students instanceof \Illuminate\Database\Eloquent\Collection
+            ? $students
+            : new \Illuminate\Database\Eloquent\Collection($students->all());
+        $students->loadMissing(['program.department.faculty', 'application']);
+        StudentAcademicLevel::warmCatalog();
 
-        $invoices = Invoice::query()
-            ->with(['payments' => fn ($query) => $query->whereNotIn('status', ['failed', 'cancelled'])])
-            ->where(function (Builder $query) use ($studentIds, $userIds) {
-                $query->whereIn('student_id', $studentIds);
-                if ($userIds !== []) {
-                    $query->orWhereIn('user_id', $userIds);
-                }
-            })
-            ->get();
+        // Chunk so large exports do not load every invoice/payment model at once.
+        foreach ($students->chunk(400) as $chunk) {
+            $studentIds = $chunk->pluck('id')->all();
+            $userIds = $chunk->pluck('user_id')->filter()->unique()->values()->all();
 
-        $byStudent = $invoices->groupBy('student_id');
-        $byUser = $invoices->groupBy('user_id');
+            $invoices = Invoice::query()
+                ->select([
+                    'id', 'student_id', 'user_id', 'category', 'status',
+                    'amount', 'full_amount', 'rebate_total',
+                ])
+                ->withSum([
+                    'payments as paid_sum' => function (Builder $query) {
+                        $query->whereIn('status', ['successful', 'paid'])
+                            ->where(function (Builder $inner) {
+                                $inner->whereNull('purpose')
+                                    ->orWhereNotIn('purpose', ['wallet_topup', 'wallet_funding']);
+                            });
+                    },
+                ], 'amount')
+                ->where(function (Builder $query) use ($studentIds, $userIds) {
+                    $query->whereIn('student_id', $studentIds);
+                    if ($userIds !== []) {
+                        $query->orWhereIn('user_id', $userIds);
+                    }
+                })
+                ->get();
 
-        foreach ($students as $student) {
-            $rows = collect($byStudent->get($student->id, []))
-                ->concat($student->user_id ? $byUser->get($student->user_id, []) : [])
-                ->unique('id')
-                ->values();
-            $student->setAttribute('finance_summary', StudentFinanceStatus::summarize($student, $rows));
+            $byStudent = $invoices->groupBy('student_id');
+            $byUser = $invoices->groupBy('user_id');
+
+            foreach ($chunk as $student) {
+                $rows = collect($byStudent->get($student->id, []))
+                    ->concat($student->user_id ? $byUser->get($student->user_id, []) : [])
+                    ->unique('id')
+                    ->values();
+                $student->setAttribute('finance_summary', StudentFinanceStatus::summarize($student, $rows));
+            }
         }
     }
 
@@ -1494,10 +1643,10 @@ class FinanceController extends Controller
             'department' => $student->program?->department?->name,
             'college' => $student->program?->department?->faculty?->name,
             'current_level' => $student->current_level,
-            'level_label' => \App\Support\StudentAcademicLevel::label($student),
+            'level_label' => StudentAcademicLevel::label($student),
             'study_level' => \App\Support\StudyLevel::ofStudent($student),
             'status' => $student->status,
-            'wallet_balance' => round((float) ($student->wallet_balance ?? $student->wallet?->balance ?? 0), 2),
+            'wallet_balance' => round((float) ($student->wallet_balance ?? 0), 2),
             'billed' => $summary['billed'],
             'paid' => $summary['paid'],
             'outstanding' => $summary['outstanding'],
@@ -1789,6 +1938,9 @@ class FinanceController extends Controller
                 'user:id,name,email,jamb_registration',
                 'user.latestApplication',
                 'student:id,user_id,first_name,last_name,matric_number,student_number,program_id',
+                'student.program:id,name,code,department_id',
+                'student.program.department:id,name,faculty_id',
+                'student.program.department.faculty:id,name',
                 'application:id,user_id,application_number,jamb_registration',
                 'academicSession:id,label',
                 'rebates.rebateType',
