@@ -580,6 +580,10 @@ class ProgrammeFeeScheduleTest extends TestCase
         $labels = ['Year 1', 'year1', 'Year1', 'year one', 'Year one', 'Year One'];
 
         foreach ($labels as $levelName) {
+            // Each label rebuilds the PG catalog; clear request caches from the prior iteration.
+            \App\Support\StudentAcademicLevel::flushCache();
+            \App\Support\ProgrammeFeeResolver::flushCache();
+
             $campus = Campus::query()->create(['name' => 'Main '.$levelName, 'is_active' => true]);
             $faculty = Faculty::query()->create(['name' => 'College '.$levelName, 'campus_id' => $campus->id]);
             $department = Department::query()->create([

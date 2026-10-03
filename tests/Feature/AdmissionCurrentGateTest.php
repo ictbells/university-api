@@ -59,10 +59,11 @@ class AdmissionCurrentGateTest extends TestCase
             'office_department_id' => $office->id,
         ]);
 
+        // Session windows must include "today" — auto-calendar sync ignores terms whose parent session has ended.
         $this->previousSession = AcademicSession::query()->create([
             'label' => '2024/2025',
-            'starts_on' => '2024-10-01',
-            'ends_on' => '2025-09-30',
+            'starts_on' => now()->subYear()->startOfMonth()->toDateString(),
+            'ends_on' => now()->subMonths(2)->endOfMonth()->toDateString(),
         ]);
         $this->previousTerm = AcademicTerm::query()->create([
             'academic_session_id' => $this->previousSession->id,
@@ -73,8 +74,8 @@ class AdmissionCurrentGateTest extends TestCase
 
         $this->newSession = AcademicSession::query()->create([
             'label' => '2025/2026',
-            'starts_on' => '2025-10-01',
-            'ends_on' => '2026-09-30',
+            'starts_on' => now()->subMonth()->toDateString(),
+            'ends_on' => now()->addYear()->toDateString(),
         ]);
         $this->newTerm = AcademicTerm::query()->create([
             'academic_session_id' => $this->newSession->id,
