@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.73  
+**Version:** 1.74  
 **Effective date:** September 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -510,7 +510,16 @@ After import, the applicant signs in on the student portal with **application nu
 
 ### 8.6 Academic — Courses and exam clearance
 
-- **Course catalog** — Course catalogue with Core / Elective / Required status; bulk spreadsheet import (`academic.courses.manage`).
+The university keeps one **Course catalog** (all courses). Students do not register from that list alone. Flow: **Course catalog → Programme courses → Offerings (current semester) → Course registration**.
+
+#### Course catalog (university pool)
+
+- **Course catalog** — Master list of every course (`academic.courses.manage`). Each course has code, title, credit units, catalogue type (`general` / `faculty` / `departmental`), and status (`core` / `elective` / `required`). Course codes must be unique (case and spaces ignored: `CSC201` = `csc 201`). Bulk spreadsheet import is available; matching codes are skipped.
+- **Why a department is required** — The catalog is university-wide, but every course still has a **home department** (ownership: who maintains it, which college it sits under, how reports and imports group it). Even a general (GST) course is owned by a service department. Department does **not** mean “only that department’s students may take the course.”
+- **Why programme is optional** — Linking programmes on create/import (or on **Programme courses**) writes the curriculum map. It does not define the course itself. You may create a course with no programmes, then assign it later; or assign programmes in the same step. The same catalog course can sit on several programmes.
+
+#### Curriculum, offerings, and registration
+
 - **Programme courses** — Assign catalog courses to a programme by college, department, and admission category (UTME, Direct Entry, JUPEB, Transfer, Postgraduate). A programme that accepts several categories appears under each of them. This is the curriculum map; it is not the student registration list (`academic.programmes.manage`).
 - **Offerings** — Course offerings per semester (`academic.offerings.manage`). Filter by admission session and study level. Use **Publish programme courses** to create a section A (unlimited seats) for every mapped catalog course in the chosen semester; courses that already have an offering are skipped. Then add lecturers, extra sections, or capacity. Students register only from offerings in the **current** semester. The **Registered** column shows how many students are registered (dropped registrations are not counted). Each course row has a **Class list → Download** menu: **View students**, **Download Excel**, or **Download PDF** of the students registered on that course (matric, name, gender, programme, level, email, carry-over, registration date); clicking the **Registered** number also opens the list. **Download summary** (Excel or PDF) exports all listed offerings with registered counts and a total row, using the session, semester, and level filters on screen.
 - **Course registration** — Staff view of student enrolments (`academic.enrollments.manage`). On the student portal **Course registration** page, students see every available offering with a unit checklist (General | Faculty | Departmental | Overall), tick their choice, and submit with **one Register**. They must have paid at least 25% tuition before Register/Drop succeed; the catalogue stays visible while they are blocked. Staff can still register below that threshold when they provide a reason. Search the student picker by session and level. **Print registered courses** opens a preview; students choose session and semester there to print an earlier registration. The form shows the level for that session, not the student's current level.
@@ -855,6 +864,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.71 | Oct 2026 | Platform team | Financial status **Cleared** means total outstanding is ₦0 (including semester fee and other charges), not school fees alone |
 | 1.72 | Oct 2026 | Platform team | Students Financial Status tuition installment rows show **Balance due** as school fees still owing after that payment and every earlier tuition payment (not billed minus that receipt alone); status reflects whether the installment document itself is paid |
 | 1.73 | Oct 2026 | Platform team | Students Financial Status and Payments downloads add **CSV** (streaming, up to 100,000 rows) for large lists; Excel up to 25,000; PDF/Word stay capped at 1,000/2,000 |
+| 1.74 | Oct 2026 | Platform team | SOP §8.6 clarifies Course catalog as the university pool: department is ownership/home; programme links are optional curriculum mapping; registration still requires offerings |
 | 1.70 | Sep 2026 | Platform team | Students see the exact amount and fee-line breakdown for the chosen tuition installment in a confirmation popup before the invoice is created; Cancel creates nothing |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.
