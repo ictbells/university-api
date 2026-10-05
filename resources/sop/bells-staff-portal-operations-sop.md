@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.74  
+**Version:** 1.75  
 **Effective date:** September 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -134,6 +134,10 @@ Legacy permissions (`institution.manage`, `academic.catalog.manage`) still grant
 3. If two-factor authentication (2FA) is enabled globally, complete the authenticator step after password verification.
 4. On first login with 2FA enabled, scan the provided secret into an authenticator app and enter the 6-digit code.
 5. After a successful sign-in (including after 2FA), the staff member is emailed a login notice with time, IP address, and device. Failed attempts are not emailed.
+
+The staff portal authenticates with a **Bearer token** in the browser’s session storage (same pattern as the student portal). It does **not** rely on sending the browser cookie jar to the API, so staff are not asked to clear cookies manually when another app on a shared parent domain has filled cookie storage.
+
+ICT: production must use `SESSION_DRIVER=database` (or `redis`), never `cookie`. The cookie driver stores the whole session in the browser and causes “cookie storage full” / HTTP 431. Prefer `SESSION_DOMAIN=null` (host-only on the API host).
 
 Applicants and students must use the **student portal**, not the staff portal.
 
@@ -786,6 +790,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | Password change blocked | Rotation policy expired or current password omitted | Enter current password and a new password that meets the rules |
 | Cannot access Application settings | Missing `settings.manage` | Super Admin or ICT assigns permission |
 | Cannot change password on Profile | Current password not entered | Enter current password with the new password |
+| Staff cannot sign in (“cookie storage full” / 431) | Browser cookie jar full (shared parent domain or `SESSION_DRIVER=cookie`) | Deploy staff portal Bearer/`withCredentials: false` build; set API `SESSION_DRIVER=database` (or redis). Staff do not clear cookies manually |
 
 ---
 
@@ -865,6 +870,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.72 | Oct 2026 | Platform team | Students Financial Status tuition installment rows show **Balance due** as school fees still owing after that payment and every earlier tuition payment (not billed minus that receipt alone); status reflects whether the installment document itself is paid |
 | 1.73 | Oct 2026 | Platform team | Students Financial Status and Payments downloads add **CSV** (streaming, up to 100,000 rows) for large lists; Excel up to 25,000; PDF/Word stay capped at 1,000/2,000 |
 | 1.74 | Oct 2026 | Platform team | SOP §8.6 clarifies Course catalog as the university pool: department is ownership/home; programme links are optional curriculum mapping; registration still requires offerings |
+| 1.75 | Oct 2026 | Platform team | Staff sign-in uses Bearer tokens without sending the browser cookie jar (no manual cookie clear); production forbids `SESSION_DRIVER=cookie` |
 | 1.70 | Sep 2026 | Platform team | Students see the exact amount and fee-line breakdown for the chosen tuition installment in a confirmation popup before the invoice is created; Cancel creates nothing |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.

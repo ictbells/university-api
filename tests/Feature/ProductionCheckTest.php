@@ -20,6 +20,7 @@ class ProductionCheckTest extends TestCase
             'app.super_admin_email' => 'superadmin@bellsuniversity.edu.ng',
             'app.super_admin_password' => 'unique-production-password',
             'session.secure' => true,
+            'session.driver' => 'database',
             'services.paystack.allow_demo_fulfill' => false,
             'services.paystack.secret' => 'sk_live_example',
             'services.paystack.public' => 'pk_live_example',
@@ -52,6 +53,16 @@ class ProductionCheckTest extends TestCase
         $this->artisan('production:check', ['--force' => true])
             ->expectsOutputToContain('Production check passed.')
             ->assertSuccessful();
+    }
+
+    public function test_fails_when_session_driver_is_cookie(): void
+    {
+        config($this->passingConfig());
+        config(['session.driver' => 'cookie']);
+
+        $this->artisan('production:check', ['--force' => true])
+            ->expectsOutputToContain('SESSION_DRIVER must not be cookie')
+            ->assertFailed();
     }
 
     public function test_fails_when_debug_is_on(): void

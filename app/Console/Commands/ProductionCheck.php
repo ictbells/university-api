@@ -60,6 +60,10 @@ class ProductionCheck extends Command
             $failures[] = 'SESSION_SECURE_COOKIE must be true.';
         }
 
+        if (strtolower((string) config('session.driver')) === 'cookie') {
+            $failures[] = 'SESSION_DRIVER must not be cookie (stores the whole session in the browser and fills cookie storage). Use database or redis.';
+        }
+
         if (filter_var(config('services.paystack.allow_demo_fulfill'), FILTER_VALIDATE_BOOLEAN)) {
             $failures[] = 'PAYSTACK_ALLOW_DEMO_FULFILL must be false.';
         }
