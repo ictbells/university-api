@@ -491,7 +491,7 @@ class FinanceController extends Controller
                     (clone $query)->with($with)
                         ->reorder()
                         ->orderBy('invoices.id')
-                        ->chunkById(400, function ($chunk) use ($emit, &$written, $maxRows) {
+                        ->chunkById(1000, function ($chunk) use ($emit, &$written, $maxRows) {
                             foreach ($chunk as $invoice) {
                                 if ($written >= $maxRows) {
                                     return false;
@@ -1360,13 +1360,14 @@ class FinanceController extends Controller
             if ($format === 'csv') {
                 return $this->studentFinanceExports->streamCsv($title, $filters, function (callable $emit) use ($query, $maxRows) {
                     $written = 0;
-                    (clone $query)->reorder()
-                        ->orderBy('students.id')
-                        ->chunkById(400, function ($chunk) use ($emit, &$written, $maxRows) {
-                            if ($written >= $maxRows) {
-                                return false;
-                            }
-                            try {
+                    StudentAcademicLevel::warmCatalog();
+                    try {
+                        (clone $query)->reorder()
+                            ->orderBy('students.id')
+                            ->chunkById(1000, function ($chunk) use ($emit, &$written, $maxRows) {
+                                if ($written >= $maxRows) {
+                                    return false;
+                                }
                                 $this->hydrateFinanceSummaries($chunk);
                                 foreach ($chunk as $student) {
                                     if ($written >= $maxRows) {
@@ -1375,13 +1376,14 @@ class FinanceController extends Controller
                                     $written++;
                                     $emit($this->studentFinanceExportRow($student));
                                 }
-                            } finally {
-                                ProgrammeFeeResolver::flushCache();
-                                StudentAcademicLevel::flushCache();
-                            }
 
-                            return $written < $maxRows;
-                        }, 'students.id', 'id');
+                                return $written < $maxRows;
+                            }, 'students.id', 'id');
+                    } finally {
+                        // Flush once after the full stream — not per chunk (that reloaded fees/levels repeatedly).
+                        ProgrammeFeeResolver::flushCache();
+                        StudentAcademicLevel::flushCache();
+                    }
                 });
             }
 
@@ -1677,7 +1679,7 @@ class FinanceController extends Controller
         StudentAcademicLevel::warmCatalog();
 
         // Chunk so large exports do not load every invoice/payment model at once.
-        foreach ($students->chunk(400) as $chunk) {
+        foreach ($students->chunk(1000) as $chunk) {
             $studentIds = $chunk->pluck('id')->all();
             $userIds = $chunk->pluck('user_id')->filter()->unique()->values()->all();
 
