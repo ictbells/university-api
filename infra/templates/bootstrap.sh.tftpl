@@ -364,6 +364,25 @@ for k, v in updates.items():
         out.append(f"{k}={quote(v)}")
 dest.write_text("\n".join(out) + "\n", encoding="utf-8")
 print(f"Merged {len(updates)} overlay key(s) from S3 into /var/www/api/.env")
+
+# Cookie sessions fill the browser jar and fail production:check — never keep them
+# from a stale S3 overlay (app scripts are not on disk yet during first boot).
+p = Path("/var/www/api/.env")
+lines, seen = [], False
+for raw in p.read_text(encoding="utf-8").splitlines():
+    if raw.strip().startswith("SESSION_DRIVER="):
+        val = raw.split("=", 1)[1].strip().strip('"').strip("'").lower()
+        if not val or val == "cookie":
+            lines.append('SESSION_DRIVER="database"')
+            seen = True
+            continue
+    lines.append(raw)
+if not any(l.strip().startswith("SESSION_DRIVER=") for l in lines):
+    lines.append('SESSION_DRIVER="database"')
+    seen = True
+if seen:
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print("Forced SESSION_DRIVER=database (cookie overlay rejected).")
 PY
   rm -f /tmp/bells-sis-env-overlay
   chown www-data:www-data /var/www/api/.env

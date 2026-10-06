@@ -226,12 +226,25 @@ def hosts_from_url(url: str) -> list[str]:
 
 
 def ensure_spa_session(path: Path) -> int:
-    """Set SESSION_DOMAIN / SANCTUM_STATEFUL_DOMAINS from APP_URL + SPA URLs on non-local hosts."""
+    """Set SESSION_DOMAIN / SANCTUM_STATEFUL_DOMAINS from APP_URL + SPA URLs on non-local hosts.
+
+    Also coerce SESSION_DRIVER=cookie → database. Cookie sessions store the whole
+    payload in the browser and fail production:check / fill cookie storage.
+    """
+    updates: dict[str, str] = {}
+
+    driver = (get_key(path, "SESSION_DRIVER") or "").strip().lower()
+    if not driver or driver == "cookie":
+        updates["SESSION_DRIVER"] = "database"
+        print("SPA session: SESSION_DRIVER=cookie is unsafe; forcing database.")
+
     app_url = get_key(path, "APP_URL") or ""
     front = get_key(path, "FRONTEND_URL") or ""
     student = get_key(path, "STUDENT_URL") or ""
     domain = parent_cookie_domain(_hostname(app_url)) or parent_cookie_domain(_hostname(front))
     if not domain:
+        if updates:
+            apply_updates(path, updates)
         print("SPA session: local APP_URL; leaving SESSION_DOMAIN unchanged.")
         return 0
 
@@ -273,16 +286,16 @@ def ensure_spa_session(path: Path) -> int:
             if www not in cors:
                 cors.append(www)
 
-    apply_updates(
-        path,
+    updates.update(
         {
             "SESSION_DOMAIN": domain,
             "SESSION_SECURE_COOKIE": "true",
             "SESSION_COOKIE": cookie,
             "SANCTUM_STATEFUL_DOMAINS": ",".join(seen),
             "CORS_ALLOWED_ORIGINS": ",".join(cors),
-        },
+        }
     )
+    apply_updates(path, updates)
     print(f"SPA session: SESSION_DOMAIN={domain} stateful_hosts={len(seen)}")
     return 0
 

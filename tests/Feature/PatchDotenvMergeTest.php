@@ -44,4 +44,33 @@ class PatchDotenvMergeTest extends TestCase
         array_map('unlink', glob($dir.'/*') ?: []);
         rmdir($dir);
     }
+
+    public function test_ensure_spa_session_replaces_cookie_session_driver(): void
+    {
+        $dir = sys_get_temp_dir().'/bells-env-'.uniqid();
+        mkdir($dir, 0700, true);
+        $dest = $dir.'/app.env';
+
+        file_put_contents($dest, implode("\n", [
+            'APP_URL=https://bells-api.example.com',
+            'FRONTEND_URL=https://staff.example.com',
+            'STUDENT_URL=https://student.example.com',
+            'SESSION_DRIVER=cookie',
+            'SESSION_SECURE_COOKIE=true',
+            'SESSION_COOKIE=bells_sis_session',
+        ])."\n");
+
+        $script = base_path('scripts/patch-dotenv.py');
+        $python = collect(['python3', 'python'])->first(fn ($bin) => Process::run([$bin, '--version'])->successful()) ?: 'python';
+        $result = Process::run([$python, $script, $dest, '--ensure-spa-session']);
+        $this->assertTrue($result->successful(), $result->errorOutput().$result->output());
+
+        $merged = str_replace("\r", '', (string) file_get_contents($dest));
+        $this->assertMatchesRegularExpression('/SESSION_DRIVER="?database"?/', $merged);
+        $this->assertStringNotContainsString('SESSION_DRIVER=cookie', $merged);
+        $this->assertStringNotContainsString('SESSION_DRIVER="cookie"', $merged);
+
+        array_map('unlink', glob($dir.'/*') ?: []);
+        rmdir($dir);
+    }
 }
