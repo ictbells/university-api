@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\AcademicLevel;
 use App\Models\Campus;
 use App\Models\Course;
 use App\Models\Department;
@@ -16,6 +15,7 @@ use App\Support\ImportLookupSheets;
 use App\Support\SpreadsheetImport;
 use App\Support\StudyLevel;
 use App\Support\WorkflowCatalog;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -266,40 +266,17 @@ class AcademicCatalogImportService
         if ($units < 1) {
             $units = 3;
         }
-        $department = $this->findById(Department::query(), $data['department_id'], 'department_id');
 
-        $programmeId = SpreadsheetImport::parseOptionalId($data['programme_id'] ?? '', 'programme_id');
-        $levelId = SpreadsheetImport::parseOptionalId($data['level_id'] ?? '', 'level_id');
-        $level = $levelId !== null
-            ? $this->findById(AcademicLevel::query(), (string) $levelId, 'level_id')
-            : null;
-
-        $programs = $programmeId !== null
-            ? collect([$this->findById(Program::query(), (string) $programmeId, 'programme_id')])
-            : collect();
-        if ($level && $programs->isNotEmpty()) {
-            $program = $programs->first();
-            if ($program && $level->study_level !== StudyLevel::ofProgram($program)) {
-                throw new RuntimeException('level_id must match the programme track. JUPEB programmes cannot use undergraduate levels.');
-            }
-        }
-
-        $course = Course::query()->create([
-            'department_id' => $department->id,
-            'code' => $code,
-            'title' => $title,
-            'units' => $units,
-            'course_type' => $type,
-            'status' => $status,
-        ]);
-
-        foreach ($programs as $program) {
-            $course->programs()->syncWithoutDetaching([
-                $program->id => [
-                    'academic_level_id' => $levelId,
-                    'bucket' => $type,
-                ],
+        try {
+            Course::query()->create([
+                'code' => $code,
+                'title' => $title,
+                'units' => $units,
+                'course_type' => $type,
+                'status' => $status,
             ]);
+        } catch (UniqueConstraintViolationException) {
+            throw new CatalogImportSkipped('A course with this code already exists.');
         }
     }
 
@@ -371,11 +348,7 @@ class AcademicCatalogImportService
             'departments' => [ImportLookupSheets::colleges()],
             'programmes' => [ImportLookupSheets::departments()],
             'olevel' => [],
-            'courses' => [
-                ImportLookupSheets::departments(),
-                ImportLookupSheets::programmes(null),
-                ImportLookupSheets::levels(),
-            ],
+            'courses' => [],
             default => [],
         };
     }

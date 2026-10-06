@@ -143,20 +143,7 @@ class CatalogImportTest extends TestCase
     public function test_course_import_creates_and_skips_existing_code_without_update(): void
     {
         Sanctum::actingAs($this->staffUser());
-        $tree = $this->seedAcademicTree();
-        $program = Program::query()->create([
-            'department_id' => $tree['department']->id,
-            'name' => 'B.Sc Computer Science',
-            'code' => 'BSC-CS',
-            'award_type' => 'B.Sc',
-            'study_level' => 'undergraduate',
-            'entry_modes' => ['utme'],
-            'duration_years' => 4,
-            'is_active' => true,
-            'workflow_template_id' => WorkflowCatalog::idByCode(WorkflowCatalog::UG_STANDARD),
-        ]);
         $existing = Course::query()->create([
-            'department_id' => $tree['department']->id,
             'code' => 'CSC 101',
             'title' => 'Introduction to Computing',
             'units' => 3,
@@ -170,18 +157,14 @@ class CatalogImportTest extends TestCase
                     'title' => 'Changed title',
                     'units' => '4',
                     'course_type' => 'general',
-                    'department_id' => (string) $tree['department']->id,
-                    'programme_id' => (string) $program->id,
-                    'level_id' => '',
+                    'status' => 'core',
                 ],
                 [
                     'code' => 'CSC 102',
                     'title' => 'Programming I',
                     'units' => '3',
                     'course_type' => 'departmental',
-                    'department_id' => (string) $tree['department']->id,
-                    'programme_id' => (string) $program->id,
-                    'level_id' => '',
+                    'status' => 'core',
                 ],
             ]),
         ], ['Accept' => 'application/json'])->assertOk()
@@ -197,24 +180,14 @@ class CatalogImportTest extends TestCase
         $created = Course::query()->where('code', 'CSC 102')->first();
         $this->assertNotNull($created);
         $this->assertSame('Programming I', $created->title);
-        $this->assertTrue($created->programs()->where('programs.id', $program->id)->exists());
+        $this->assertNull($created->department_id);
+        $this->assertSame('CSC102', $created->code_key);
+        $this->assertSame(0, $created->programs()->count());
     }
 
     public function test_course_import_requires_catalogue_type_and_does_not_auto_attach_programmes(): void
     {
         Sanctum::actingAs($this->staffUser());
-        $tree = $this->seedAcademicTree();
-        $program = Program::query()->create([
-            'department_id' => $tree['department']->id,
-            'name' => 'B.Sc Computer Science',
-            'code' => 'BSC-CS',
-            'award_type' => 'B.Sc',
-            'study_level' => 'undergraduate',
-            'entry_modes' => ['utme'],
-            'duration_years' => 4,
-            'is_active' => true,
-            'workflow_template_id' => WorkflowCatalog::idByCode(WorkflowCatalog::UG_STANDARD),
-        ]);
 
         $this->post('/api/academic/courses/import', [
             'file' => $this->spreadsheetRows('Courses', CatalogImportColumns::all('courses'), [
@@ -223,18 +196,14 @@ class CatalogImportTest extends TestCase
                     'title' => 'Use of English',
                     'units' => '2',
                     'course_type' => '',
-                    'department_id' => (string) $tree['department']->id,
-                    'programme_id' => (string) $program->id,
-                    'level_id' => '',
+                    'status' => 'core',
                 ],
                 [
                     'code' => 'GST 102',
                     'title' => 'Nigerian Peoples',
                     'units' => '2',
                     'course_type' => 'general',
-                    'department_id' => (string) $tree['department']->id,
-                    'programme_id' => '',
-                    'level_id' => '',
+                    'status' => 'core',
                 ],
             ]),
         ], ['Accept' => 'application/json'])->assertOk()
@@ -245,6 +214,7 @@ class CatalogImportTest extends TestCase
         $created = Course::query()->where('code', 'GST 102')->first();
         $this->assertNotNull($created);
         $this->assertSame('general', $created->course_type);
+        $this->assertNull($created->department_id);
         $this->assertSame(0, $created->programs()->count());
     }
 

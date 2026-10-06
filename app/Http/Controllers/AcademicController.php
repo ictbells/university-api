@@ -209,22 +209,17 @@ class AcademicController extends Controller
     public function storeCourse(Request $request)
     {
         $data = $request->validate([
-            'department_id' => 'required|exists:departments,id',
             'code' => ['required', 'string', 'max:50', $this->uniqueCourseCodeRule()],
             'title' => 'required|string',
             'units' => 'required|integer|min:1',
             'course_type' => ['required', Rule::in(Course::TYPES)],
             'status' => ['nullable', Rule::in(Course::STATUSES)],
-            'program_ids' => 'nullable|array',
-            'program_ids.*' => 'integer|exists:programs,id',
         ]);
         $data['code'] = strtoupper(trim($data['code']));
         $data['status'] = $data['status'] ?? 'core';
-        $programIds = $this->normalizeIds($data['program_ids'] ?? []);
-        unset($data['program_ids']);
-        return $this->officeGate('academic.store_course', null, $data + ['program_ids' => $programIds], 'Create course', function () use ($data, $programIds) {
+
+        return $this->officeGate('academic.store_course', null, $data, 'Create course', function () use ($data) {
             $course = Course::query()->create($data);
-            $this->syncCoursePrograms($course, $programIds);
             $this->audit->record('course.created', 'Course created', 'academic', 'course', $course->id, null, $course);
 
             return $course->load(['department', 'programs']);
@@ -235,31 +230,21 @@ class AcademicController extends Controller
     {
         $before = $course->toArray();
         $data = $request->validate([
-            'department_id' => 'sometimes|exists:departments,id',
             'code' => ['sometimes', 'string', 'max:50', $this->uniqueCourseCodeRule($course->id)],
             'title' => 'sometimes|string',
             'units' => 'sometimes|integer|min:1',
             'course_type' => ['sometimes', Rule::in(Course::TYPES)],
             'status' => ['nullable', Rule::in(Course::STATUSES)],
-            'program_ids' => 'sometimes|nullable|array',
-            'program_ids.*' => 'integer|exists:programs,id',
         ]);
         if (array_key_exists('code', $data)) {
             $data['code'] = strtoupper(trim($data['code']));
         }
-        $hasProgramIds = $request->exists('program_ids');
-        $programIds = $hasProgramIds ? $this->normalizeIds($data['program_ids'] ?? []) : null;
-        unset($data['program_ids']);
         $payload = ['course_id' => $course->id, ...$data];
-        if ($hasProgramIds) {
-            $payload['program_ids'] = $programIds;
-        }
-        return $this->officeGate('academic.update_course', $course, $payload, 'Update course', function () use ($course, $data, $before, $programIds) {
+
+        return $this->officeGate('academic.update_course', $course, $payload, 'Update course', function () use ($course, $data, $before) {
             $course->update($data);
             $fresh = $course->fresh() ?? $course;
-            if ($programIds !== null) {
-                $this->syncCoursePrograms($fresh, $programIds);
-            } elseif (array_key_exists('course_type', $data)) {
+            if (array_key_exists('course_type', $data)) {
                 $this->syncCoursePrograms(
                     $fresh,
                     $fresh->programs()->pluck('programs.id')->map(fn ($id) => (int) $id)->all(),

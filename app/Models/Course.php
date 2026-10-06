@@ -14,7 +14,16 @@ class Course extends BaseModel
 
     public const STATUSES = ['core', 'elective', 'required'];
 
-    protected $fillable = ['department_id', 'code', 'title', 'units', 'course_type', 'status'];
+    protected $fillable = ['department_id', 'code', 'code_key', 'title', 'units', 'course_type', 'status'];
+
+    protected static function booted(): void
+    {
+        static::saving(function (Course $course) {
+            if ($course->isDirty('code') || blank($course->code_key)) {
+                $course->code_key = self::normalizeCode((string) $course->code);
+            }
+        });
+    }
 
     public static function statusLabel(?string $status): string
     {
@@ -38,13 +47,24 @@ class Course extends BaseModel
             return null;
         }
 
-        $query = static::query()
-            ->whereRaw("UPPER(REPLACE(COALESCE(code, ''), ' ', '')) = ?", [$normalized]);
+        $query = static::query()->where('code_key', $normalized);
         if ($ignoreId !== null) {
             $query->where('id', '!=', $ignoreId);
         }
 
-        return $query->first();
+        $match = $query->first();
+        if ($match) {
+            return $match;
+        }
+
+        // Fallback for rows not yet backfilled (pre-migration / mid-deploy).
+        $legacy = static::query()
+            ->whereRaw("UPPER(REPLACE(COALESCE(code, ''), ' ', '')) = ?", [$normalized]);
+        if ($ignoreId !== null) {
+            $legacy->where('id', '!=', $ignoreId);
+        }
+
+        return $legacy->first();
     }
 
     public function department(): BelongsTo

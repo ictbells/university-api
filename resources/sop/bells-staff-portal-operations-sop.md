@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.75  
+**Version:** 1.76  
 **Effective date:** September 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -518,9 +518,8 @@ The university keeps one **Course catalog** (all courses). Students do not regis
 
 #### Course catalog (university pool)
 
-- **Course catalog** — Master list of every course (`academic.courses.manage`). Each course has code, title, credit units, catalogue type (`general` / `faculty` / `departmental`), and status (`core` / `elective` / `required`). Course codes must be unique (case and spaces ignored: `CSC201` = `csc 201`). Bulk spreadsheet import is available; matching codes are skipped.
-- **Why a department is required** — The catalog is university-wide, but every course still has a **home department** (ownership: who maintains it, which college it sits under, how reports and imports group it). Even a general (GST) course is owned by a service department. Department does **not** mean “only that department’s students may take the course.”
-- **Why programme is optional** — Linking programmes on create/import (or on **Programme courses**) writes the curriculum map. It does not define the course itself. You may create a course with no programmes, then assign it later; or assign programmes in the same step. The same catalog course can sit on several programmes.
+- **Course catalog** — Master list of every course (`academic.courses.manage`). Each course has code, title, credit units, catalogue type (`general` / `faculty` / `departmental`), and status (`core` / `elective` / `required`). **College, department, and programme are not set on the catalog.** Course codes must be unique university-wide (case and spaces ignored: `CSC201` = `csc 201`). Bulk spreadsheet import is available; matching codes are skipped.
+- **Mapping is a later step** — Assign catalog courses to programmes on **Programme courses** (curriculum). The same catalog course can sit on several programmes. Then publish mapped courses on **Offerings** for the semester so students can register.
 
 #### Curriculum, offerings, and registration
 
@@ -871,6 +870,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.73 | Oct 2026 | Platform team | Students Financial Status and Payments downloads add **CSV** (streaming, up to 100,000 rows) for large lists; Excel up to 25,000; PDF/Word stay capped at 1,000/2,000 |
 | 1.74 | Oct 2026 | Platform team | SOP §8.6 clarifies Course catalog as the university pool: department is ownership/home; programme links are optional curriculum mapping; registration still requires offerings |
 | 1.75 | Oct 2026 | Platform team | Staff sign-in uses Bearer tokens without sending the browser cookie jar (no manual cookie clear); production forbids `SESSION_DRIVER=cookie` |
+| 1.76 | Oct 2026 | Platform team | Course catalog is a free pool (no college/department/programme on create/import); codes unique university-wide via `code_key`; map on Programme courses |
 | 1.70 | Sep 2026 | Platform team | Students see the exact amount and fee-line breakdown for the chosen tuition installment in a confirmation popup before the invoice is created; Cancel creates nothing |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.

@@ -212,11 +212,10 @@ class ProgrammeCourseAssignmentTest extends TestCase
 
     public function test_creating_a_course_requires_catalogue_type_and_programmes_are_optional(): void
     {
-        [$user, $program] = $this->seedCatalog();
+        [$user] = $this->seedCatalog();
         Sanctum::actingAs($user);
 
         $this->postJson('/api/academic/courses', [
-            'department_id' => $program->department_id,
             'code' => 'CSC201',
             'title' => 'Data Structures',
             'units' => 3,
@@ -224,7 +223,6 @@ class ProgrammeCourseAssignmentTest extends TestCase
         ])->assertUnprocessable();
 
         $this->postJson('/api/academic/courses', [
-            'department_id' => $program->department_id,
             'code' => 'CSC201',
             'title' => 'Data Structures',
             'units' => 3,
@@ -233,18 +231,19 @@ class ProgrammeCourseAssignmentTest extends TestCase
         ])
             ->assertCreated()
             ->assertJsonPath('code', 'CSC201')
+            ->assertJsonPath('department_id', null)
             ->assertJsonPath('programs', []);
 
         $this->assertSame(0, Course::query()->where('code', 'CSC201')->first()?->programs()->count());
+        $this->assertSame('CSC201', Course::query()->where('code', 'CSC201')->value('code_key'));
     }
 
     public function test_duplicate_course_codes_are_rejected(): void
     {
-        [$user, $program] = $this->seedCatalog();
+        [$user] = $this->seedCatalog();
         Sanctum::actingAs($user);
 
         $this->postJson('/api/academic/courses', [
-            'department_id' => $program->department_id,
             'code' => 'CSC301',
             'title' => 'Operating Systems',
             'units' => 3,
@@ -253,7 +252,6 @@ class ProgrammeCourseAssignmentTest extends TestCase
         ])->assertCreated();
 
         $this->postJson('/api/academic/courses', [
-            'department_id' => $program->department_id,
             'code' => 'csc 301',
             'title' => 'Operating Systems Duplicate',
             'units' => 3,
@@ -264,37 +262,26 @@ class ProgrammeCourseAssignmentTest extends TestCase
             ->assertJsonValidationErrors(['code']);
 
         $this->assertSame(1, Course::query()
-            ->whereRaw("UPPER(REPLACE(COALESCE(code, ''), ' ', '')) = ?", ['CSC301'])
+            ->where('code_key', 'CSC301')
             ->count());
     }
 
-    public function test_course_catalog_and_programme_courses_share_the_same_assignments(): void
+    public function test_course_catalog_lists_programme_mappings_from_programme_courses(): void
     {
         [$user, $program, $course, $level, , $programB] = $this->seedCatalog();
         Sanctum::actingAs($user);
 
         $this->postJson('/api/academic/courses', [
-            'department_id' => $program->department_id,
             'code' => 'CSC210',
             'title' => 'Algorithms',
             'units' => 3,
             'course_type' => 'faculty',
             'status' => 'core',
-            'program_ids' => [$program->id, $programB->id],
         ])->assertCreated();
 
         $created = Course::query()->where('code', 'CSC210')->first();
         $this->assertNotNull($created);
-        $this->assertDatabaseHas('program_course', [
-            'program_id' => $program->id,
-            'course_id' => $created->id,
-            'bucket' => 'faculty',
-        ]);
-        $this->assertDatabaseHas('program_course', [
-            'program_id' => $programB->id,
-            'course_id' => $created->id,
-            'bucket' => 'faculty',
-        ]);
+        $this->assertSame(0, $created->programs()->count());
 
         $this->putJson("/api/academic/programs/{$program->id}/courses", [
             'courses' => [
@@ -303,11 +290,22 @@ class ProgrammeCourseAssignmentTest extends TestCase
             ],
         ])->assertOk();
 
-        $this->assertTrue($created->fresh()->programs()->where('programs.id', $programB->id)->exists());
+        $this->putJson("/api/academic/programs/{$programB->id}/courses", [
+            'courses' => [
+                ['course_id' => $created->id, 'academic_level_id' => null],
+            ],
+        ])->assertOk();
+
         $this->assertDatabaseHas('program_course', [
             'program_id' => $program->id,
             'course_id' => $created->id,
             'academic_level_id' => $level->id,
+            'bucket' => 'faculty',
+        ]);
+        $this->assertDatabaseHas('program_course', [
+            'program_id' => $programB->id,
+            'course_id' => $created->id,
+            'bucket' => 'faculty',
         ]);
 
         $catalog = collect($this->getJson('/api/academic/courses')->json());
@@ -320,10 +318,10 @@ class ProgrammeCourseAssignmentTest extends TestCase
 
         $this->patchJson("/api/academic/courses/{$created->id}", [
             'title' => 'Algorithms II',
-            'program_ids' => [$program->id],
-        ])->assertOk();
+        ])->assertOk()
+            ->assertJsonPath('title', 'Algorithms II');
 
-        $this->assertFalse($created->fresh()->programs()->where('programs.id', $programB->id)->exists());
+        $this->assertTrue($created->fresh()->programs()->where('programs.id', $programB->id)->exists());
         $this->assertDatabaseHas('program_course', [
             'program_id' => $program->id,
             'course_id' => $created->id,

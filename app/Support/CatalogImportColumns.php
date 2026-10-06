@@ -37,7 +37,7 @@ class CatalogImportColumns
                 'is_research_degree',
             ],
             'olevel' => ['name', 'code', 'is_active'],
-            'courses' => ['code', 'title', 'units', 'course_type', 'status', 'department_id', 'programme_id', 'level_id'],
+            'courses' => ['code', 'title', 'units', 'course_type', 'status'],
             default => throw new \InvalidArgumentException('Unknown catalogue import type.'),
         };
     }
@@ -52,7 +52,7 @@ class CatalogImportColumns
             'departments' => ['name', 'college_id'],
             'programmes' => ['name', 'department_id', 'award_type', 'study_level', 'duration_years', 'entry_modes'],
             'olevel' => ['name'],
-            'courses' => ['code', 'title', 'department_id', 'course_type'],
+            'courses' => ['code', 'title', 'course_type'],
             default => throw new \InvalidArgumentException('Unknown catalogue import type.'),
         };
     }
@@ -97,9 +97,6 @@ class CatalogImportColumns
                 'units' => '3',
                 'course_type' => 'departmental',
                 'status' => 'core',
-                'department_id' => '1',
-                'programme_id' => '1',
-                'level_id' => '1',
             ]),
             default => $row,
         };
@@ -152,10 +149,9 @@ class CatalogImportColumns
                 '',
                 $order,
                 $skip,
-                'Required: code, title, department_id, course_type (general, faculty, or departmental).',
-                'Optional: units (default 3), status (core, elective, required), programme_id, level_id.',
-                'If programme_id is set, the course is mapped on Programme courses. Leave it blank to assign later.',
-                $ids,
+                'Required: code, title, course_type (general, faculty, or departmental).',
+                'Optional: units (default 3), status (core, elective, required).',
+                'Course codes must be unique university-wide (case and spaces ignored). Map courses to programmes later on Programme courses.',
             ],
             default => [$order, $skip],
         };
