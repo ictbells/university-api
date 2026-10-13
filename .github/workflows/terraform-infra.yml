@@ -158,7 +158,7 @@ jobs:
             echo "| Name | Value |"
             echo "|------|-------|"
             echo "| AWS_REGION | \`us-east-1\` |"
-            echo "| AWS_EC2_INSTANCE_ID | \`$(terraform output -raw api_instance_id)\` |"
+            echo "| AWS_EC2_INSTANCE_NAME | \`test-bells-sis-api\` (EC2 Name tag; deploy resolves id automatically) |"
             echo "| AWS_EC2_PATH | \`/var/www/api\` |"
             echo "| AWS_DEPLOY_S3_BUCKET | \`$(terraform output -raw deploy_s3_bucket)\` |"
             echo "| VITE_API_URL | \`https://$(terraform output -raw api_fqdn)\` |"

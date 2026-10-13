@@ -63,7 +63,7 @@ runs:
         mkdir -p "$WORK"
 
         if [[ -z "${INSTANCE_ID:-}" || ! "$INSTANCE_ID" =~ ^i-([0-9a-f]{8}|[0-9a-f]{17})$ ]]; then
-          echo "instance-id is missing or invalid ('${INSTANCE_ID:-}'). Set AWS_EC2_INSTANCE_ID to terraform output api_instance_id." >&2
+          echo "instance-id is missing or invalid ('${INSTANCE_ID:-}'). Workflow must resolve it from the EC2 Name tag (default test-bells-sis-api)." >&2
           exit 1
         fi
         if [[ -z "$BUCKET" ]]; then
@@ -99,7 +99,7 @@ runs:
         export SSM_PARAMS="${WORK}/ssm-params.json" REMOTE_COMMAND
         python3 "${GITHUB_ACTION_PATH}/render.py" params
 
-        COMMAND_ID="$(aws ssm send-command \
+        if ! COMMAND_ID="$(aws ssm send-command \
           --region "$REGION" \
           --instance-ids "$INSTANCE_ID" \
           --document-name "AWS-RunShellScript" \
@@ -107,7 +107,14 @@ runs:
           --timeout-seconds 600 \
           --parameters "file://${WORK}/ssm-params.json" \
           --query Command.CommandId \
-          --output text)"
+          --output text 2>"${WORK}/send-command.err")"; then
+          echo "SSM SendCommand failed for ${INSTANCE_ID}:" >&2
+          cat "${WORK}/send-command.err" >&2 || true
+          echo "--- SSM registration ---" >&2
+          aws ssm describe-instance-information --region "$REGION" \
+            --filters "Key=InstanceIds,Values=${INSTANCE_ID}" --output table >&2 || true
+          exit 254
+        fi
 
         echo "SSM command id: $COMMAND_ID"
         for i in $(seq 1 90); do

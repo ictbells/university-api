@@ -110,12 +110,10 @@ jobs:
           echo "Using deploy bucket s3://${BUCKET}/ (source=${SOURCE})"
           echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve EC2 instance
+      - name: Resolve EC2 instance by Name tag
         id: instance
         if: ${{ steps.target.outputs.target == 'aws' }}
         env:
-          FROM_ID_VARS: ${{ vars.AWS_EC2_INSTANCE_ID }}
-          FROM_ID_SECRETS: ${{ secrets.AWS_EC2_INSTANCE_ID }}
           FROM_NAME_VARS: ${{ vars.AWS_EC2_INSTANCE_NAME }}
           FROM_NAME_SECRETS: ${{ secrets.AWS_EC2_INSTANCE_NAME }}
           AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
@@ -123,41 +121,66 @@ jobs:
           set -euo pipefail
           valid_id() { [[ "$1" =~ ^i-([0-9a-f]{8}|[0-9a-f]{17})$ ]]; }
 
-          # Optional override: exact instance id (var/secret). Prefer Name tag instead.
-          ID="${FROM_ID_VARS:-${AWS_EC2_INSTANCE_ID:-${FROM_ID_SECRETS:-}}}"
-          ID="$(echo "$ID" | tr -d '[:space:]')"
+          # Deploy targets the EC2 Name tag only (infra/ec2.tf → test-bells-sis-api).
+          NAME="${FROM_NAME_VARS:-${AWS_EC2_INSTANCE_NAME:-${FROM_NAME_SECRETS:-test-bells-sis-api}}}"
+          NAME="$(echo "$NAME" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
-          if ! valid_id "$ID"; then
-            # Default matches infra/ec2.tf with environment=test → Name=test-bells-sis-api.
-            NAME="${FROM_NAME_VARS:-${AWS_EC2_INSTANCE_NAME:-${FROM_NAME_SECRETS:-test-bells-sis-api}}}"
-            NAME="$(echo "$NAME" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+          echo "Resolving EC2 by tag Name=${NAME}"
+          mapfile -t IDS < <(aws ec2 describe-instances --region "$AWS_REGION" \
+            --filters \
+              "Name=instance-state-name,Values=running,pending" \
+              "Name=tag:Name,Values=${NAME}" \
+            --query "Reservations[].Instances[].InstanceId" \
+            --output text | tr '\t' '\n' | sed '/^$/d')
 
-            echo "Resolving EC2 by tag Name=${NAME}"
-            mapfile -t IDS < <(aws ec2 describe-instances --region "$AWS_REGION" \
-              --filters \
-                "Name=instance-state-name,Values=running,pending" \
-                "Name=tag:Name,Values=${NAME}" \
-              --query "Reservations[].Instances[].InstanceId" \
-              --output text | tr '\t' '\n' | sed '/^$/d')
-
-            if [[ ${#IDS[@]} -eq 0 ]]; then
-              echo "No running EC2 instance with Name=${NAME}." >&2
-              echo "Override with GitHub var AWS_EC2_INSTANCE_NAME, or AWS_EC2_INSTANCE_ID." >&2
-              exit 1
-            fi
-            if [[ ${#IDS[@]} -gt 1 ]]; then
-              echo "Multiple EC2 instances matched Name=${NAME} (${#IDS[@]}): ${IDS[*]}" >&2
-              echo "Set AWS_EC2_INSTANCE_NAME or AWS_EC2_INSTANCE_ID to pick one." >&2
-              exit 1
-            fi
-            ID="${IDS[0]}"
+          if [[ ${#IDS[@]} -eq 0 ]]; then
+            echo "No running EC2 instance with Name=${NAME}." >&2
+            echo "Set GitHub var AWS_EC2_INSTANCE_NAME to the instance Name tag." >&2
+            exit 1
           fi
+          if [[ ${#IDS[@]} -gt 1 ]]; then
+            echo "Multiple EC2 instances matched Name=${NAME} (${#IDS[@]}): ${IDS[*]}" >&2
+            echo "Keep a single instance with that Name tag." >&2
+            exit 1
+          fi
+          ID="${IDS[0]}"
 
           if ! valid_id "$ID"; then
             echo "Resolved instance id is invalid: '${ID}'" >&2
             exit 1
           fi
-          echo "Using EC2 instance ${ID}"
+
+          STATE="$(aws ec2 describe-instances --region "$AWS_REGION" \
+            --instance-ids "$ID" \
+            --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null || echo unknown)"
+          echo "Name=${NAME} → ${ID} (state=${STATE})"
+
+          # SendCommand needs the instance Online in SSM (agent + instance profile), not just running.
+          PING=""
+          for _ in $(seq 1 18); do
+            PING="$(aws ssm describe-instance-information --region "$AWS_REGION" \
+              --filters "Key=InstanceIds,Values=${ID}" \
+              --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null || true)"
+            PING="$(echo "${PING:-}" | tr -d '[:space:]')"
+            if [[ "$PING" == "Online" ]]; then
+              break
+            fi
+            echo "Waiting for SSM Online on Name=${NAME} (current=${PING:-none})..."
+            sleep 10
+          done
+
+          if [[ "$PING" != "Online" ]]; then
+            echo "Instance Name=${NAME} (${ID}) is ${STATE} but not Online in SSM (PingStatus=${PING:-none})." >&2
+            echo "SendCommand will fail with InvalidInstanceId until SSM works." >&2
+            echo "Check: instance profile has AmazonSSMManagedInstanceCore, SSM agent running," >&2
+            echo "and the instance can reach SSM (public IP or VPC interface endpoints)." >&2
+            aws ssm describe-instance-information --region "$AWS_REGION" \
+              --filters "Key=InstanceIds,Values=${ID}" --output table >&2 || true
+            exit 1
+          fi
+
+          echo "Using Name=${NAME} → ${ID} (SSM Online)"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "id=$ID" >> "$GITHUB_OUTPUT"
 
       - name: Download env overlay from S3

@@ -101,7 +101,8 @@ resource "aws_iam_role_policy" "github_deploy" {
         ]
         Resource = [
           "arn:aws:ssm:${var.aws_region}::document/AWS-RunShellScript",
-          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/${aws_instance.api.id}"
+          # Any API instance in this account/region (Name tag resolved at deploy time).
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*"
         ]
       },
       {
@@ -109,7 +110,8 @@ resource "aws_iam_role_policy" "github_deploy" {
         Effect = "Allow"
         Action = [
           "ssm:GetCommandInvocation",
-          "ssm:ListCommandInvocations"
+          "ssm:ListCommandInvocations",
+          "ssm:DescribeInstanceInformation"
         ]
         Resource = "*"
       },
