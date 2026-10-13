@@ -114,23 +114,47 @@ jobs:
         id: instance
         if: ${{ steps.target.outputs.target == 'aws' }}
         env:
-          FROM_VARS: ${{ vars.AWS_EC2_INSTANCE_ID }}
-          FROM_SECRETS: ${{ secrets.AWS_EC2_INSTANCE_ID }}
-          GH_ENV: ${{ env.GH_ENV }}
+          FROM_ID_VARS: ${{ vars.AWS_EC2_INSTANCE_ID }}
+          FROM_ID_SECRETS: ${{ secrets.AWS_EC2_INSTANCE_ID }}
+          FROM_NAME_VARS: ${{ vars.AWS_EC2_INSTANCE_NAME }}
+          FROM_NAME_SECRETS: ${{ secrets.AWS_EC2_INSTANCE_NAME }}
           AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
         run: |
           set -euo pipefail
           valid_id() { [[ "$1" =~ ^i-([0-9a-f]{8}|[0-9a-f]{17})$ ]]; }
-          ID="${FROM_VARS:-${AWS_EC2_INSTANCE_ID:-${FROM_SECRETS:-}}}"
+
+          # Optional override: exact instance id (var/secret). Prefer Name tag instead.
+          ID="${FROM_ID_VARS:-${AWS_EC2_INSTANCE_ID:-${FROM_ID_SECRETS:-}}}"
           ID="$(echo "$ID" | tr -d '[:space:]')"
+
           if ! valid_id "$ID"; then
-            ID="$(aws ec2 describe-instances --region "$AWS_REGION" \
-              --filters "Name=instance-state-name,Values=running,pending" "Name=tag:Name,Values=*bells-sis-api" \
-              --query "Reservations[].Instances[].InstanceId | [0]" --output text)"
-            ID="$(echo "$ID" | tr -d '[:space:]')"
+            # Default matches infra/ec2.tf with environment=test → Name=test-bells-sis-api.
+            NAME="${FROM_NAME_VARS:-${AWS_EC2_INSTANCE_NAME:-${FROM_NAME_SECRETS:-test-bells-sis-api}}}"
+            NAME="$(echo "$NAME" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+            echo "Resolving EC2 by tag Name=${NAME}"
+            mapfile -t IDS < <(aws ec2 describe-instances --region "$AWS_REGION" \
+              --filters \
+                "Name=instance-state-name,Values=running,pending" \
+                "Name=tag:Name,Values=${NAME}" \
+              --query "Reservations[].Instances[].InstanceId" \
+              --output text | tr '\t' '\n' | sed '/^$/d')
+
+            if [[ ${#IDS[@]} -eq 0 ]]; then
+              echo "No running EC2 instance with Name=${NAME}." >&2
+              echo "Override with GitHub var AWS_EC2_INSTANCE_NAME, or AWS_EC2_INSTANCE_ID." >&2
+              exit 1
+            fi
+            if [[ ${#IDS[@]} -gt 1 ]]; then
+              echo "Multiple EC2 instances matched Name=${NAME} (${#IDS[@]}): ${IDS[*]}" >&2
+              echo "Set AWS_EC2_INSTANCE_NAME or AWS_EC2_INSTANCE_ID to pick one." >&2
+              exit 1
+            fi
+            ID="${IDS[0]}"
           fi
+
           if ! valid_id "$ID"; then
-            echo "Set AWS_EC2_INSTANCE_ID (terraform output api_instance_id)." >&2
+            echo "Resolved instance id is invalid: '${ID}'" >&2
             exit 1
           fi
           echo "Using EC2 instance ${ID}"
