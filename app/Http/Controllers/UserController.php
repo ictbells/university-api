@@ -103,11 +103,8 @@ class UserController extends Controller
             if (! empty($data['role_ids'])) {
                 $user->roles()->sync($data['role_ids']);
             }
-            if ($request->filled('staff_title')
-                || $request->filled('department_id')
-                || $request->filled('office_department_id')
-                || $request->filled('office_unit_id')
-                || $request->filled('office_subunit_id')) {
+            // Staff-portal accounts always get a staff row (office can stay unassigned).
+            if ($user->fresh()->isStaffPortalUser() && ! $user->staff()->exists()) {
                 Staff::query()->create([
                     'user_id' => $user->id,
                     'department_id' => $data['department_id'] ?? null,
@@ -117,6 +114,22 @@ class UserController extends Controller
                     'staff_number' => 'STF-'.str_pad((string) $user->id, 4, '0', STR_PAD_LEFT),
                     'title' => $data['staff_title'] ?? 'Staff',
                 ]);
+            } elseif ($request->filled('staff_title')
+                || $request->filled('department_id')
+                || $request->filled('office_department_id')
+                || $request->filled('office_unit_id')
+                || $request->filled('office_subunit_id')) {
+                Staff::query()->updateOrCreate(
+                    ['user_id' => $user->id],
+                    [
+                        'department_id' => $data['department_id'] ?? null,
+                        'office_department_id' => $data['office_department_id'] ?? null,
+                        'office_unit_id' => $data['office_unit_id'] ?? null,
+                        'office_subunit_id' => $data['office_subunit_id'] ?? null,
+                        'staff_number' => 'STF-'.str_pad((string) $user->id, 4, '0', STR_PAD_LEFT),
+                        'title' => $data['staff_title'] ?? 'Staff',
+                    ],
+                );
             }
             $this->audit->record('user.created', 'Created user '.$user->email, 'users', 'user', $user->id, null, $this->userAuditSnapshot($user->fresh(['roles', 'staff'])));
 
@@ -267,8 +280,9 @@ class UserController extends Controller
         $hasOfficeInput = $request->boolean('clear_office_placement')
             || $request->hasAny(['office_department_id', 'office_unit_id', 'office_subunit_id']);
         $hasStaffInput = $request->has('staff_title') || $hasOfficeInput || $request->filled('department_id');
+        $needsStaffRow = $user->fresh(['roles'])?->isStaffPortalUser() && ! $user->staff()->exists();
 
-        if (! $hasStaffInput) {
+        if (! $hasStaffInput && ! $needsStaffRow) {
             return;
         }
 

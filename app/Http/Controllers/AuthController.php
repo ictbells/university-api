@@ -215,9 +215,11 @@ class AuthController extends Controller
             }
 
             if (! $user->isStaffPortalUser()) {
-                throw ValidationException::withMessages([
-                    'email' => 'This account uses the student portal. Sign in at '.rtrim(config('app.student_url'), '/'),
-                ]);
+                $message = $user->isStudentPortalUser()
+                    ? 'This account uses the student portal. Sign in at '.rtrim(config('app.student_url'), '/')
+                    : 'This account is not enabled for the staff portal. Ask ICT to assign an active staff role (and a staff profile) to this user.';
+
+                throw ValidationException::withMessages(['email' => $message]);
             }
 
             if ($this->security->twoFactorRequired($user)) {
@@ -388,9 +390,16 @@ class AuthController extends Controller
             return response()->json(['message' => 'If that email exists, a reset link was sent.']);
         }
 
-        $request->validate(['email' => 'required|email']);
-        Password::sendResetLink($request->only('email'));
-        $this->audit->record('auth.forgot_password', 'Password reset requested', 'auth', 'user', null, null, ['email' => $request->email]);
+        $data = $request->validate([
+            'email' => 'required|email',
+            'portal' => 'nullable|in:staff,student',
+        ]);
+
+        $user = User::query()->where('email', $data['email'])->first();
+        if ($user && $user->isStaffPortalUser()) {
+            Password::sendResetLink(['email' => $user->email]);
+            $this->audit->record('auth.forgot_password', 'Password reset requested', 'auth', 'user', $user->id, null, ['email' => $user->email]);
+        }
 
         return response()->json(['message' => 'If that email exists, a reset link was sent.']);
     }

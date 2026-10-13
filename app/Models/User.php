@@ -117,19 +117,31 @@ class User extends Authenticatable
             return true;
         }
 
+        $roles = $this->roles()->getRelated()->getTable();
+
+        // Super Admin always counts, even if the role row was marked inactive.
+        if ($this->roles()->where($roles.'.slug', 'super-admin')->exists()) {
+            return true;
+        }
+
         return $this->roles()
-            ->where('is_active', true)
-            ->whereNotIn('slug', ['applicant', 'student'])
+            ->where($roles.'.is_active', true)
+            ->whereNotIn($roles.'.slug', ['applicant', 'student'])
             ->exists();
     }
 
     public function scopeStaffPortal(Builder $query): Builder
     {
-        return $query->where(function (Builder $inner) {
+        $roles = (new Role)->getTable();
+
+        return $query->where(function (Builder $inner) use ($roles) {
             $inner->whereHas('staff')
-                ->orWhereHas('roles', fn (Builder $roles) => $roles
-                    ->where('is_active', true)
-                    ->whereNotIn('slug', ['applicant', 'student']));
+                ->orWhereHas('roles', fn (Builder $roleQuery) => $roleQuery
+                    ->where($roles.'.slug', 'super-admin')
+                    ->orWhere(function (Builder $activeStaffRole) use ($roles) {
+                        $activeStaffRole->where($roles.'.is_active', true)
+                            ->whereNotIn($roles.'.slug', ['applicant', 'student']);
+                    }));
         });
     }
 
@@ -140,9 +152,11 @@ class User extends Authenticatable
                 || \App\Support\Studentship::canApplyForAnotherProgramme($this->student);
         }
 
+        $roles = $this->roles()->getRelated()->getTable();
+
         return $this->roles()
-            ->where('is_active', true)
-            ->where('slug', 'applicant')
+            ->where($roles.'.is_active', true)
+            ->where($roles.'.slug', 'applicant')
             ->exists();
     }
 
