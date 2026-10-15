@@ -424,8 +424,14 @@ class FinanceController extends Controller
         }
 
         $perPage = min(50, max(10, (int) $request->input('per_page', 25)));
+        $query = $this->invoiceListQuery($request);
+        $totals = $this->invoiceListTotals($query);
+        $page = $query->paginate($perPage);
 
-        return $this->invoiceListQuery($request)->paginate($perPage);
+        return response()->json([
+            ...$page->toArray(),
+            'totals' => $totals,
+        ]);
     }
 
     public function exportInvoices(Request $request)
@@ -1251,9 +1257,9 @@ class FinanceController extends Controller
     {
         abort_unless($request->user()->hasPermission('finance.invoices.manage'), 403);
 
-        [$from, $to] = $this->dashboardPeriod($request);
+        [$from, $to, $gateway] = $this->dashboardPeriod($request);
 
-        return $this->universityStatement->summarize($from, $to);
+        return $this->universityStatement->summarize($from, $to, $gateway);
     }
 
     public function exportDashboard(Request $request)
@@ -1264,27 +1270,35 @@ class FinanceController extends Controller
             'format' => 'required|in:pdf,excel,word',
             'from' => 'nullable|date',
             'to' => 'nullable|date',
+            'gateway' => 'nullable|in:paystack,wema,paygate,all,online',
         ]);
-        [$from, $to] = $this->dashboardPeriod($request);
-        $statement = $this->universityStatement->summarize($from, $to);
-        $statement['filter_summary'] = $this->universityStatement->filterSummary($from, $to);
+        [$from, $to, $gateway] = $this->dashboardPeriod($request);
+        $statement = $this->universityStatement->summarize($from, $to, $gateway);
+        $statement['filter_summary'] = $this->universityStatement->filterSummary($from, $to, $gateway);
 
         return $this->universityStatement->export($data['format'], $statement);
     }
 
     /**
-     * @return array{0: CarbonInterface|null, 1: CarbonInterface|null}
+     * @return array{0: CarbonInterface|null, 1: CarbonInterface|null, 2: string|null}
      */
     private function dashboardPeriod(Request $request): array
     {
         $data = $request->validate([
             'from' => 'nullable|date',
             'to' => 'nullable|date|after_or_equal:from',
+            'gateway' => 'nullable|in:paystack,wema,paygate,all,online',
         ]);
+
+        $gateway = strtolower(trim((string) ($data['gateway'] ?? '')));
+        if ($gateway === '' || $gateway === 'all' || $gateway === 'online') {
+            $gateway = null;
+        }
 
         return [
             isset($data['from']) ? Carbon::parse($data['from'])->startOfDay() : null,
             isset($data['to']) ? Carbon::parse($data['to'])->endOfDay() : null,
+            $gateway,
         ];
     }
 
@@ -2094,6 +2108,28 @@ class FinanceController extends Controller
         }
 
         return $query;
+    }
+
+    /**
+     * @return array{amount: float, balance: float, rebate_total: float}
+     */
+    private function invoiceListTotals(Builder $query): array
+    {
+        $aggregate = (clone $query)
+            ->reorder()
+            ->toBase()
+            ->selectRaw(
+                'COALESCE(SUM(invoices.amount), 0) as amount, '
+                .'COALESCE(SUM(invoices.balance), 0) as balance, '
+                .'COALESCE(SUM(invoices.rebate_total), 0) as rebate_total'
+            )
+            ->first();
+
+        return [
+            'amount' => round((float) ($aggregate->amount ?? 0), 2),
+            'balance' => round((float) ($aggregate->balance ?? 0), 2),
+            'rebate_total' => round((float) ($aggregate->rebate_total ?? 0), 2),
+        ];
     }
 
     /**

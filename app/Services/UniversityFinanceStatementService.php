@@ -11,6 +11,7 @@ use App\Models\Wallet;
 use App\Support\ExportNumbers;
 use App\Support\FeeSchedule;
 use App\Support\InstitutionLogo;
+use App\Support\PaymentGatewaySettings;
 use App\Support\PdfBinaryResponse;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
@@ -32,11 +33,12 @@ class UniversityFinanceStatementService
     /**
      * @return array<string, mixed>
      */
-    public function summarize(?CarbonInterface $from = null, ?CarbonInterface $to = null): array
+    public function summarize(?CarbonInterface $from = null, ?CarbonInterface $to = null, ?string $gateway = null): array
     {
         $from = $from?->copy()->startOfDay();
         $to = $to?->copy()->endOfDay();
         $now = now();
+        $gateway = $this->normalizeGateway($gateway);
 
         $feeCollected = $this->money($this->feePayments($from, $to)->sum('amount'));
         $walletInflows = $this->money($this->walletFundingPayments($from, $to)->sum('amount'));
@@ -47,6 +49,9 @@ class UniversityFinanceStatementService
             $this->successfulPayments($from, $to)->where('method', '!=', 'wallet')->sum('amount')
         );
         $receipts = $this->money($this->successfulPayments($from, $to)->sum('amount'));
+        $onlineQuery = $this->onlinePayments($from, $to, $gateway);
+        $onlineCollected = $this->money((clone $onlineQuery)->sum('amount'));
+        $onlinePaymentsCount = (clone $onlineQuery)->count();
         $invoiced = $this->money($this->activeInvoices($from, $to)->sum('amount'));
         $rebates = $this->money($this->activeRebates($from, $to)->sum('invoice_rebates.amount'));
         $outstanding = $this->money(
@@ -68,12 +73,22 @@ class UniversityFinanceStatementService
                 'to' => $to?->toDateString(),
                 'label' => $this->periodLabel($from, $to),
             ],
+            'gateway' => $gateway,
+            'gateways' => collect(PaymentGatewaySettings::keys())
+                ->map(fn (string $key) => [
+                    'key' => $key,
+                    'label' => $this->methodLabel($key),
+                ])
+                ->values()
+                ->all(),
             'generated_at' => $now->toIso8601String(),
             'totals' => [
                 'invoiced' => $invoiced,
                 'collected' => $feeCollected,
                 'receipts' => $receipts,
                 'cash_received' => $cashReceived,
+                'online_collected' => $onlineCollected,
+                'online_payments' => $onlinePaymentsCount,
                 'wallet_inflows' => $walletInflows,
                 'wallet_applied' => $walletApplied,
                 'rebates' => $rebates,
@@ -84,11 +99,15 @@ class UniversityFinanceStatementService
                 'collected' => $this->money($this->feePayments($todayFrom, $todayTo)->sum('amount')),
                 'receipts' => $this->money($this->successfulPayments($todayFrom, $todayTo)->sum('amount')),
                 'payments' => $this->successfulPayments($todayFrom, $todayTo)->count(),
+                'online_collected' => $this->money($this->onlinePayments($todayFrom, $todayTo, $gateway)->sum('amount')),
+                'online_payments' => $this->onlinePayments($todayFrom, $todayTo, $gateway)->count(),
             ],
             'this_month' => [
                 'collected' => $this->money($this->feePayments($monthFrom, $todayTo)->sum('amount')),
                 'receipts' => $this->money($this->successfulPayments($monthFrom, $todayTo)->sum('amount')),
                 'payments' => $this->successfulPayments($monthFrom, $todayTo)->count(),
+                'online_collected' => $this->money($this->onlinePayments($monthFrom, $todayTo, $gateway)->sum('amount')),
+                'online_payments' => $this->onlinePayments($monthFrom, $todayTo, $gateway)->count(),
             ],
             'invoice_counts' => [
                 'issued' => $this->activeInvoices($from, $to)->count(),
@@ -100,12 +119,14 @@ class UniversityFinanceStatementService
                 'successful' => $this->successfulPayments($from, $to)->count(),
                 'pending' => $this->applyPeriod(Payment::query()->where('status', 'pending'), $from, $to)->count(),
                 'failed' => $this->applyPeriod(Payment::query()->whereIn('status', ['failed', 'cancelled']), $from, $to)->count(),
+                'online_successful' => $onlinePaymentsCount,
             ],
             'by_category' => $this->byCategory($from, $to),
             'by_fee_item' => $this->byFeeItem($from, $to),
             'by_method' => $this->byMethod($from, $to),
+            'by_online_gateway' => $this->byOnlineGateway($from, $to, $gateway),
             'monthly' => $this->monthly($from, $to),
-            'recent_payments' => $this->recentPayments($from, $to),
+            'recent_payments' => $this->recentPayments($from, $to, $gateway),
         ];
     }
 
@@ -126,9 +147,15 @@ class UniversityFinanceStatementService
     /**
      * @return list<string>
      */
-    public function filterSummary(?CarbonInterface $from, ?CarbonInterface $to): array
+    public function filterSummary(?CarbonInterface $from, ?CarbonInterface $to, ?string $gateway = null): array
     {
-        return ['Period: '.$this->periodLabel($from, $to)];
+        $summary = ['Period: '.$this->periodLabel($from, $to)];
+        $gateway = $this->normalizeGateway($gateway);
+        $summary[] = $gateway
+            ? 'Online gateway: '.$this->methodLabel($gateway)
+            : 'Online gateways: Paystack, Wema Bank, PayGate';
+
+        return $summary;
     }
 
     /**
@@ -307,11 +334,38 @@ class UniversityFinanceStatementService
     }
 
     /**
-     * @return list<array<string, mixed>>
+     * Successful gateway payments only (Paystack / Wema / PayGate).
+     *
+     * @return list<array{method: string, label: string, amount: float, payments: int}>
      */
-    private function recentPayments(?CarbonInterface $from, ?CarbonInterface $to): array
+    private function byOnlineGateway(?CarbonInterface $from, ?CarbonInterface $to, ?string $gateway = null): array
     {
-        return $this->successfulPayments($from, $to)
+        $rows = $this->onlinePayments($from, $to, $gateway)
+            ->selectRaw('method, COALESCE(SUM(amount), 0) as amount, COUNT(*) as payments')
+            ->groupBy('method')
+            ->get()
+            ->keyBy('method');
+
+        $keys = $gateway ? [$gateway] : PaymentGatewaySettings::keys();
+
+        return collect($keys)
+            ->map(function (string $method) use ($rows) {
+                $row = $rows->get($method);
+
+                return [
+                    'method' => $method,
+                    'label' => $this->methodLabel($method),
+                    'amount' => $this->money((float) ($row->amount ?? 0)),
+                    'payments' => (int) ($row->payments ?? 0),
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    private function recentPayments(?CarbonInterface $from, ?CarbonInterface $to, ?string $gateway = null): array
+    {
+        return $this->onlinePayments($from, $to, $gateway)
             ->with([
                 'invoice:id,number,category,student_id,user_id',
                 'invoice.student:id,first_name,last_name,matric_number,student_number',
@@ -367,6 +421,30 @@ class UniversityFinanceStatementService
             $to,
             'payments.created_at',
         );
+    }
+
+    /**
+     * Successful payments settled through a live payment gateway.
+     */
+    private function onlinePayments(?CarbonInterface $from, ?CarbonInterface $to, ?string $gateway = null): Builder
+    {
+        $query = $this->successfulPayments($from, $to);
+        $gateway = $this->normalizeGateway($gateway);
+        if ($gateway) {
+            return $query->where('payments.method', $gateway);
+        }
+
+        return $query->whereIn('payments.method', PaymentGatewaySettings::keys());
+    }
+
+    private function normalizeGateway(?string $gateway): ?string
+    {
+        $gateway = strtolower(trim((string) $gateway));
+        if ($gateway === '' || $gateway === 'all' || $gateway === 'online') {
+            return null;
+        }
+
+        return in_array($gateway, PaymentGatewaySettings::keys(), true) ? $gateway : null;
     }
 
     private function activeInvoices(?CarbonInterface $from, ?CarbonInterface $to): Builder
@@ -431,6 +509,7 @@ class UniversityFinanceStatementService
         return match ($method) {
             'paystack' => 'Paystack',
             'wema' => 'Wema Bank',
+            'paygate' => 'PayGate',
             'wallet' => 'Wallet',
             'legacy_import' => 'Import',
             'bank' => 'Bank',
@@ -513,6 +592,7 @@ class UniversityFinanceStatementService
         $row = $this->writeExcelSection($sheet, $row, 'Statement of receipts', [
             ['Fee collections', $totals['collected']],
             ['Wallet top-ups', $totals['wallet_inflows']],
+            ['Online gateway payments (successful)', $totals['online_collected'] ?? 0],
             ['Cash received (Paystack / Wema / import / bank)', $totals['cash_received']],
             ['Wallet applied to invoices', $totals['wallet_applied']],
             ['Total receipts', $totals['receipts']],
@@ -651,6 +731,7 @@ class UniversityFinanceStatementService
         $this->wordKeyValues($section, [
             ['Fee collections', $totals['collected']],
             ['Wallet top-ups', $totals['wallet_inflows']],
+            ['Online gateway payments (successful)', $totals['online_collected'] ?? 0],
             ['Cash received (Paystack / Wema / import / bank)', $totals['cash_received']],
             ['Wallet applied to invoices', $totals['wallet_applied']],
             ['Total receipts', $totals['receipts']],

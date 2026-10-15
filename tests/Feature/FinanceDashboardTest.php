@@ -99,10 +99,14 @@ class FinanceDashboardTest extends TestCase
         $this->assertEquals(7500.0, $payload['totals']['collected']);
         $this->assertEquals(9500.0, $payload['totals']['receipts']);
         $this->assertEquals(9500.0, $payload['totals']['cash_received']);
+        $this->assertEquals(9500.0, $payload['totals']['online_collected']);
+        $this->assertEquals(2, $payload['totals']['online_payments']);
         $this->assertEquals(2000.0, $payload['totals']['wallet_inflows']);
         $this->assertEquals(0.0, $payload['totals']['wallet_applied']);
         $this->assertEquals(7500.0, $payload['totals']['outstanding']);
         $this->assertEquals(3000.0, $payload['totals']['wallet_liability']);
+        $this->assertNull($payload['gateway']);
+        $this->assertTrue(collect($payload['gateways'])->contains(fn ($row) => $row['key'] === 'paystack'));
 
         $tuitionRow = collect($payload['by_category'])->firstWhere('category', 'tuition');
         $this->assertEquals(10000.0, $tuitionRow['invoiced']);
@@ -117,7 +121,112 @@ class FinanceDashboardTest extends TestCase
         $this->assertTrue(collect($payload['by_method'])->contains(
             fn ($row) => $row['method'] === 'paystack' && (float) $row['amount'] === 9500.0
         ));
+        $onlinePaystack = collect($payload['by_online_gateway'])->firstWhere('method', 'paystack');
+        $this->assertNotNull($onlinePaystack);
+        $this->assertEquals(9500.0, $onlinePaystack['amount']);
+        $this->assertEquals(2, $onlinePaystack['payments']);
         $this->assertCount(2, $payload['recent_payments']);
+    }
+
+    public function test_dashboard_online_totals_exclude_wallet_and_filter_by_gateway(): void
+    {
+        $staff = $this->financeStaff();
+        $user = User::factory()->create(['status' => 'active']);
+        $invoice = Invoice::query()->create([
+            'number' => 'INV-ONLINE-FILTER',
+            'user_id' => $user->id,
+            'category' => 'tuition',
+            'amount' => 20000,
+            'full_amount' => 20000,
+            'balance' => 0,
+            'status' => 'paid',
+            'wallet_allowed' => true,
+        ]);
+
+        Payment::query()->create([
+            'user_id' => $user->id,
+            'invoice_id' => $invoice->id,
+            'method' => 'paystack',
+            'amount' => 5000,
+            'status' => 'successful',
+            'reference' => 'PSK-ONLINE-1',
+            'purpose' => 'tuition',
+        ]);
+        Payment::query()->create([
+            'user_id' => $user->id,
+            'invoice_id' => $invoice->id,
+            'method' => 'wema',
+            'amount' => 4000,
+            'status' => 'successful',
+            'reference' => 'WEMA-ONLINE-1',
+            'purpose' => 'tuition',
+        ]);
+        Payment::query()->create([
+            'user_id' => $user->id,
+            'invoice_id' => $invoice->id,
+            'method' => 'paygate',
+            'amount' => 3000,
+            'status' => 'successful',
+            'reference' => 'PG-ONLINE-1',
+            'purpose' => 'tuition',
+        ]);
+        Payment::query()->create([
+            'user_id' => $user->id,
+            'method' => 'paystack',
+            'amount' => 1500,
+            'status' => 'successful',
+            'reference' => 'PSK-WALLET-TOPUP',
+            'purpose' => 'wallet_topup',
+        ]);
+        Payment::query()->create([
+            'user_id' => $user->id,
+            'invoice_id' => $invoice->id,
+            'method' => 'wallet',
+            'amount' => 2000,
+            'status' => 'successful',
+            'reference' => 'WALLET-APPLY-1',
+            'purpose' => 'tuition',
+        ]);
+        Payment::query()->create([
+            'user_id' => $user->id,
+            'invoice_id' => $invoice->id,
+            'method' => 'bank',
+            'amount' => 1000,
+            'status' => 'successful',
+            'reference' => 'BANK-1',
+            'purpose' => 'tuition',
+        ]);
+        Payment::query()->create([
+            'user_id' => $user->id,
+            'invoice_id' => $invoice->id,
+            'method' => 'paystack',
+            'amount' => 999,
+            'status' => 'pending',
+            'reference' => 'PSK-PENDING',
+            'purpose' => 'tuition',
+        ]);
+
+        Sanctum::actingAs($staff);
+
+        $all = $this->getJson('/api/finance/dashboard')->assertOk()->json();
+        $this->assertEquals(13500.0, $all['totals']['online_collected']);
+        $this->assertEquals(4, $all['totals']['online_payments']);
+        $this->assertEquals(4, $all['payment_counts']['online_successful']);
+        $this->assertCount(3, $all['by_online_gateway']);
+        $this->assertEquals(6500.0, collect($all['by_online_gateway'])->firstWhere('method', 'paystack')['amount']);
+        $this->assertEquals(4000.0, collect($all['by_online_gateway'])->firstWhere('method', 'wema')['amount']);
+        $this->assertEquals(3000.0, collect($all['by_online_gateway'])->firstWhere('method', 'paygate')['amount']);
+        $this->assertFalse(collect($all['recent_payments'])->contains(fn ($row) => $row['method'] === 'wallet'));
+        $this->assertFalse(collect($all['recent_payments'])->contains(fn ($row) => $row['method'] === 'bank'));
+
+        $wema = $this->getJson('/api/finance/dashboard?gateway=wema')->assertOk()->json();
+        $this->assertEquals('wema', $wema['gateway']);
+        $this->assertEquals(4000.0, $wema['totals']['online_collected']);
+        $this->assertEquals(1, $wema['totals']['online_payments']);
+        $this->assertCount(1, $wema['by_online_gateway']);
+        $this->assertEquals('wema', $wema['by_online_gateway'][0]['method']);
+        $this->assertCount(1, $wema['recent_payments']);
+        $this->assertEquals('WEMA-ONLINE-1', $wema['recent_payments'][0]['reference']);
     }
 
     public function test_dashboard_period_filter_excludes_older_activity(): void
