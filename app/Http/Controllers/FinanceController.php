@@ -32,6 +32,7 @@ use App\Support\InstitutionLogo;
 use App\Support\InvoiceSettlement;
 use App\Support\ListSessionLevelFilter;
 use App\Support\NairaWords;
+use App\Support\PaymentGatewaySettings;
 use App\Support\ProgrammeFeeResolver;
 use App\Support\ReceiptDate;
 use App\Support\ReceiptInstitution;
@@ -451,6 +452,7 @@ class FinanceController extends Controller
             'search' => 'nullable|string',
             'from' => 'nullable|date',
             'to' => 'nullable|date',
+            'gateway' => 'nullable|in:paystack,wema,paygate',
         ]);
 
         @ini_set('memory_limit', '2048M');
@@ -460,37 +462,44 @@ class FinanceController extends Controller
 
         $format = $data['format'];
         $maxRows = InvoiceExportService::maxRowsFor($format);
-        $query = $this->invoiceListQuery($request);
-        $total = (clone $query)->count();
-        if ($total > $maxRows) {
-            $label = match ($format) {
-                'excel' => 'Excel',
-                'csv' => 'CSV',
-                default => strtoupper($format),
-            };
-
-            return response()->json([
-                'message' => "Too many invoices for {$label} ({$total}). "
-                    .($format === 'csv'
-                        ? "Narrow the filters so the list is at most {$maxRows}."
-                        : ($format === 'excel'
-                            ? "Use CSV for larger lists, or narrow the filters to at most {$maxRows}."
-                            : "Use Excel or CSV, or narrow the filters to at most {$maxRows} invoices.")),
-                'total' => $total,
-                'max_rows' => $maxRows,
-                'format' => $format,
-            ], 422);
-        }
-
-        $with = [
-            'user:id,name,email,jamb_registration',
-            'user.latestApplication',
-            'application:id,user_id,application_number,jamb_registration',
-            'student.program.department.faculty',
-        ];
+        $gateway = $this->normalizeInvoiceGateway($request->input('gateway'));
         $filters = $this->invoiceFilterSummary($request);
 
         try {
+            if ($gateway) {
+                return $this->exportSuccessfulGatewayPayments($request, $format, $maxRows, $gateway, $filters);
+            }
+
+            $query = $this->invoiceListQuery($request);
+            $total = (clone $query)->count();
+            if ($total > $maxRows) {
+                $label = match ($format) {
+                    'excel' => 'Excel',
+                    'csv' => 'CSV',
+                    default => strtoupper($format),
+                };
+
+                return response()->json([
+                    'message' => "Too many invoices for {$label} ({$total}). "
+                        .($format === 'csv'
+                            ? "Narrow the filters so the list is at most {$maxRows}."
+                            : ($format === 'excel'
+                                ? "Use CSV for larger lists, or narrow the filters to at most {$maxRows}."
+                                : "Use Excel or CSV, or narrow the filters to at most {$maxRows} invoices.")),
+                    'total' => $total,
+                    'max_rows' => $maxRows,
+                    'format' => $format,
+                ], 422);
+            }
+
+            $with = [
+                'user:id,name,email,jamb_registration',
+                'user.latestApplication',
+                'application:id,user_id,application_number,jamb_registration',
+                'student.program.department.faculty',
+                'payments' => fn ($payments) => $payments->whereIn('status', ['successful', 'paid'])->latest('id'),
+            ];
+
             if ($format === 'csv') {
                 return $this->invoiceExports->streamCsv('Invoices report', $filters, function (callable $emit) use ($query, $maxRows, $with) {
                     $written = 0;
@@ -527,9 +536,116 @@ class FinanceController extends Controller
                     'excel' => 'Excel',
                     'csv' => 'CSV',
                     default => strtoupper($format),
-                }.' file for '.$total.' invoices. Narrow the filters and try again.',
+                }.' file. Narrow the filters and try again.',
             ], 500);
         }
+    }
+
+    /**
+     * @param  list<string>  $filters
+     */
+    private function exportSuccessfulGatewayPayments(
+        Request $request,
+        string $format,
+        int $maxRows,
+        string $gateway,
+        array $filters,
+    ) {
+        $query = $this->successfulGatewayPaymentQuery($request, $gateway);
+        $total = (clone $query)->count();
+        if ($total > $maxRows) {
+            $label = match ($format) {
+                'excel' => 'Excel',
+                'csv' => 'CSV',
+                default => strtoupper($format),
+            };
+
+            return response()->json([
+                'message' => "Too many successful gateway payments for {$label} ({$total}). "
+                    .($format === 'csv'
+                        ? "Narrow the filters so the list is at most {$maxRows}."
+                        : ($format === 'excel'
+                            ? "Use CSV for larger lists, or narrow the filters to at most {$maxRows}."
+                            : "Use Excel or CSV, or narrow the filters to at most {$maxRows} payments.")),
+                'total' => $total,
+                'max_rows' => $maxRows,
+                'format' => $format,
+            ], 422);
+        }
+
+        $with = [
+            'user:id,name,email,jamb_registration',
+            'invoice.user:id,name,email,jamb_registration',
+            'invoice.user.latestApplication',
+            'invoice.application:id,user_id,application_number,jamb_registration',
+            'invoice.student.program.department.faculty',
+        ];
+        $title = 'Successful '.$this->gatewayDisplayLabel($gateway).' payments';
+
+        if ($format === 'csv') {
+            return $this->invoiceExports->streamCsv($title, $filters, function (callable $emit) use ($query, $maxRows, $with) {
+                $written = 0;
+                (clone $query)->with($with)
+                    ->reorder()
+                    ->orderBy('payments.id')
+                    ->chunkById(1000, function ($chunk) use ($emit, &$written, $maxRows) {
+                        foreach ($chunk as $payment) {
+                            if ($written >= $maxRows) {
+                                return false;
+                            }
+                            $written++;
+                            $emit($this->invoiceExports->mapPaymentRow($payment));
+                        }
+
+                        return $written < $maxRows;
+                    }, 'payments.id', 'id');
+            }, InvoiceExportService::VARIANT_PAYMENTS);
+        }
+
+        $payments = $query->with($with)->limit($maxRows)->get();
+
+        return $this->invoiceExports->exportPayments($format, $payments, $title, $filters);
+    }
+
+    private function successfulGatewayPaymentQuery(Request $request, string $gateway): Builder
+    {
+        $invoiceIds = $this->invoiceListQuery($request, applyGateway: false, applyDates: false)
+            ->reorder()
+            ->select('invoices.id');
+
+        $query = Payment::query()
+            ->whereIn('payments.status', ['successful', 'paid'])
+            ->where('payments.method', $gateway)
+            ->whereIn('payments.invoice_id', $invoiceIds);
+
+        if ($request->filled('from')) {
+            $query->whereDate('payments.created_at', '>=', $request->input('from'));
+        }
+        if ($request->filled('to')) {
+            $query->whereDate('payments.created_at', '<=', $request->input('to'));
+        }
+
+        return $query->latest('payments.id');
+    }
+
+    private function normalizeInvoiceGateway(mixed $gateway): ?string
+    {
+        $gateway = strtolower(trim((string) $gateway));
+        if ($gateway === '' || $gateway === 'all') {
+            return null;
+        }
+
+        return in_array($gateway, PaymentGatewaySettings::keys(), true) ? $gateway : null;
+    }
+
+    private function gatewayDisplayLabel(string $gateway): string
+    {
+        return match ($gateway) {
+            PaymentGatewaySettings::PAYSTACK => 'Paystack',
+            PaymentGatewaySettings::WEMA => 'Wema Bank',
+            PaymentGatewaySettings::PAYGATE => 'PayGate',
+            default => ucfirst($gateway),
+        };
     }
 
     public function disableInvoice(Request $request, Invoice $invoice)
@@ -2036,7 +2152,7 @@ class FinanceController extends Controller
         };
     }
 
-    private function invoiceListQuery(Request $request): Builder
+    private function invoiceListQuery(Request $request, bool $applyGateway = true, bool $applyDates = true): Builder
     {
         $query = Invoice::query()
             ->with([
@@ -2049,6 +2165,7 @@ class FinanceController extends Controller
                 'application:id,user_id,application_number,jamb_registration',
                 'academicSession:id,label',
                 'rebates.rebateType',
+                'payments' => fn ($payments) => $payments->whereIn('status', ['successful', 'paid'])->latest('id'),
             ])
             ->latest();
         if (! $request->user()->hasPermission('finance.invoices.manage')) {
@@ -2091,11 +2208,14 @@ class FinanceController extends Controller
                     });
             });
         }
-        if ($request->filled('from')) {
-            $query->whereDate('created_at', '>=', $request->input('from'));
-        }
-        if ($request->filled('to')) {
-            $query->whereDate('created_at', '<=', $request->input('to'));
+        $gateway = $applyGateway ? $this->normalizeInvoiceGateway($request->input('gateway')) : null;
+        if ($applyDates && ! $gateway) {
+            if ($request->filled('from')) {
+                $query->whereDate('created_at', '>=', $request->input('from'));
+            }
+            if ($request->filled('to')) {
+                $query->whereDate('created_at', '<=', $request->input('to'));
+            }
         }
         if ($level = ListSessionLevelFilter::levelCode($request)) {
             $query->whereHas('student', fn ($students) => $students->where('current_level', $level));
@@ -2104,6 +2224,21 @@ class FinanceController extends Controller
             $query->where(function ($builder) use ($sessionId) {
                 $builder->whereHas('application.intake.term', fn ($term) => $term->where('academic_session_id', $sessionId))
                     ->orWhereHas('student.application.intake.term', fn ($term) => $term->where('academic_session_id', $sessionId));
+            });
+        }
+        if ($gateway) {
+            $query->whereHas('payments', function ($payments) use ($gateway, $request, $applyDates) {
+                $payments->whereIn('status', ['successful', 'paid'])
+                    ->where('method', $gateway);
+                if (! $applyDates) {
+                    return;
+                }
+                if ($request->filled('from')) {
+                    $payments->whereDate('created_at', '>=', $request->input('from'));
+                }
+                if ($request->filled('to')) {
+                    $payments->whereDate('created_at', '<=', $request->input('to'));
+                }
             });
         }
 
@@ -2160,6 +2295,9 @@ class FinanceController extends Controller
         }
         if ($request->filled('from') || $request->filled('to')) {
             $summary[] = 'Date: '.($request->input('from') ?: '…').' to '.($request->input('to') ?: '…');
+        }
+        if ($gateway = $this->normalizeInvoiceGateway($request->input('gateway'))) {
+            $summary[] = 'Gateway: '.$this->gatewayDisplayLabel($gateway).' (successful payments)';
         }
         if ($request->filled('search')) {
             $summary[] = 'Search: '.$request->input('search');

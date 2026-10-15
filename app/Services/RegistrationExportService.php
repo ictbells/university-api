@@ -23,7 +23,23 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class RegistrationExportService
 {
-    public const MAX_ROWS = 5000;
+    public const MAX_ROWS = 25000;
+
+    public const MAX_ROWS_CSV = 100000;
+
+    public const MAX_ROWS_PDF = 1000;
+
+    public const MAX_ROWS_WORD = 2000;
+
+    public static function maxRowsFor(string $format): int
+    {
+        return match ($format) {
+            'pdf' => self::MAX_ROWS_PDF,
+            'word' => self::MAX_ROWS_WORD,
+            'csv' => self::MAX_ROWS_CSV,
+            default => self::MAX_ROWS,
+        };
+    }
 
     /**
      * @param  Collection<int, Student>  $students
@@ -36,6 +52,11 @@ class RegistrationExportService
         array $filterSummary = [],
         bool $showEntryMode = true,
     ): Response {
+        @ini_set('memory_limit', '2048M');
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(300);
+        }
+
         $institution = $this->institution();
         $rows = $students->map(fn (Student $student) => $this->rowData($student))->values();
         $generatedAt = now()->format('d M Y H:i');
@@ -46,8 +67,70 @@ class RegistrationExportService
             'pdf' => $this->pdf($institution, $title, $filterSummary, $rows, $showEntryMode, $generatedAt, $filename),
             'excel' => $this->excel($institution, $title, $filterSummary, $rows, $showEntryMode, $generatedAt, $filename),
             'word' => $this->word($institution, $title, $filterSummary, $rows, $showEntryMode, $generatedAt, $filename),
+            'csv' => $this->streamCsv($title, $filterSummary, $showEntryMode, function (callable $emit) use ($students) {
+                foreach ($students as $student) {
+                    $emit($this->rowData($student));
+                }
+            }),
             default => throw new \InvalidArgumentException('Unsupported export format.'),
         };
+    }
+
+    /**
+     * Stream CSV while students are produced in chunks.
+     *
+     * @param  list<string>  $filterSummary
+     * @param  callable(callable(array<string, string>): void): void  $producer
+     */
+    public function streamCsv(string $title, array $filterSummary, bool $showEntryMode, callable $producer): StreamedResponse
+    {
+        @ini_set('memory_limit', '512M');
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(600);
+        }
+
+        $institution = $this->institution();
+        $generatedAt = now()->format('d M Y H:i');
+        $safeTitle = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $title) ?: 'registrations';
+        $filename = $safeTitle.'_'.now()->format('Ymd_His');
+
+        return response()->streamDownload(function () use ($institution, $title, $filterSummary, $showEntryMode, $producer, $generatedAt) {
+            $handle = fopen('php://output', 'w');
+            if ($handle === false) {
+                return;
+            }
+            fwrite($handle, "\xEF\xBB\xBF");
+            fputcsv($handle, [$institution['name']]);
+            fputcsv($handle, [(string) ($institution['motto'] ?? '')]);
+            fputcsv($handle, [$title]);
+            $meta = 'Generated '.$generatedAt;
+            if ($filterSummary !== []) {
+                $meta .= ' · Filters: '.implode('; ', $filterSummary);
+            }
+            fputcsv($handle, [$meta]);
+            fputcsv($handle, []);
+            fputcsv($handle, $this->headers($showEntryMode));
+
+            $sn = 0;
+            $emit = function (array $row) use ($handle, $showEntryMode, &$sn) {
+                $sn++;
+                fputcsv($handle, $this->rowValues($row, $showEntryMode, $sn));
+            };
+            $producer($emit);
+
+            fputcsv($handle, [$sn.' record(s)']);
+            fclose($handle);
+        }, $filename.'.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function mapRow(Student $student): array
+    {
+        return $this->rowData($student);
     }
 
     /**

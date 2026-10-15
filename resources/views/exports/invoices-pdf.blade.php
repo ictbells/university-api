@@ -22,6 +22,10 @@
     </style>
 </head>
 <body>
+    @php
+        $isPayments = ($variant ?? 'invoices') === 'payments';
+        $colSpan = $isPayments ? 12 : 12;
+    @endphp
     <div class="header">
         @if (!empty($logo_data_uri))
             <img src="{{ $logo_data_uri }}" alt="{{ $institution['name'] }} crest">
@@ -41,58 +45,106 @@
     <table>
         <thead>
             <tr>
-                <th>S/N</th>
-                <th>Number</th>
-                <th>Payer</th>
-                <th>Matric</th>
-                <th>Category</th>
-                <th>Programme</th>
-                <th>College</th>
-                <th class="num">Amount</th>
-                <th class="num">Balance</th>
-                <th>Status</th>
-                <th>Timestamp</th>
+                @if ($isPayments)
+                    <th>S/N</th>
+                    <th>Receipt</th>
+                    <th>Reference</th>
+                    <th>Invoice</th>
+                    <th>Payer</th>
+                    <th>Matric</th>
+                    <th>Category</th>
+                    <th>Programme</th>
+                    <th>College</th>
+                    <th>Gateway</th>
+                    <th class="num">Amount</th>
+                    <th>Timestamp</th>
+                @else
+                    <th>S/N</th>
+                    <th>Number</th>
+                    <th>Payer</th>
+                    <th>Matric</th>
+                    <th>Category</th>
+                    <th>Programme</th>
+                    <th>College</th>
+                    <th class="num">Amount</th>
+                    <th class="num">Balance</th>
+                    <th>Gateway</th>
+                    <th>Status</th>
+                    <th>Timestamp</th>
+                @endif
             </tr>
         </thead>
         <tbody>
             @forelse ($rows as $index => $row)
                 <tr>
-                    <td>{{ $index + 1 }}</td>
-                    <td>{{ $row['number'] }}</td>
-                    <td>{{ $row['payer'] }}</td>
-                    <td>{{ $row['matric'] }}</td>
-                    <td>{{ $row['category'] }}</td>
-                    <td>{{ $row['programme'] }}</td>
-                    <td>{{ $row['college'] }}</td>
-                    <td class="num">{{ number_format((float) $row['amount'], 2) }}</td>
-                    <td class="num">{{ number_format((float) $row['balance'], 2) }}</td>
-                    <td>{{ $row['status'] }}</td>
-                    <td>{{ $row['date'] }}</td>
+                    @if ($isPayments)
+                        <td>{{ $index + 1 }}</td>
+                        <td>{{ $row['receipt'] }}</td>
+                        <td>{{ $row['reference'] }}</td>
+                        <td>{{ $row['number'] }}</td>
+                        <td>{{ $row['payer'] }}</td>
+                        <td>{{ $row['matric'] }}</td>
+                        <td>{{ $row['category'] }}</td>
+                        <td>{{ $row['programme'] }}</td>
+                        <td>{{ $row['college'] }}</td>
+                        <td>{{ $row['gateway'] }}</td>
+                        <td class="num">{{ number_format((float) $row['amount'], 2) }}</td>
+                        <td>{{ $row['date'] }}</td>
+                    @else
+                        <td>{{ $index + 1 }}</td>
+                        <td>{{ $row['number'] }}</td>
+                        <td>{{ $row['payer'] }}</td>
+                        <td>{{ $row['matric'] }}</td>
+                        <td>{{ $row['category'] }}</td>
+                        <td>{{ $row['programme'] }}</td>
+                        <td>{{ $row['college'] }}</td>
+                        <td class="num">{{ number_format((float) $row['amount'], 2) }}</td>
+                        <td class="num">{{ number_format((float) $row['balance'], 2) }}</td>
+                        <td>{{ $row['gateway'] ?? '—' }}</td>
+                        <td>{{ $row['status'] }}</td>
+                        <td>{{ $row['date'] }}</td>
+                    @endif
                 </tr>
             @empty
                 <tr>
-                    <td colspan="11" style="text-align:center; color:#64748b;">No invoices match the selected filters.</td>
+                    <td colspan="{{ $colSpan }}" style="text-align:center; color:#64748b;">No records match the selected filters.</td>
                 </tr>
             @endforelse
         </tbody>
         @if (!empty($totals))
             <tfoot>
                 <tr class="total">
-                    <td>Total</td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
-                    <td class="num">{{ number_format((float) $totals['amount'], 2) }}</td>
-                    <td class="num">{{ number_format((float) $totals['balance'], 2) }}</td>
-                    <td></td>
-                    <td></td>
+                    @if ($isPayments)
+                        <td>Total</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td class="num">{{ number_format((float) $totals['amount'], 2) }}</td>
+                        <td></td>
+                    @else
+                        <td>Total</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td class="num">{{ number_format((float) $totals['amount'], 2) }}</td>
+                        <td class="num">{{ number_format((float) $totals['balance'], 2) }}</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                    @endif
                 </tr>
             </tfoot>
         @endif
     </table>
-    <div class="footer">{{ $institution['name'] }} · Invoices report</div>
+    <div class="footer">{{ $institution['name'] }} · {{ $isPayments ? 'Gateway payments report' : 'Invoices report' }}</div>
 </body>
 </html>

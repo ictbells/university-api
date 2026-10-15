@@ -4,10 +4,12 @@ namespace App\Services;
 
 use App\Models\Campus;
 use App\Models\Invoice;
+use App\Models\Payment;
 use App\Models\Setting;
 use App\Support\ExportNumbers;
 use App\Support\FeeSchedule;
 use App\Support\InstitutionLogo;
+use App\Support\PaymentGatewaySettings;
 use App\Support\PdfBinaryResponse;
 use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\Shared\Drawing as SharedDrawing;
@@ -34,6 +36,10 @@ class InvoiceExportService
     public const MAX_ROWS_PDF = 1000;
 
     public const MAX_ROWS_WORD = 2000;
+
+    public const VARIANT_INVOICES = 'invoices';
+
+    public const VARIANT_PAYMENTS = 'payments';
 
     public static function maxRowsFor(string $format): int
     {
@@ -67,26 +73,66 @@ class InvoiceExportService
         $filename = $safeTitle.'_'.now()->format('Ymd_His');
 
         return match ($format) {
-            'pdf' => $this->pdf($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename),
-            'excel' => $this->excel($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename),
-            'word' => $this->word($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename),
+            'pdf' => $this->pdf($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename, self::VARIANT_INVOICES),
+            'excel' => $this->excel($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename, self::VARIANT_INVOICES),
+            'word' => $this->word($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename, self::VARIANT_INVOICES),
             'csv' => $this->streamCsv($title, $filterSummary, function (callable $emit) use ($invoices) {
                 foreach ($invoices as $invoice) {
                     $emit($this->rowData($invoice));
                 }
-            }),
+            }, self::VARIANT_INVOICES),
             default => throw new \InvalidArgumentException('Unsupported export format.'),
         };
     }
 
     /**
-     * Stream CSV while invoices are produced in chunks.
+     * Successful gateway payments only (one row per payment).
+     *
+     * @param  Collection<int, Payment>  $payments
+     * @param  list<string>  $filterSummary
+     */
+    public function exportPayments(string $format, Collection $payments, string $title, array $filterSummary = []): Response
+    {
+        @ini_set('memory_limit', '2048M');
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(300);
+        }
+
+        $institution = $this->institution();
+        $rows = $payments->map(fn (Payment $payment) => $this->paymentRowData($payment))->values();
+        $totals = [
+            'amount' => round($rows->sum(fn ($row) => (float) $row['amount']), 2),
+            'balance' => 0.0,
+        ];
+        $generatedAt = now()->format('d M Y H:i:s');
+        $safeTitle = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $title) ?: 'gateway_payments';
+        $filename = $safeTitle.'_'.now()->format('Ymd_His');
+
+        return match ($format) {
+            'pdf' => $this->pdf($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename, self::VARIANT_PAYMENTS),
+            'excel' => $this->excel($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename, self::VARIANT_PAYMENTS),
+            'word' => $this->word($institution, $title, $filterSummary, $rows, $totals, $generatedAt, $filename, self::VARIANT_PAYMENTS),
+            'csv' => $this->streamCsv($title, $filterSummary, function (callable $emit) use ($payments) {
+                foreach ($payments as $payment) {
+                    $emit($this->paymentRowData($payment));
+                }
+            }, self::VARIANT_PAYMENTS),
+            default => throw new \InvalidArgumentException('Unsupported export format.'),
+        };
+    }
+
+    /**
+     * Stream CSV while rows are produced in chunks.
      *
      * @param  list<string>  $filterSummary
      * @param  callable(callable(array<string, mixed>): void): void  $producer
      */
-    public function streamCsv(string $title, array $filterSummary, callable $producer): StreamedResponse
-    {
+    public function streamCsv(
+        string $title,
+        array $filterSummary,
+        callable $producer,
+        string $variant = self::VARIANT_INVOICES,
+    ): StreamedResponse {
         @ini_set('memory_limit', '512M');
         if (function_exists('set_time_limit')) {
             @set_time_limit(600);
@@ -94,10 +140,10 @@ class InvoiceExportService
 
         $institution = $this->institution();
         $generatedAt = now()->format('d M Y H:i:s');
-        $safeTitle = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $title) ?: 'invoices';
+        $safeTitle = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $title) ?: ($variant === self::VARIANT_PAYMENTS ? 'gateway_payments' : 'invoices');
         $filename = $safeTitle.'_'.now()->format('Ymd_His');
 
-        return response()->streamDownload(function () use ($institution, $title, $filterSummary, $producer, $generatedAt) {
+        return response()->streamDownload(function () use ($institution, $title, $filterSummary, $producer, $generatedAt, $variant) {
             $handle = fopen('php://output', 'w');
             if ($handle === false) {
                 return;
@@ -112,25 +158,19 @@ class InvoiceExportService
             }
             fputcsv($handle, [$meta]);
             fputcsv($handle, []);
-            fputcsv($handle, $this->headers());
+            fputcsv($handle, $this->headers($variant));
 
             $sn = 0;
             $totals = ['amount' => 0.0, 'balance' => 0.0];
-            $emit = function (array $row) use ($handle, &$sn, &$totals) {
+            $emit = function (array $row) use ($handle, &$sn, &$totals, $variant) {
                 $sn++;
                 $totals['amount'] = round($totals['amount'] + (float) $row['amount'], 2);
-                $totals['balance'] = round($totals['balance'] + (float) $row['balance'], 2);
-                fputcsv($handle, $this->rowValues($row, $sn));
+                $totals['balance'] = round($totals['balance'] + (float) ($row['balance'] ?? 0), 2);
+                fputcsv($handle, $this->rowValues($row, $sn, false, $variant));
             };
             $producer($emit);
 
-            fputcsv($handle, [
-                'Total', '', '', '', '', '', '',
-                $totals['amount'],
-                $totals['balance'],
-                '',
-                '',
-            ]);
+            fputcsv($handle, $this->totalRowValues($totals, $variant));
             fputcsv($handle, [$sn.' record(s)']);
             fclose($handle);
         }, $filename.'.csv', [
@@ -165,6 +205,14 @@ class InvoiceExportService
     /**
      * @return array<string, mixed>
      */
+    public function mapPaymentRow(Payment $payment): array
+    {
+        return $this->paymentRowData($payment);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     private function rowData(Invoice $invoice): array
     {
         $student = $invoice->student;
@@ -181,9 +229,67 @@ class InvoiceExportService
             'department' => $student?->program?->department?->name ?: '—',
             'amount' => round((float) $invoice->amount, 2),
             'balance' => round((float) $invoice->balance, 2),
+            'gateway' => $this->invoiceGatewayLabel($invoice),
             'status' => ucfirst($status),
             'date' => optional($invoice->created_at)->format('d M Y H:i:s') ?: '—',
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function paymentRowData(Payment $payment): array
+    {
+        $invoice = $payment->invoice;
+        $student = $invoice?->student;
+        $name = trim(collect([$student?->first_name, $student?->last_name])->filter()->implode(' '));
+
+        return [
+            'receipt' => (string) ($payment->receipt_no ?: '—'),
+            'reference' => (string) ($payment->reference ?: $payment->paystack_reference ?: '—'),
+            'number' => (string) ($invoice?->number ?: '—'),
+            'payer' => $name !== '' ? $name : ($payment->user?->name ?: $invoice?->user?->name ?: '—'),
+            'matric' => $invoice ? $this->payerIdentifier($invoice) : '—',
+            'category' => FeeSchedule::label((string) ($invoice?->category ?: $payment->purpose ?: 'other')),
+            'programme' => $student?->program?->name ?: '—',
+            'college' => $student?->program?->department?->faculty?->name ?: '—',
+            'gateway' => $this->gatewayLabel((string) $payment->method),
+            'amount' => round((float) $payment->amount, 2),
+            'balance' => 0.0,
+            'status' => 'Successful',
+            'date' => optional($payment->created_at)->format('d M Y H:i:s') ?: '—',
+        ];
+    }
+
+    private function invoiceGatewayLabel(Invoice $invoice): string
+    {
+        $payment = $invoice->relationLoaded('payments')
+            ? $invoice->payments
+                ->filter(fn (Payment $payment) => in_array((string) $payment->status, ['successful', 'paid'], true))
+                ->sortByDesc('id')
+                ->first()
+            : null;
+
+        if (! $payment) {
+            return '—';
+        }
+
+        return $this->gatewayLabel((string) $payment->method);
+    }
+
+    private function gatewayLabel(string $method): string
+    {
+        $method = strtolower(trim($method));
+
+        return match ($method) {
+            PaymentGatewaySettings::PAYSTACK => 'Paystack',
+            PaymentGatewaySettings::WEMA => 'Wema Bank',
+            PaymentGatewaySettings::PAYGATE => 'PayGate',
+            'wallet' => 'Wallet',
+            'bank', 'transfer', 'bank_transfer' => 'Bank',
+            'legacy_import', 'import' => 'Import',
+            default => $method !== '' ? ucfirst(str_replace('_', ' ', $method)) : '—',
+        };
     }
 
     private function payerIdentifier(Invoice $invoice): string
@@ -207,17 +313,38 @@ class InvoiceExportService
     /**
      * @return list<string>
      */
-    private function headers(): array
+    private function headers(string $variant = self::VARIANT_INVOICES): array
     {
-        return ['S/N', 'Number', 'Payer', 'Matric', 'Category', 'Programme', 'College', 'Amount', 'Balance', 'Status', 'Timestamp'];
+        if ($variant === self::VARIANT_PAYMENTS) {
+            return ['S/N', 'Receipt', 'Reference', 'Invoice', 'Payer', 'Matric', 'Category', 'Programme', 'College', 'Gateway', 'Amount', 'Timestamp'];
+        }
+
+        return ['S/N', 'Number', 'Payer', 'Matric', 'Category', 'Programme', 'College', 'Amount', 'Balance', 'Gateway', 'Status', 'Timestamp'];
     }
 
     /**
      * @param  array<string, mixed>  $row
      * @return list<mixed>
      */
-    private function rowValues(array $row, int $sn, bool $display = false): array
+    private function rowValues(array $row, int $sn, bool $display = false, string $variant = self::VARIANT_INVOICES): array
     {
+        if ($variant === self::VARIANT_PAYMENTS) {
+            return [
+                $sn,
+                $row['receipt'],
+                $row['reference'],
+                $row['number'],
+                $row['payer'],
+                $row['matric'],
+                $row['category'],
+                $row['programme'],
+                $row['college'],
+                $row['gateway'],
+                $display ? ExportNumbers::display($row['amount']) : $row['amount'],
+                $row['date'],
+            ];
+        }
+
         return [
             $sn,
             $row['number'],
@@ -228,17 +355,47 @@ class InvoiceExportService
             $row['college'],
             $display ? ExportNumbers::display($row['amount']) : $row['amount'],
             $display ? ExportNumbers::display($row['balance']) : $row['balance'],
+            $row['gateway'] ?? '—',
             $row['status'],
             $row['date'],
         ];
     }
 
     /**
+     * @param  array{amount: float, balance: float}  $totals
+     * @return list<mixed>
+     */
+    private function totalRowValues(array $totals, string $variant = self::VARIANT_INVOICES, bool $display = false): array
+    {
+        $amount = $display ? ExportNumbers::display($totals['amount']) : $totals['amount'];
+        $balance = $display ? ExportNumbers::display($totals['balance']) : $totals['balance'];
+
+        if ($variant === self::VARIANT_PAYMENTS) {
+            return ['Total', '', '', '', '', '', '', '', '', '', $amount, ''];
+        }
+
+        return ['Total', '', '', '', '', '', '', $amount, $balance, '', '', ''];
+    }
+
+    /**
      * @return list<int>
      */
-    private function moneyIndexes(): array
+    private function moneyIndexes(string $variant = self::VARIANT_INVOICES): array
     {
-        return [7, 8];
+        return $variant === self::VARIANT_PAYMENTS ? [10] : [7, 8];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function columnLetters(int $count): array
+    {
+        $columns = [];
+        for ($i = 0; $i < $count; $i++) {
+            $columns[] = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i + 1);
+        }
+
+        return $columns;
     }
 
     /**
@@ -255,6 +412,7 @@ class InvoiceExportService
         array $totals,
         string $generatedAt,
         string $filename,
+        string $variant = self::VARIANT_INVOICES,
     ): Response {
         $html = view('exports.invoices-pdf', [
             'institution' => $institution,
@@ -264,6 +422,7 @@ class InvoiceExportService
             'totals' => $totals,
             'generatedAt' => $generatedAt,
             'count' => $rows->count(),
+            'variant' => $variant,
             'logo_data_uri' => InstitutionLogo::dataUri(),
         ])->render();
 
@@ -284,22 +443,25 @@ class InvoiceExportService
         array $totals,
         string $generatedAt,
         string $filename,
+        string $variant = self::VARIANT_INVOICES,
     ): StreamedResponse {
         $spreadsheet = new Spreadsheet;
         $sheet = $spreadsheet->getActiveSheet();
-        $sheet->setTitle('Invoices');
-        $headers = $this->headers();
-        $columns = array_slice(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K'], 0, count($headers));
+        $sheet->setTitle($variant === self::VARIANT_PAYMENTS ? 'Payments' : 'Invoices');
+        $headers = $this->headers($variant);
+        $columns = $this->columnLetters(count($headers));
         $lastCol = $columns[count($columns) - 1];
+        $defaultWidths = $variant === self::VARIANT_PAYMENTS
+            ? [8, 14, 18, 16, 18, 14, 14, 18, 16, 12, 12, 18]
+            : [8, 18, 20, 16, 14, 22, 18, 12, 12, 12, 12, 20];
 
         $row = 1;
         $logoPath = InstitutionLogo::path();
         if ($logoPath !== null) {
             $logoRow = $row;
             $logoHeight = 44;
-            $widths = [8, 18, 20, 16, 14, 22, 18, 12, 12, 12, 20];
             foreach ($columns as $index => $column) {
-                $sheet->getColumnDimension($column)->setWidth($widths[$index] ?? 14);
+                $sheet->getColumnDimension($column)->setWidth($defaultWidths[$index] ?? 14);
             }
 
             $sheet->mergeCells('A'.$logoRow.':'.$lastCol.$logoRow);
@@ -349,9 +511,9 @@ class InvoiceExportService
         $sheet->getStyle($headerRange)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('0C4A6E');
 
         $rowIndex = $headerRow + 1;
-        $moneyIndexes = $this->moneyIndexes();
+        $moneyIndexes = $this->moneyIndexes($variant);
         foreach ($rows as $i => $data) {
-            foreach ($this->rowValues($data, $i + 1) as $index => $value) {
+            foreach ($this->rowValues($data, $i + 1, false, $variant) as $index => $value) {
                 $cell = $columns[$index].$rowIndex;
                 if ($index === 0 || in_array($index, $moneyIndexes, true)) {
                     ExportNumbers::writeCell($sheet, $cell, $value, true, $index !== 0);
@@ -363,9 +525,14 @@ class InvoiceExportService
         }
 
         $totalRow = $rowIndex;
-        $sheet->setCellValue('A'.$totalRow, 'Total');
-        ExportNumbers::writeCell($sheet, $columns[7].$totalRow, $totals['amount'], true, true);
-        ExportNumbers::writeCell($sheet, $columns[8].$totalRow, $totals['balance'], true, true);
+        foreach ($this->totalRowValues($totals, $variant) as $index => $value) {
+            $cell = $columns[$index].$totalRow;
+            if (in_array($index, $moneyIndexes, true)) {
+                ExportNumbers::writeCell($sheet, $cell, $value, true, true);
+            } else {
+                $sheet->setCellValue($cell, $value);
+            }
+        }
         $sheet->getStyle('A'.$totalRow.':'.$lastCol.$totalRow)->getFont()->setBold(true);
         $sheet->getStyle('A'.$totalRow.':'.$lastCol.$totalRow)->getFill()
             ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E0F2FE');
@@ -386,9 +553,8 @@ class InvoiceExportService
             $sheet->getStyle('A'.$totalRow.':'.$lastCol.$totalRow)->getBorders()->getAllBorders()
                 ->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('CBD5E1');
             if ($logoPath === null) {
-                $widths = [8, 18, 20, 16, 14, 22, 18, 12, 12, 12, 20];
                 foreach ($columns as $index => $column) {
-                    $sheet->getColumnDimension($column)->setWidth($widths[$index] ?? 14);
+                    $sheet->getColumnDimension($column)->setWidth($defaultWidths[$index] ?? 14);
                 }
             }
         }
@@ -416,6 +582,7 @@ class InvoiceExportService
         array $totals,
         string $generatedAt,
         string $filename,
+        string $variant = self::VARIANT_INVOICES,
     ): StreamedResponse {
         $phpWord = new PhpWord;
         $phpWord->setDefaultFontName('Calibri');
@@ -451,19 +618,19 @@ class InvoiceExportService
             'unit' => 'pct',
         ]);
         $table->addRow();
-        foreach ($this->headers() as $header) {
+        foreach ($this->headers($variant) as $header) {
             $cell = $table->addCell(1200, ['bgColor' => '0C4A6E', 'valign' => 'center']);
             $cell->addText($header, ['bold' => true, 'color' => 'FFFFFF', 'size' => 8]);
         }
         foreach ($rows as $i => $data) {
             $table->addRow();
-            foreach ($this->rowValues($data, $i + 1, true) as $value) {
+            foreach ($this->rowValues($data, $i + 1, true, $variant) as $value) {
                 $cell = $table->addCell(1200);
                 $cell->addText((string) $value, ['size' => 8, 'color' => '1E293B']);
             }
         }
         $table->addRow();
-        foreach (['Total', '', '', '', '', '', '', ExportNumbers::display($totals['amount']), ExportNumbers::display($totals['balance']), '', ''] as $value) {
+        foreach ($this->totalRowValues($totals, $variant, true) as $value) {
             $cell = $table->addCell(1200, ['bgColor' => 'E0F2FE']);
             $cell->addText((string) $value, ['bold' => true, 'size' => 8, 'color' => '0C4A6E']);
         }
