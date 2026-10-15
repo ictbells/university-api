@@ -2165,7 +2165,9 @@ class FinanceController extends Controller
                 'application:id,user_id,application_number,jamb_registration',
                 'academicSession:id,label',
                 'rebates.rebateType',
-                'payments' => fn ($payments) => $payments->whereIn('status', ['successful', 'paid'])->latest('id'),
+                'payments' => fn ($payments) => $payments
+                    ->whereIn('status', ['successful', 'paid', 'pending'])
+                    ->latest('id'),
             ])
             ->latest();
         if (! $request->user()->hasPermission('finance.invoices.manage')) {
