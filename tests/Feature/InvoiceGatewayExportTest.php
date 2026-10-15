@@ -150,6 +150,44 @@ class InvoiceGatewayExportTest extends TestCase
         $this->assertNotSame('', $excel->streamedContent());
     }
 
+    public function test_payments_index_filters_by_gateway(): void
+    {
+        $staff = $this->financeUser();
+        $payer = User::factory()->create(['status' => 'active']);
+        $invoice = Invoice::query()->create([
+            'number' => 'INV-PAY-GW',
+            'user_id' => $payer->id,
+            'category' => 'tuition',
+            'amount' => 3000,
+            'balance' => 0,
+            'status' => 'paid',
+        ]);
+        Payment::query()->create([
+            'user_id' => $payer->id,
+            'invoice_id' => $invoice->id,
+            'method' => 'paystack',
+            'amount' => 3000,
+            'status' => 'successful',
+            'reference' => 'PSK-LIST-1',
+            'purpose' => 'tuition',
+        ]);
+        Payment::query()->create([
+            'user_id' => $payer->id,
+            'invoice_id' => $invoice->id,
+            'method' => 'wema',
+            'amount' => 1500,
+            'status' => 'successful',
+            'reference' => 'WEMA-LIST-1',
+            'purpose' => 'tuition',
+        ]);
+
+        Sanctum::actingAs($staff);
+        $this->getJson('/api/payments?gateway=paystack')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.reference', 'PSK-LIST-1');
+    }
+
     public function test_invoice_export_includes_gateway_column_without_gateway_filter(): void
     {
         $staff = $this->financeUser();

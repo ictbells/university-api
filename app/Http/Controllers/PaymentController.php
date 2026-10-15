@@ -45,6 +45,11 @@ class PaymentController extends Controller
             $query->where('status', $status);
         }
 
+        $gateway = strtolower(trim((string) $request->input('gateway', $request->input('method', ''))));
+        if (in_array($gateway, ['paystack', 'wema', 'paygate'], true)) {
+            $query->where('method', $gateway);
+        }
+
         $search = trim((string) $request->input('search', ''));
         if ($search !== '') {
             $term = '%'.str_replace(['%', '_'], ['\\%', '\\_'], $search).'%';
