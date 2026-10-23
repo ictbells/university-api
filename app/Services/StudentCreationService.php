@@ -112,7 +112,7 @@ class StudentCreationService
                 PgRecord::query()->create([
                     'student_id' => $student->id,
                     'supervisor_staff_id' => $prefs->first() ?: null,
-                    'topic' => $research['proposed_area'] ?? $research['research_interest'] ?? null,
+                    'topic' => $this->pgTopicFromResearch($research),
                     'proposal_status' => 'not_started',
                     'thesis_status' => 'not_started',
                 ]);
@@ -223,7 +223,7 @@ class StudentCreationService
                 PgRecord::query()->create([
                     'student_id' => $student->id,
                     'supervisor_staff_id' => $prefs->first() ?: null,
-                    'topic' => $research['proposed_area'] ?? $research['research_interest'] ?? null,
+                    'topic' => $this->pgTopicFromResearch($research),
                     'proposal_status' => 'not_started',
                     'thesis_status' => 'not_started',
                 ]);
@@ -351,7 +351,7 @@ class StudentCreationService
                 PgRecord::query()->create([
                     'student_id' => $student->id,
                     'supervisor_staff_id' => $prefs->first() ?: null,
-                    'topic' => $research['proposed_area'] ?? $research['research_interest'] ?? null,
+                    'topic' => $this->pgTopicFromResearch($research),
                     'proposal_status' => 'not_started',
                     'thesis_status' => 'not_started',
                 ]);
@@ -517,6 +517,24 @@ class StudentCreationService
                 $query->whereNull('study_level')->orWhere('study_level', '!=', 'jupeb');
             })
             ->whereDoesntHave('application', fn ($applications) => $applications->where('entry_mode', 'jupeb'));
+    }
+
+    /**
+     * Prefer proposed area; fall back to research interest. Application forms allow
+     * research text well beyond VARCHAR(255), so pg_records.topic is TEXT.
+     *
+     * @param  array<string, mixed>  $research
+     */
+    private function pgTopicFromResearch(array $research): ?string
+    {
+        foreach (['proposed_area', 'research_interest'] as $key) {
+            $value = trim((string) ($research[$key] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return null;
     }
 
     private function emailIssuedMatric(?Student $student, bool $now = false): void

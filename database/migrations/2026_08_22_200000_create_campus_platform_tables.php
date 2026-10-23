@@ -344,7 +344,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('student_id')->unique()->constrained()->cascadeOnDelete();
             $table->foreignId('supervisor_staff_id')->nullable()->constrained('staff')->nullOnDelete();
-            $table->string('topic')->nullable();
+            $table->text('topic')->nullable();
             $table->string('proposal_status')->default('not_started');
             $table->string('thesis_status')->default('not_started');
             $table->timestamps();

@@ -210,6 +210,32 @@ class ApplicationPhysicalClearanceTest extends TestCase
             ->assertJsonPath('message', 'A historic matric number can only be entered for postgraduate clearance.');
     }
 
+    public function test_pg_clearance_accepts_research_topic_longer_than_255_characters(): void
+    {
+        $application = $this->paidPgApplicant('APP/2026/PG-TOPIC', 'Long Topic Grad');
+        $longTopic = str_repeat('Research into distributed systems and edge computing. ', 20);
+        $this->assertGreaterThan(255, strlen($longTopic));
+        $application->steps()->updateOrCreate(
+            ['step_key' => 'pg_research'],
+            [
+                'status' => 'saved',
+                'payload' => [
+                    'research_interest' => $longTopic,
+                    'proposed_area' => '',
+                ],
+            ],
+        );
+        Sanctum::actingAs($this->officer);
+
+        $this->postJson("/api/applications/{$application->id}/clear")
+            ->assertOk()
+            ->assertJsonPath('data.stage', 'matriculated');
+
+        $student = $application->fresh('student.pgRecord')->student;
+        $this->assertNotNull($student?->pgRecord);
+        $this->assertSame(trim($longTopic), $student->pgRecord->topic);
+    }
+
     public function test_historic_pg_matric_must_be_unique(): void
     {
         Student::query()->create([
