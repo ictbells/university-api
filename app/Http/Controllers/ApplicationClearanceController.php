@@ -31,19 +31,31 @@ class ApplicationClearanceController extends Controller
     {
         abort_unless($request->user()?->hasPermission('admissions.clear'), 403);
 
+        $data = $request->validate([
+            'matric_number' => 'nullable|string|max:40',
+        ]);
+        $matricNumber = isset($data['matric_number']) ? trim((string) $data['matric_number']) : null;
+        if ($matricNumber === '') {
+            $matricNumber = null;
+        }
+
         $error = $this->clearance->eligibilityError($application);
         abort_if($error, 422, $error);
 
         $navKey = \App\Support\OfficeApprovalCatalog::clearanceNavKey($application->entry_mode);
+        $payload = ['application_id' => $application->id];
+        if ($matricNumber !== null) {
+            $payload['matric_number'] = $matricNumber;
+        }
 
         return $this->officeGate(
             'admissions.clear',
             $application,
-            ['application_id' => $application->id],
+            $payload,
             'Clear applicant '.$this->labelFor($application),
-            function () use ($application, $request) {
+            function () use ($application, $request, $matricNumber) {
                 try {
-                    $cleared = $this->clearance->clear($application, $request->user());
+                    $cleared = $this->clearance->clear($application, $request->user(), $matricNumber);
                 } catch (RuntimeException $exception) {
                     return response()->json(['message' => $exception->getMessage()], 422);
                 }

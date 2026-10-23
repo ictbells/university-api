@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use RuntimeException;
 
 class StudentCreationService
 {
@@ -27,14 +28,32 @@ class StudentCreationService
         private MatricSequence $matrics,
     ) {}
 
-    public function createFromApplication(Application $application): Student
+    public function createFromApplication(Application $application, ?string $matricNumber = null): Student
     {
-        $student = DB::transaction(function () use ($application) {
+        $student = DB::transaction(function () use ($application, $matricNumber) {
             $application->load(['user', 'program', 'steps', 'academicSession', 'intake.term.session']);
             $biodata = $application->mergedProfilePayload();
             $contact = $application->steps()->where('step_key', 'application_form')->first()?->payload ?? [];
             $isJupeb = $application->entry_mode === 'jupeb';
-            $matric = $isJupeb ? null : $this->matrics->allocate($application);
+            $supplied = trim((string) $matricNumber);
+            if ($supplied !== '') {
+                if ($isJupeb) {
+                    throw new RuntimeException('JUPEB matric numbers are assigned separately, not at clearance.');
+                }
+                $matric = \App\Support\StudentPortalAuth::normalizeLogin($supplied);
+                if ($matric === '') {
+                    throw new RuntimeException('Matric number is required.');
+                }
+                if (Student::query()->whereRaw('UPPER(REPLACE(COALESCE(matric_number, ""), " ", "")) = ?', [$matric])->exists()) {
+                    throw new RuntimeException('This matric number already exists.');
+                }
+                if (Student::query()->whereRaw('UPPER(REPLACE(COALESCE(student_number, ""), " ", "")) = ?', [$matric])->exists()) {
+                    throw new RuntimeException('This matric number already exists.');
+                }
+                $this->matrics->noteIssued($matric, $application);
+            } else {
+                $matric = $isJupeb ? null : $this->matrics->allocate($application);
+            }
 
             $student = Student::query()->create([
                 'user_id' => $application->user_id,

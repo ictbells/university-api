@@ -176,6 +176,62 @@ class ApplicationPhysicalClearanceTest extends TestCase
             ->assertJsonPath('message', 'This applicant has already been cleared.');
     }
 
+    public function test_staff_can_supply_historic_pg_matric_at_clearance(): void
+    {
+        Mail::fake();
+        $application = $this->paidPgApplicant();
+        Sanctum::actingAs($this->officer);
+
+        $this->postJson("/api/applications/{$application->id}/clear", [
+            'matric_number' => '2018/000042',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.stage', 'matriculated')
+            ->assertJsonPath('data.student.matric_number', '2018/000042');
+
+        $student = $application->fresh('student')->student;
+        $this->assertSame('2018/000042', $student?->matric_number);
+        $this->assertSame('2018/000042', $student?->student_number);
+        Mail::assertQueued(StudentMatricIssuedMail::class, function (StudentMatricIssuedMail $mail) use ($application) {
+            return $mail->hasTo($application->user->email)
+                && $mail->matricNumber === '2018/000042';
+        });
+    }
+
+    public function test_historic_matric_is_rejected_for_undergraduate_clearance(): void
+    {
+        $application = $this->paidApplicant();
+        Sanctum::actingAs($this->officer);
+
+        $this->postJson("/api/applications/{$application->id}/clear", [
+            'matric_number' => '2018/000042',
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'A historic matric number can only be entered for postgraduate clearance.');
+    }
+
+    public function test_historic_pg_matric_must_be_unique(): void
+    {
+        Student::query()->create([
+            'user_id' => User::factory()->create(['status' => 'active'])->id,
+            'matric_number' => '2018/000042',
+            'student_number' => '2018/000042',
+            'first_name' => 'Existing',
+            'last_name' => 'Graduate',
+            'status' => 'active',
+            'current_level' => 900,
+            'study_level' => 'postgraduate',
+        ]);
+        $application = $this->paidPgApplicant();
+        Sanctum::actingAs($this->officer);
+
+        $this->postJson("/api/applications/{$application->id}/clear", [
+            'matric_number' => '2018/000042',
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'This matric number already exists.');
+    }
+
     public function test_uncleared_applicant_cannot_generate_or_pay_school_fees(): void
     {
         $application = $this->paidApplicant();
@@ -232,6 +288,46 @@ class ApplicationPhysicalClearanceTest extends TestCase
             'application_id' => $application->id,
             'category' => 'acceptance_fee',
             'amount' => 25000,
+            'balance' => 0,
+            'status' => 'paid',
+        ]);
+        $application->update(['acceptance_fee_invoice_id' => $invoice->id]);
+        app(ApplicationAdmissionService::class)->handleInvoicePaid($invoice);
+
+        return $application->fresh(['acceptanceFeeInvoice', 'user']);
+    }
+
+    private function paidPgApplicant(string $number = 'APP/2026/PG100', string $name = 'Ada Postgrad'): Application
+    {
+        $program = $this->pgProgramme();
+        $intake = $this->openPgIntake();
+        $user = User::factory()->create(['name' => $name, 'status' => 'active']);
+        $application = Application::query()->create([
+            'application_number' => $number,
+            'user_id' => $user->id,
+            'intake_id' => $intake->id,
+            'program_id' => $program->id,
+            'entry_mode' => 'pg',
+            'stage' => 'awaiting_acceptance_fee',
+            'offer_reference' => 'OFF/'.$number,
+        ]);
+        foreach (Application::formSteps('pg') as $step) {
+            $payload = [];
+            if ($step === 'biodata') {
+                $payload = ['first_name' => 'Ada', 'last_name' => 'Postgrad'];
+            }
+            $application->steps()->create([
+                'step_key' => $step,
+                'status' => 'saved',
+                'payload' => $payload,
+            ]);
+        }
+        $invoice = Invoice::query()->create([
+            'number' => 'ACC-PG-'.$application->id,
+            'user_id' => $application->user_id,
+            'application_id' => $application->id,
+            'category' => 'acceptance_fee',
+            'amount' => 50000,
             'balance' => 0,
             'status' => 'paid',
         ]);
@@ -304,6 +400,23 @@ class ApplicationPhysicalClearanceTest extends TestCase
         ]);
     }
 
+    private function pgProgramme(): Program
+    {
+        $departmentId = $this->program->department_id;
+
+        return Program::query()->create([
+            'department_id' => $departmentId,
+            'name' => 'M.Sc Computer Science',
+            'code' => 'MSC-CS',
+            'award_type' => 'M.Sc',
+            'study_level' => 'postgraduate',
+            'entry_modes' => ['pg'],
+            'duration_years' => 2,
+            'is_active' => true,
+            'workflow_template_id' => WorkflowCatalog::idByCode(WorkflowCatalog::PG_TAUGHT),
+        ]);
+    }
+
     private function openIntake(): Intake
     {
         $session = AcademicSession::query()->create(['label' => '2026/2027']);
@@ -326,6 +439,22 @@ class ApplicationPhysicalClearanceTest extends TestCase
         ]);
     }
 
+    private function openPgIntake(): Intake
+    {
+        $termId = $this->intake->academic_term_id;
+
+        return Intake::query()->create([
+            'academic_term_id' => $termId,
+            'name' => 'PG 2026',
+            'entry_mode' => 'pg',
+            'is_open' => true,
+            'application_fee_amount' => 15000,
+            'acceptance_fee_amount' => 50000,
+            'opens_on' => now()->subDay()->toDateString(),
+            'closes_on' => now()->addMonth()->toDateString(),
+        ]);
+    }
+
     /**
      * @param  list<string>  $permissions
      */
@@ -343,7 +472,12 @@ class ApplicationPhysicalClearanceTest extends TestCase
             'code' => substr($role->slug, 0, 20),
             'is_active' => true,
         ]);
-        $office->syncNavKeys(['admissions-undergraduate', 'admissions-clearance-undergraduate']);
+        $office->syncNavKeys([
+            'admissions-undergraduate',
+            'admissions-clearance-undergraduate',
+            'admissions-postgraduate',
+            'admissions-clearance-postgraduate',
+        ]);
         $user = User::factory()->create(['status' => 'active']);
         $user->roles()->attach($role->id);
         Staff::query()->create([

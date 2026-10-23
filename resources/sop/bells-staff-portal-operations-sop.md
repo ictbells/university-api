@@ -1,8 +1,8 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.76  
-**Effective date:** September 2026  
+**Version:** 1.77  
+**Effective date:** October 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
 
@@ -355,6 +355,8 @@ When staff issue the offer (`offer_issued`, or postgraduate `admission`), the ap
 
 After the applicant pays acceptance, the file waits at `acceptance_paid`. They come to campus with original documents. Admissions staff clear them **individually** or in **bulk** on the matching **Applications → Physical clearance** channel page (or the Clear action on that channel's pipeline). Clearing records the visit and creates (or reattaches) the student record. Undergraduate, Direct Entry, transfer, and postgraduate students are issued a matric number immediately and **emailed that number** — they must then sign in with matric (application number and JAMB no longer work). JUPEB students get a student record without a matric until staff assign one on **Academic → JUPEB matric numbers** (that assignment is emailed separately). Already-matriculated files from before this step are treated as already cleared. To email matric numbers already issued before this mail existed: `php artisan students:email-matric` (sends immediately; preview with `--dry-run`; postgraduate only: `--entry-mode=pg`; JUPEB: `php artisan jupeb:email-matric`).
 
+**Postgraduate historic matric at clearance.** On **Applications → Physical clearance → Postgraduate**, when clearing **one** applicant, staff may optionally enter a **historic matric number** (for example an older graduate whose academic history has not been migrated yet). Leave the field blank to auto-assign the next PG matric from the sequence. Entering a number uses that matric on the new student record (it must not already exist), updates the PG matric counter so later auto-matrics stay consistent, and emails the number as usual. Undergraduate / JUPEB / bulk clearance do **not** accept a supplied matric — for bulk PG clear, clear one file at a time if a historic number is required. Large batches of continuing PG students with known matrics can still use **Academic → Admission Setup → Import students** with `entry_mode` postgraduate.
+
 Transfer files include a **credit assessment** step after verification (`admissions.credit_assess`). Postgraduate files may include extra PG review steps.
 
 Applicants who are **matriculated and have paid at least 25% of current-session tuition** leave Applications lists and appear under **Registrations**.
@@ -385,7 +387,7 @@ Course registration, unit limits, and registration extensions are under **Academ
 | Levels | Study levels (100, 200, …) | `academic.levels.manage` |
 | Graduation | Confirm conferment and start the studentship clock | `academic.graduate` |
 | JUPEB matric numbers | Assign official JUPEB matric numbers (one student or spreadsheet). Each newly assigned student is emailed the number for student-portal sign-in. Password stays the one they registered with. To email numbers already assigned: `php artisan jupeb:email-matric` (preview with `--dry-run`; limit with `--id=`) | `admissions.matriculate` |
-| Import students | Create continuing students with a supplied matric number (`students.import`). Import invoices and wallet history first. Invoice rows also match old application number or JAMB. Login uses matric number. NIN is optional; they must verify NIN after they sign in and do not re-apply. They appear under Registrations only when tuition invoices show at least 25% paid | `students.import` |
+| Import students | Create continuing students with a supplied matric number (`students.import`). Import invoices and wallet history first. Invoice rows also match old application number or JAMB. Login uses matric number. NIN is optional; they must verify NIN after they sign in and do not re-apply. They appear under Registrations only when tuition invoices show at least 25% paid. For a single postgraduate applicant already in the clearance queue who needs a historic matric, prefer **Physical clearance → Postgraduate** with the optional matric field instead of import | `students.import` |
 
 #### Catalogue bulk import
 
@@ -871,6 +873,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.74 | Oct 2026 | Platform team | SOP §8.6 clarifies Course catalog as the university pool: department is ownership/home; programme links are optional curriculum mapping; registration still requires offerings |
 | 1.75 | Oct 2026 | Platform team | Staff sign-in uses Bearer tokens without sending the browser cookie jar (no manual cookie clear); production forbids `SESSION_DRIVER=cookie` |
 | 1.76 | Oct 2026 | Platform team | Course catalog is a free pool (no college/department/programme on create/import); codes unique university-wide via `code_key`; map on Programme courses |
+| 1.77 | Oct 2026 | Platform team | Postgraduate physical clearance can optionally take a historic matric number for older graduates whose history is not migrated; blank still auto-assigns; bulk/UG unchanged |
 | 1.70 | Sep 2026 | Platform team | Students see the exact amount and fee-line breakdown for the chosen tuition installment in a confirmation popup before the invoice is created; Cancel creates nothing |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.

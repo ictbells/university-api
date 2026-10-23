@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Application;
 use App\Models\User;
 use App\Support\ApplicationListQuery;
+use App\Support\StudentPortalAuth;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -73,14 +74,26 @@ class ApplicationPhysicalClearanceService
         return null;
     }
 
-    public function clear(Application $application, User $actor): Application
+    public function clear(Application $application, User $actor, ?string $matricNumber = null): Application
     {
         $error = $this->eligibilityError($application);
         if ($error) {
             throw new RuntimeException($error);
         }
 
-        return DB::transaction(function () use ($application, $actor) {
+        $supplied = StudentPortalAuth::normalizeLogin((string) $matricNumber);
+        if ($supplied !== '') {
+            if (strtolower((string) $application->entry_mode) !== 'pg') {
+                throw new RuntimeException('A historic matric number can only be entered for postgraduate clearance.');
+            }
+            if ($application->student_id || $application->user?->student) {
+                throw new RuntimeException('This applicant already has a student record; matric cannot be overridden at clearance.');
+            }
+        } else {
+            $supplied = null;
+        }
+
+        return DB::transaction(function () use ($application, $actor, $supplied) {
             $application->update([
                 'physically_cleared_at' => now(),
                 'physically_cleared_by' => $actor->id,
@@ -91,7 +104,10 @@ class ApplicationPhysicalClearanceService
                 if ($existing) {
                     $this->students->attachExistingStudent($application->fresh(['user', 'program', 'steps']), $existing);
                 } else {
-                    $this->students->createFromApplication($application->fresh(['user', 'program', 'steps']));
+                    $this->students->createFromApplication(
+                        $application->fresh(['user', 'program', 'steps']),
+                        $supplied,
+                    );
                 }
             }
 
@@ -115,6 +131,8 @@ class ApplicationPhysicalClearanceService
                 [
                     'stage' => $application->stage,
                     'student_id' => $application->student_id,
+                    'matric_number' => $application->student?->matric_number,
+                    'matric_supplied' => $supplied !== null,
                     'physically_cleared_at' => optional($application->physically_cleared_at)?->toIso8601String(),
                 ],
             );
