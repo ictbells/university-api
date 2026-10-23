@@ -126,6 +126,28 @@ class PostgraduateMatricSequenceTest extends TestCase
         $this->assertSame('2026/000050', (string) config('sis.pg_matric_last'));
     }
 
+    public function test_postgraduate_uses_separate_pg_matric_digits(): void
+    {
+        config([
+            'sis.matric_last' => '2026/00001',
+            'sis.pg_matric_last' => '2026/0000',
+            'sis.matric_year' => '2026',
+            'sis.pg_matric_year' => '2026',
+            'sis.matric_digits' => 5,
+            'sis.pg_matric_digits' => 4,
+        ]);
+
+        $sequence = app(MatricSequence::class);
+
+        $this->assertSame(5, $sequence->digits(MatricSequence::TRACK_UNDERGRADUATE));
+        $this->assertSame(4, $sequence->digits(MatricSequence::TRACK_POSTGRADUATE));
+        $this->assertSame('2026/00002', $sequence->allocate($this->application('utme', 'undergraduate')));
+        $this->assertSame('2026/0001', $sequence->allocate($this->application('pg', 'postgraduate')));
+        $this->assertSame('2026/0002', $sequence->allocate($this->application('pg', 'postgraduate')));
+        $this->assertSame('2026/00002', Setting::getValue(MatricSequence::SETTING_KEY));
+        $this->assertSame('2026/0002', Setting::getValue(MatricSequence::PG_SETTING_KEY));
+    }
+
     /**
      * @param  list<string>|null  $entryModes
      */

@@ -17,6 +17,19 @@ class MatricSequenceTest extends TestCase
         $this->assertNull($sequence->parse('BUT/2026/M/0001'));
     }
 
+    public function test_format_uses_pg_matric_digits_for_postgraduate_track(): void
+    {
+        config([
+            'sis.matric_digits' => 5,
+            'sis.pg_matric_digits' => 4,
+        ]);
+        $sequence = app(MatricSequence::class);
+
+        $this->assertSame('2026/00001', $sequence->format(2026, 1));
+        $this->assertSame('2026/00001', $sequence->format(2026, 1, MatricSequence::TRACK_UNDERGRADUATE));
+        $this->assertSame('2026/0001', $sequence->format(2026, 1, MatricSequence::TRACK_POSTGRADUATE));
+    }
+
     public function test_dotenv_writer_updates_or_appends_matric_last(): void
     {
         $path = sys_get_temp_dir().'/bells-matric-'.uniqid().'.env';

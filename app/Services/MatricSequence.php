@@ -27,10 +27,10 @@ class MatricSequence
         return DB::transaction(function () use ($year, $track) {
             $this->lock($track);
             $serial = $this->nextSerial($year, $track);
-            $matric = $this->format($year, $serial);
+            $matric = $this->format($year, $serial, $track);
             while ($this->taken($matric)) {
                 $serial++;
-                $matric = $this->format($year, $serial);
+                $matric = $this->format($year, $serial, $track);
             }
             $this->persist($matric, $track);
 
@@ -56,7 +56,7 @@ class MatricSequence
             ) {
                 return;
             }
-            $this->persist($this->format($parsed['year'], $parsed['serial']), $track);
+            $this->persist($this->format($parsed['year'], $parsed['serial'], $track), $track);
         });
     }
 
@@ -121,11 +121,21 @@ class MatricSequence
         ];
     }
 
-    public function format(int $year, int $serial): string
+    public function format(int $year, int $serial, ?string $track = null): string
     {
-        $digits = max(1, (int) config('sis.matric_digits', 6));
+        return $year.'/'.str_pad((string) $serial, $this->digits($track), '0', STR_PAD_LEFT);
+    }
 
-        return $year.'/'.str_pad((string) $serial, $digits, '0', STR_PAD_LEFT);
+    public function digits(?string $track = null): int
+    {
+        if ($track === self::TRACK_POSTGRADUATE) {
+            $pgDigits = (int) config('sis.pg_matric_digits', 0);
+            if ($pgDigits >= 1) {
+                return $pgDigits;
+            }
+        }
+
+        return max(1, (int) config('sis.matric_digits', 6));
     }
 
     private function settingKey(string $track): string
@@ -173,13 +183,13 @@ class MatricSequence
             }
             if ($parsed['serial'] >= $best) {
                 $best = $parsed['serial'];
-                $bestValue = $this->format($parsed['year'], $parsed['serial']);
+                $bestValue = $this->format($parsed['year'], $parsed['serial'], $track);
             }
         }
 
         $dbMax = $this->maxSerialInDatabase($year, $track);
         if ($dbMax > $best) {
-            return $this->format($year, $dbMax);
+            return $this->format($year, $dbMax, $track);
         }
 
         return $bestValue;

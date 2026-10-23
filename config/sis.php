@@ -15,8 +15,8 @@ return [
     'matric_year' => env('MATRIC_YEAR', ''),
 
     /*
-    | Last issued postgraduate matric in the same YYYY/###### format.
-    | Example: PG_MATRIC_LAST=2026/000020 → next PG student is 2026/000021.
+    | Last issued postgraduate matric in the same YYYY/{serial} format.
+    | Example with PG_MATRIC_DIGITS=4: PG_MATRIC_LAST=2026/0001 → next is 2026/0002.
     */
     'pg_matric_last' => env('PG_MATRIC_LAST', ''),
 
@@ -25,7 +25,16 @@ return [
     */
     'pg_matric_year' => env('PG_MATRIC_YEAR', ''),
 
+    /*
+    | Zero-pad width for the serial after the slash (undergraduate / DE / transfer).
+    */
     'matric_digits' => (int) env('MATRIC_DIGITS', 6),
+
+    /*
+    | Zero-pad width for postgraduate serials. Empty / 0 falls back to MATRIC_DIGITS.
+    | Example: PG_MATRIC_DIGITS=4 → 2026/0001
+    */
+    'pg_matric_digits' => (int) env('PG_MATRIC_DIGITS', 0),
 
     /*
     | Shared serial for invoice numbers and payment receipt numbers.

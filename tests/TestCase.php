@@ -25,8 +25,9 @@ abstract class TestCase extends BaseTestCase
             'sis.matric_year' => '',
             'sis.pg_matric_last' => '',
             'sis.pg_matric_year' => '',
+            'sis.pg_matric_digits' => 0,
         ]);
-        foreach (['MATRIC_LAST', 'MATRIC_YEAR', 'PG_MATRIC_LAST', 'PG_MATRIC_YEAR'] as $key) {
+        foreach (['MATRIC_LAST', 'MATRIC_YEAR', 'PG_MATRIC_LAST', 'PG_MATRIC_YEAR', 'PG_MATRIC_DIGITS'] as $key) {
             putenv($key.'=');
             $_ENV[$key] = '';
             $_SERVER[$key] = '';
