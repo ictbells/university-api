@@ -28,6 +28,7 @@ use App\Services\StudentFinanceExportService;
 use App\Services\UniversityFinanceStatementService;
 use App\Support\AdmissionEntryRules;
 use App\Support\FeeSchedule;
+use App\Support\FinanceExportProfiler;
 use App\Support\InstitutionLogo;
 use App\Support\InvoiceSettlement;
 use App\Support\ListSessionLevelFilter;
@@ -1457,9 +1458,12 @@ class FinanceController extends Controller
 
         $format = $data['format'];
         $maxRows = StudentFinanceExportService::maxRowsFor($format);
+        $profiler = new FinanceExportProfiler;
         $session = $this->resolveRosterSession($request);
         $query = $this->studentRosterQuery($request, $session['id']);
+        $profiler->mark('export.prepare');
         $total = (clone $query)->count();
+        $profiler->mark('student_count', ['count' => $total]);
         if ($total > $maxRows) {
             $label = match ($format) {
                 'excel' => 'Excel',
@@ -1488,17 +1492,30 @@ class FinanceController extends Controller
 
         try {
             if ($format === 'csv') {
-                return $this->studentFinanceExports->streamCsv($title, $filters, function (callable $emit) use ($query, $maxRows) {
+                $chunkSize = (int) config('sis.finance_export_csv_chunk', 250);
+
+                return $this->studentFinanceExports->streamCsv($title, $filters, function (callable $emit) use ($query, $maxRows, $profiler, $chunkSize, $format, $total) {
                     $written = 0;
+                    $batchIndex = 0;
                     StudentAcademicLevel::warmCatalog();
+                    $profiler->mark('csv.catalog_warm');
                     try {
                         (clone $query)->reorder()
                             ->orderBy('students.id')
-                            ->chunkById(1000, function ($chunk) use ($emit, &$written, $maxRows) {
+                            ->chunkById($chunkSize, function ($chunk) use ($emit, &$written, $maxRows, $profiler, &$batchIndex) {
                                 if ($written >= $maxRows) {
                                     return false;
                                 }
-                                $this->hydrateFinanceSummaries($chunk);
+                                $batchIndex++;
+                                $isFirst = $batchIndex === 1;
+                                if ($isFirst) {
+                                    $profiler->mark('csv.first_batch_retrieved', ['students' => $chunk->count()]);
+                                }
+                                $this->hydrateFinanceSummaries($chunk, $profiler, $isFirst);
+                                if ($isFirst) {
+                                    $profiler->mark('csv.first_batch_hydrated', ['students' => $chunk->count()]);
+                                }
+                                $csvStarted = microtime(true);
                                 foreach ($chunk as $student) {
                                     if ($written >= $maxRows) {
                                         return false;
@@ -1506,26 +1523,38 @@ class FinanceController extends Controller
                                     $written++;
                                     $emit($this->studentFinanceExportRow($student));
                                 }
+                                if ($isFirst) {
+                                    $profiler->mark('csv.first_batch_written', [
+                                        'rows' => $chunk->count(),
+                                        'write_ms' => round((microtime(true) - $csvStarted) * 1000, 1),
+                                    ]);
+                                }
 
                                 return $written < $maxRows;
                             }, 'students.id', 'id');
+                        $profiler->mark('csv.stream_complete', ['rows' => $written]);
                     } finally {
                         // Flush once after the full stream — not per chunk (that reloaded fees/levels repeatedly).
                         ProgrammeFeeResolver::flushCache();
                         StudentAcademicLevel::flushCache();
+                        $profiler->flush($format, $total);
                     }
                 });
             }
 
             $students = $query->limit($maxRows)->get();
+            $profiler->mark('bulk.students_loaded', ['students' => $students->count()]);
             try {
-                $this->hydrateFinanceSummaries($students);
+                $this->hydrateFinanceSummaries($students, $profiler, true);
+                $profiler->mark('bulk.hydrated', ['students' => $students->count()]);
             } finally {
                 ProgrammeFeeResolver::flushCache();
                 StudentAcademicLevel::flushCache();
             }
 
             $rows = $students->map(fn (Student $student) => $this->studentFinanceExportRow($student))->values();
+            $profiler->mark('bulk.rows_mapped', ['rows' => $rows->count()]);
+            $profiler->flush($format, $total);
 
             return $this->studentFinanceExports->export(
                 $format,
@@ -1535,6 +1564,7 @@ class FinanceController extends Controller
             );
         } catch (\Throwable $e) {
             report($e);
+            $profiler->flush($format, $total);
 
             return response()->json([
                 'message' => 'Could not build the '.match ($format) {
@@ -1796,8 +1826,11 @@ class FinanceController extends Controller
     /**
      * @param  Collection<int, Student>  $students
      */
-    private function hydrateFinanceSummaries(Collection $students): void
-    {
+    private function hydrateFinanceSummaries(
+        Collection $students,
+        ?FinanceExportProfiler $profiler = null,
+        bool $profileDetail = false,
+    ): void {
         if ($students->isEmpty()) {
             return;
         }
@@ -1808,36 +1841,66 @@ class FinanceController extends Controller
         $students->loadMissing(['program.department.faculty', 'application']);
         StudentAcademicLevel::warmCatalog();
 
-        // Chunk so large exports do not load every invoice/payment model at once.
-        foreach ($students->chunk(1000) as $chunk) {
-            $studentIds = $chunk->pluck('id')->all();
-            $userIds = $chunk->pluck('user_id')->filter()->unique()->values()->all();
+        // Match CSV stream batches so nested re-chunking does not delay first rows.
+        $hydrateChunk = max(50, (int) config('sis.finance_export_csv_chunk', 250));
 
-            $invoices = Invoice::query()
-                ->select([
-                    'id', 'student_id', 'user_id', 'category', 'status',
-                    'amount', 'full_amount', 'rebate_total',
-                ])
-                ->withSum([
-                    'payments as paid_sum' => function (Builder $query) {
-                        $query->whereIn('status', ['successful', 'paid'])
-                            ->where(function (Builder $inner) {
-                                $inner->whereNull('purpose')
-                                    ->orWhereNotIn('purpose', ['wallet_topup', 'wallet_funding']);
-                            });
-                    },
-                ], 'amount')
-                ->where(function (Builder $query) use ($studentIds, $userIds) {
-                    $query->whereIn('student_id', $studentIds);
-                    if ($userIds !== []) {
-                        $query->orWhereIn('user_id', $userIds);
-                    }
-                })
-                ->get();
+        foreach ($students->chunk($hydrateChunk) as $chunk) {
+            $studentIds = $chunk->pluck('id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
+            $userIds = $chunk->pluck('user_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
+
+            $invoiceStarted = microtime(true);
+            // Two indexed lookups instead of OR (student_id IN … OR user_id IN …),
+            // which often forces a poor plan on large invoice tables.
+            $invoiceColumns = [
+                'id', 'student_id', 'user_id', 'category', 'status',
+                'amount', 'full_amount', 'rebate_total',
+            ];
+            $byStudentQuery = Invoice::query()
+                ->select($invoiceColumns)
+                ->whereIn('student_id', $studentIds);
+            if ($profileDetail && $profiler?->enabled()) {
+                $profiler->explainOnce('invoices_by_student', (clone $byStudentQuery));
+            }
+            $byStudentId = $studentIds === []
+                ? collect()
+                : $byStudentQuery->get();
+
+            $byUserId = $userIds === []
+                ? collect()
+                : Invoice::query()
+                    ->select($invoiceColumns)
+                    ->whereIn('user_id', $userIds)
+                    ->when($studentIds !== [], function (Builder $query) use ($studentIds) {
+                        // Skip rows already fetched via student_id.
+                        $query->where(function (Builder $inner) use ($studentIds) {
+                            $inner->whereNull('student_id')
+                                ->orWhereNotIn('student_id', $studentIds);
+                        });
+                    })
+                    ->get();
+
+            $invoices = $byStudentId->concat($byUserId)->unique('id')->values();
+            if ($profileDetail) {
+                $profiler?->mark('hydrate.invoice_lookup', [
+                    'students' => $chunk->count(),
+                    'invoices' => $invoices->count(),
+                    'ms' => round((microtime(true) - $invoiceStarted) * 1000, 1),
+                ]);
+            }
+
+            $paymentStarted = microtime(true);
+            $this->attachInvoicePaidSums($invoices, $profiler, $profileDetail);
+            if ($profileDetail) {
+                $profiler?->mark('hydrate.payment_aggregate', [
+                    'invoices' => $invoices->count(),
+                    'ms' => round((microtime(true) - $paymentStarted) * 1000, 1),
+                ]);
+            }
 
             $byStudent = $invoices->groupBy('student_id');
             $byUser = $invoices->groupBy('user_id');
 
+            $summaryStarted = microtime(true);
             foreach ($chunk as $student) {
                 $rows = collect($byStudent->get($student->id, []))
                     ->concat($student->user_id ? $byUser->get($student->user_id, []) : [])
@@ -1845,6 +1908,53 @@ class FinanceController extends Controller
                     ->values();
                 $student->setAttribute('finance_summary', StudentFinanceStatus::summarize($student, $rows));
             }
+            if ($profileDetail) {
+                $profiler?->mark('hydrate.summary', [
+                    'students' => $chunk->count(),
+                    'ms' => round((microtime(true) - $summaryStarted) * 1000, 1),
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Bulk payment totals instead of per-invoice withSum() correlated subqueries.
+     *
+     * @param  Collection<int, Invoice>  $invoices
+     */
+    private function attachInvoicePaidSums(
+        Collection $invoices,
+        ?FinanceExportProfiler $profiler = null,
+        bool $profileDetail = false,
+    ): void {
+        if ($invoices->isEmpty()) {
+            return;
+        }
+
+        $paidByInvoice = [];
+        foreach ($invoices->pluck('id')->map(fn ($id) => (int) $id)->unique()->chunk(2000) as $idChunk) {
+            $ids = $idChunk->values()->all();
+            $aggregate = Payment::query()
+                ->selectRaw('invoice_id, COALESCE(SUM(amount), 0) as paid_sum')
+                ->whereIn('invoice_id', $ids)
+                ->whereIn('status', ['successful', 'paid'])
+                ->where(function (Builder $query) {
+                    $query->whereNull('purpose')
+                        ->orWhereNotIn('purpose', ['wallet_topup', 'wallet_funding']);
+                })
+                ->groupBy('invoice_id');
+
+            if ($profileDetail && $profiler?->enabled()) {
+                $profiler->explainOnce('payments_paid_sum', (clone $aggregate));
+            }
+
+            foreach ($aggregate->get() as $row) {
+                $paidByInvoice[(int) $row->invoice_id] = (float) $row->paid_sum;
+            }
+        }
+
+        foreach ($invoices as $invoice) {
+            $invoice->setAttribute('paid_sum', $paidByInvoice[(int) $invoice->id] ?? 0.0);
         }
     }
 

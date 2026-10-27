@@ -45,4 +45,15 @@ return [
     'bursary_doc_year' => env('BURSARY_DOC_YEAR', ''),
     'bursary_doc_digits' => (int) env('BURSARY_DOC_DIGITS', 4),
 
+    /*
+    | Student financial-status CSV stream chunk size (students per hydrate/write batch).
+    | Smaller values improve time-to-first-row; larger values reduce query round-trips.
+    */
+    'finance_export_csv_chunk' => max(50, (int) env('FINANCE_EXPORT_CSV_CHUNK', 250)),
+
+    /*
+    | When true, log stage timings for student-roster exports (counts/ms only — no PII).
+    */
+    'finance_export_profile' => (bool) env('FINANCE_EXPORT_PROFILE', false),
+
 ];

@@ -15,6 +15,18 @@ class WalletService
 
     public function credit(Wallet $wallet, float $amount, string $description, string $module, ?int $relatedId = null, ?string $reference = null): void
     {
+        // Payment verify + webhook can race; never credit the same payment twice.
+        if ($module === 'payments' && $relatedId) {
+            $alreadyCredited = $wallet->transactions()
+                ->where('type', 'credit')
+                ->where('source_module', 'payments')
+                ->where('related_id', $relatedId)
+                ->exists();
+            if ($alreadyCredited) {
+                return;
+            }
+        }
+
         $before = $wallet->toArray();
         $wallet->balance = (float) $wallet->balance + $amount;
         $wallet->save();
@@ -32,11 +44,19 @@ class WalletService
 
     public function debit(Wallet $wallet, float $amount, string $description, string $module, ?int $relatedId = null, ?string $reference = null): void
     {
-        if ((float) $wallet->balance < $amount) {
+        $amount = round($amount, 2);
+        if ($amount <= 0) {
+            throw new RuntimeException('Wallet debit amount must be greater than zero.');
+        }
+
+        // Negative or short balances cannot spend — including after duplicate-credit repairs.
+        $balance = round((float) $wallet->balance, 2);
+        if ($balance <= 0 || $balance < $amount) {
             throw new RuntimeException('Insufficient wallet balance.');
         }
+
         $before = $wallet->toArray();
-        $wallet->balance = (float) $wallet->balance - $amount;
+        $wallet->balance = round($balance - $amount, 2);
         $wallet->save();
         $wallet->transactions()->create([
             'type' => 'debit',

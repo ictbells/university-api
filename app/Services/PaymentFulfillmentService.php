@@ -6,6 +6,7 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\User;
 use App\Support\FeeSchedule;
+use Illuminate\Support\Facades\DB;
 
 class PaymentFulfillmentService
 {
@@ -102,39 +103,54 @@ class PaymentFulfillmentService
 
     public function fulfill(Payment $payment, string $source): Payment
     {
-        if ($payment->status === 'successful') {
-            return $payment;
-        }
-
-        $payment->loadMissing('invoice');
-        $payment->update([
-            'status' => 'successful',
-            'receipt_no' => $this->receiptNumberFor($payment),
-        ]);
-
-        if ($payment->invoice_id) {
-            $invoice = $payment->invoice;
-            $this->invoices->applyPayment($invoice, (float) $payment->amount);
-            $this->abandonSiblingPendingPayments($payment);
-            $this->audit->record(
-                'payment.'.strtolower($payment->method ?: 'online'),
-                $source.' payment for '.$invoice->number,
-                'payments',
-                'invoice',
-                $invoice->id,
-                null,
-                $invoice->fresh(),
-            );
-            $this->notifier->send($payment->user, 'payment', 'Payment received', 'Receipt '.$payment->receipt_no, 'payments', $payment->id);
-            $this->admissions->handleInvoicePaid($invoice->fresh());
-        } elseif ($payment->purpose === 'wallet_topup') {
-            $wallet = $payment->user->student?->wallet;
-            if ($wallet) {
-                $this->wallets->credit($wallet, (float) $payment->amount, $source.' wallet funding', 'payments', $payment->id, $payment->reference);
+        return DB::transaction(function () use ($payment, $source) {
+            // Callback verify and gateway webhooks both call fulfill for the same
+            // reference; claim the row under lock so only one path runs side effects.
+            $locked = Payment::query()->whereKey($payment->id)->lockForUpdate()->first();
+            if (! $locked) {
+                return $payment;
             }
-        }
+            if ($locked->status === 'successful') {
+                return $locked;
+            }
 
-        return $payment->fresh();
+            $locked->loadMissing(['invoice', 'user.student.wallet']);
+            $locked->update([
+                'status' => 'successful',
+                'receipt_no' => $this->receiptNumberFor($locked),
+            ]);
+
+            if ($locked->invoice_id) {
+                $invoice = $locked->invoice;
+                $this->invoices->applyPayment($invoice, (float) $locked->amount);
+                $this->abandonSiblingPendingPayments($locked);
+                $this->audit->record(
+                    'payment.'.strtolower($locked->method ?: 'online'),
+                    $source.' payment for '.$invoice->number,
+                    'payments',
+                    'invoice',
+                    $invoice->id,
+                    null,
+                    $invoice->fresh(),
+                );
+                $this->notifier->send($locked->user, 'payment', 'Payment received', 'Receipt '.$locked->receipt_no, 'payments', $locked->id);
+                $this->admissions->handleInvoicePaid($invoice->fresh());
+            } elseif ($locked->purpose === 'wallet_topup') {
+                $wallet = $locked->user?->student?->wallet;
+                if ($wallet) {
+                    $this->wallets->credit(
+                        $wallet,
+                        (float) $locked->amount,
+                        $source.' wallet funding',
+                        'payments',
+                        $locked->id,
+                        $locked->reference,
+                    );
+                }
+            }
+
+            return $locked->fresh();
+        });
     }
 
     public function abandonSiblingPendingPayments(Payment $payment): void

@@ -22,6 +22,7 @@ class ApplicationStartService
         private AuditWriter $audit,
         private PremblyService $prembly,
         private ReturningApplicantPrefill $prefill,
+        private ApplicationAdmissionService $admissions,
     ) {}
 
     public function start(User $user, Intake $intake, ?string $jambRegistration = null, ?int $programId = null): Application
@@ -96,6 +97,13 @@ class ApplicationStartService
         $this->prembly->syncUserVerificationToApplication($user, $application);
         $this->prefill->apply($user, $application);
         $credentialsEmailed = $this->emailReturningCredentials($user, $student, $application, $previousApplicationNumber);
+        if (! $credentialsEmailed) {
+            // All first-time applicants (UTME, DE, PG, JUPEB, transfer, …) get
+            // sign-in credentials at create time so they can resume before paying.
+            // UTME/DE mail shows JAMB; others show the application number.
+            $this->admissions->sendCredentialsEmail($application->fresh(['user']));
+            $credentialsEmailed = (bool) $application->fresh()->credentials_emailed_at;
+        }
         $this->audit->record('application.started', 'Application started ('.$intake->entry_mode.')', 'admissions', 'application', $application->id, null, $application);
 
         $fresh = $application->fresh(['applicationFeeInvoice', 'steps', 'documents', 'intake.term']);

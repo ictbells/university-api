@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Mail\ApplicationCredentialsMail;
 use App\Models\AcademicSession;
 use App\Models\AcademicTerm;
 use App\Models\Application;
@@ -17,6 +18,7 @@ use App\Models\User;
 use App\Services\PremblyService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -318,6 +320,7 @@ class ApplicationSignupGateTest extends TestCase
         $this->ensureApplicantRole();
         $this->demoPrembly();
         Http::fake();
+        Mail::fake();
 
         $this->postJson('/api/register', $this->registerPayload(['intake_id' => $pg->id]))
             ->assertOk()
@@ -327,6 +330,56 @@ class ApplicationSignupGateTest extends TestCase
         $this->assertSame('pg', $application->entry_mode);
         $this->assertSame($pg->id, $application->intake_id);
         $this->assertNull($application->jamb_registration);
+        $this->assertNotNull($application->application_number);
+        $this->assertNotNull($application->credentials_emailed_at);
+
+        Mail::assertQueued(ApplicationCredentialsMail::class, function (ApplicationCredentialsMail $mail) use ($application) {
+            [$label, $value] = $mail->signInIdentity();
+
+            return $label === 'Application number'
+                && $value === $application->application_number
+                && $mail->hasTo($application->user->email);
+        });
+
+        // Unpaid PG applicant can resume with the emailed application number.
+        $this->postJson('/api/login', [
+            'login' => $application->application_number,
+            'password' => 'Secret1!x',
+            'portal' => 'student',
+        ])->assertOk();
+    }
+
+    public function test_register_emails_utme_credentials_before_payment(): void
+    {
+        $intake = $this->openApplicationSession();
+        $this->ensureApplicantRole();
+        $this->demoPrembly();
+        Http::fake();
+        Mail::fake();
+
+        $this->postJson('/api/register', $this->registerPayload([
+            'intake_id' => $intake->id,
+            'jamb_registration' => '20261234AB',
+        ]))->assertOk()
+            ->assertJsonPath('message', 'Registration successful');
+
+        $application = Application::query()->first();
+        $this->assertSame('utme', $application->entry_mode);
+        $this->assertNotNull($application->credentials_emailed_at);
+
+        Mail::assertQueued(ApplicationCredentialsMail::class, function (ApplicationCredentialsMail $mail) use ($application) {
+            [$label, $value] = $mail->signInIdentity();
+
+            return $label === 'JAMB number'
+                && $value === '20261234AB'
+                && $mail->hasTo($application->user->email);
+        });
+
+        $this->postJson('/api/login', [
+            'login' => '20261234AB',
+            'password' => 'Secret1!x',
+            'portal' => 'student',
+        ])->assertOk();
     }
 
     public function test_register_allows_jamb_missing_from_the_candidate_list(): void
