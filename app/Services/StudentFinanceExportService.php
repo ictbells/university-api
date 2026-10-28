@@ -93,6 +93,13 @@ class StudentFinanceExportService
         $filename = $safeTitle.'_'.now()->format('Ymd_His');
 
         return response()->streamDownload(function () use ($institution, $title, $filterSummary, $producer, $generatedAt) {
+            $liveStream = ! app()->runningUnitTests();
+            // Keep PHP from buffering the whole CSV before the client sees bytes.
+            if ($liveStream) {
+                while (ob_get_level() > 0) {
+                    ob_end_flush();
+                }
+            }
             $handle = fopen('php://output', 'w');
             if ($handle === false) {
                 return;
@@ -108,16 +115,22 @@ class StudentFinanceExportService
             fputcsv($handle, [$meta]);
             fputcsv($handle, []);
             fputcsv($handle, $this->headers());
+            if ($liveStream) {
+                fflush($handle);
+            }
 
             $sn = 0;
             $totals = ['wallet' => 0.0, 'billed' => 0.0, 'paid' => 0.0, 'outstanding' => 0.0];
-            $emit = function (array $row) use ($handle, &$sn, &$totals) {
+            $emit = function (array $row) use ($handle, &$sn, &$totals, $liveStream) {
                 $sn++;
                 $totals['wallet'] = round($totals['wallet'] + (float) $row['wallet'], 2);
                 $totals['billed'] = round($totals['billed'] + (float) $row['billed'], 2);
                 $totals['paid'] = round($totals['paid'] + (float) $row['paid'], 2);
                 $totals['outstanding'] = round($totals['outstanding'] + (float) $row['outstanding'], 2);
                 fputcsv($handle, $this->values($row, $sn));
+                if ($liveStream && $sn % 100 === 0) {
+                    fflush($handle);
+                }
             };
             $producer($emit);
 
@@ -130,9 +143,14 @@ class StudentFinanceExportService
                 '',
             ]);
             fputcsv($handle, [$sn.' record(s)']);
+            if ($liveStream) {
+                fflush($handle);
+            }
             fclose($handle);
         }, $filename.'.csv', [
             'Content-Type' => 'text/csv; charset=UTF-8',
+            'Cache-Control' => 'no-store, no-cache',
+            'X-Accel-Buffering' => 'no',
         ]);
     }
 

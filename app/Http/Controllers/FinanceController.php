@@ -1462,7 +1462,8 @@ class FinanceController extends Controller
         $session = $this->resolveRosterSession($request);
         $query = $this->studentRosterQuery($request, $session['id']);
         $profiler->mark('export.prepare');
-        $total = (clone $query)->count();
+        // Avoid re-running ORDER BY / select list; count only matching student ids.
+        $total = (clone $query)->reorder()->toBase()->getCountForPagination();
         $profiler->mark('student_count', ['count' => $total]);
         if ($total > $maxRows) {
             $label = match ($format) {
@@ -1523,6 +1524,9 @@ class FinanceController extends Controller
                                     $written++;
                                     $emit($this->studentFinanceExportRow($student));
                                 }
+                                if (function_exists('flush')) {
+                                    @flush();
+                                }
                                 if ($isFirst) {
                                     $profiler->mark('csv.first_batch_written', [
                                         'rows' => $chunk->count(),
@@ -1581,19 +1585,25 @@ class FinanceController extends Controller
      */
     private function studentFinanceExportRow(Student $student): array
     {
-        $row = $this->mapStudentFinanceRow($student);
+        $summary = $student->getAttribute('finance_summary')
+            ?? StudentFinanceStatus::summarize($student);
+        $name = trim("{$student->first_name} {$student->last_name}");
+        if ($name === '') {
+            $name = (string) ($student->user?->name ?: '—');
+        }
 
         return [
-            'name' => $row['name'],
-            'matric' => $row['matric_number'] ?: ($row['student_number'] ?: '—'),
-            'programme' => $row['program'] ?: '—',
-            'college' => $row['college'] ?: '—',
-            'level' => $row['level_label'] ?: ($row['current_level'] ? $row['current_level'].'L' : '—'),
-            'wallet' => round((float) $row['wallet_balance'], 2),
-            'billed' => round((float) $row['billed'], 2),
-            'paid' => round((float) $row['paid'], 2),
-            'outstanding' => round((float) $row['outstanding'], 2),
-            'clearance' => $row['clearance'] === 'cleared' ? 'Cleared' : 'Outstanding',
+            'name' => $name,
+            'matric' => $student->matric_number ?: ($student->student_number ?: '—'),
+            'programme' => $student->program?->name ?: '—',
+            'college' => $student->program?->department?->faculty?->name ?: '—',
+            'level' => StudentAcademicLevel::label($student)
+                ?: ($student->current_level ? $student->current_level.'L' : '—'),
+            'wallet' => round((float) ($student->wallet_balance ?? 0), 2),
+            'billed' => round((float) $summary['billed'], 2),
+            'paid' => round((float) $summary['paid'], 2),
+            'outstanding' => round((float) $summary['outstanding'], 2),
+            'clearance' => ($summary['clearance'] ?? '') === 'cleared' ? 'Cleared' : 'Outstanding',
         ];
     }
 
@@ -1840,9 +1850,10 @@ class FinanceController extends Controller
             : new \Illuminate\Database\Eloquent\Collection($students->all());
         $students->loadMissing(['program.department.faculty', 'application']);
         StudentAcademicLevel::warmCatalog();
+        ProgrammeFeeResolver::warmPrograms($students->pluck('program_id')->all());
 
         // Match CSV stream batches so nested re-chunking does not delay first rows.
-        $hydrateChunk = max(50, (int) config('sis.finance_export_csv_chunk', 250));
+        $hydrateChunk = max(50, (int) config('sis.finance_export_csv_chunk', 750));
 
         foreach ($students->chunk($hydrateChunk) as $chunk) {
             $studentIds = $chunk->pluck('id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
@@ -1897,16 +1908,37 @@ class FinanceController extends Controller
                 ]);
             }
 
-            $byStudent = $invoices->groupBy('student_id');
-            $byUser = $invoices->groupBy('user_id');
+            /** @var array<int, list<\App\Models\Invoice>> $byStudent */
+            $byStudent = [];
+            /** @var array<int, array<int, \App\Models\Invoice>> $byUser */
+            $byUser = [];
+            foreach ($invoices as $invoice) {
+                $studentId = (int) ($invoice->student_id ?: 0);
+                $userId = (int) ($invoice->user_id ?: 0);
+                if ($studentId > 0) {
+                    $byStudent[$studentId][] = $invoice;
+                }
+                if ($userId > 0) {
+                    $byUser[$userId][(int) $invoice->id] = $invoice;
+                }
+            }
 
             $summaryStarted = microtime(true);
             foreach ($chunk as $student) {
-                $rows = collect($byStudent->get($student->id, []))
-                    ->concat($student->user_id ? $byUser->get($student->user_id, []) : [])
-                    ->unique('id')
-                    ->values();
-                $student->setAttribute('finance_summary', StudentFinanceStatus::summarize($student, $rows));
+                $map = [];
+                foreach ($byStudent[(int) $student->id] ?? [] as $invoice) {
+                    $map[(int) $invoice->id] = $invoice;
+                }
+                $userId = (int) ($student->user_id ?: 0);
+                if ($userId > 0) {
+                    foreach ($byUser[$userId] ?? [] as $id => $invoice) {
+                        $map[$id] = $invoice;
+                    }
+                }
+                $student->setAttribute(
+                    'finance_summary',
+                    StudentFinanceStatus::summarize($student, collect(array_values($map))),
+                );
             }
             if ($profileDetail) {
                 $profiler?->mark('hydrate.summary', [
@@ -1934,14 +1966,15 @@ class FinanceController extends Controller
         $paidByInvoice = [];
         foreach ($invoices->pluck('id')->map(fn ($id) => (int) $id)->unique()->chunk(2000) as $idChunk) {
             $ids = $idChunk->values()->all();
+            // Filter wallet top-ups in the SUM so the WHERE stays on indexed columns.
             $aggregate = Payment::query()
-                ->selectRaw('invoice_id, COALESCE(SUM(amount), 0) as paid_sum')
+                ->selectRaw(
+                    "invoice_id, COALESCE(SUM(CASE
+                        WHEN purpose IS NULL OR purpose NOT IN ('wallet_topup', 'wallet_funding') THEN amount
+                        ELSE 0 END), 0) as paid_sum"
+                )
                 ->whereIn('invoice_id', $ids)
                 ->whereIn('status', ['successful', 'paid'])
-                ->where(function (Builder $query) {
-                    $query->whereNull('purpose')
-                        ->orWhereNotIn('purpose', ['wallet_topup', 'wallet_funding']);
-                })
                 ->groupBy('invoice_id');
 
             if ($profileDetail && $profiler?->enabled()) {

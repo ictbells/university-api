@@ -99,8 +99,8 @@ class FinanceExportHydrationTest extends TestCase
         });
     }
 
-    public function test_csv_chunk_config_defaults_to_250(): void
+    public function test_csv_chunk_config_defaults_to_750(): void
     {
-        $this->assertSame(250, (int) config('sis.finance_export_csv_chunk'));
+        $this->assertSame(750, (int) config('sis.finance_export_csv_chunk'));
     }
 }

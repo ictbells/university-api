@@ -47,9 +47,10 @@ return [
 
     /*
     | Student financial-status CSV stream chunk size (students per hydrate/write batch).
-    | Smaller values improve time-to-first-row; larger values reduce query round-trips.
+    | Larger values cut query round-trips (faster full download); smaller values
+    | improve time-to-first-row. Default 750 balances both for large rosters.
     */
-    'finance_export_csv_chunk' => max(50, (int) env('FINANCE_EXPORT_CSV_CHUNK', 250)),
+    'finance_export_csv_chunk' => max(50, (int) env('FINANCE_EXPORT_CSV_CHUNK', 750)),
 
     /*
     | When true, log stage timings for student-roster exports (counts/ms only — no PII).

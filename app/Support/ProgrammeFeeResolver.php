@@ -11,9 +11,52 @@ class ProgrammeFeeResolver
     /** @var array<string, Collection<int, ProgrammeFee>> */
     private static array $programCache = [];
 
+    /** @var array<int, Collection<int, ProgrammeFee>> */
+    private static array $allFeesByProgram = [];
+
+    /** @var array<string, float> */
+    private static array $studentTotalCache = [];
+
     public static function flushCache(): void
     {
         self::$programCache = [];
+        self::$allFeesByProgram = [];
+        self::$studentTotalCache = [];
+    }
+
+    /**
+     * Prefetch all active fee lines for the given programmes (one query).
+     * Subsequent forProgram/totalForStudent calls filter in memory.
+     *
+     * @param  list<int|string|null>  $programIds
+     */
+    public static function warmPrograms(array $programIds): void
+    {
+        $ids = array_values(array_unique(array_filter(array_map(
+            static fn ($id) => (int) $id,
+            $programIds,
+        ), static fn (int $id) => $id > 0)));
+        $missing = array_values(array_filter(
+            $ids,
+            static fn (int $id) => ! isset(self::$allFeesByProgram[$id]),
+        ));
+        if ($missing === []) {
+            return;
+        }
+
+        $grouped = ProgrammeFee::query()
+            ->with('feeItem')
+            ->whereIn('program_id', $missing)
+            ->where('is_active', true)
+            ->whereHas('feeItem', fn ($fee) => $fee->where('is_active', true))
+            ->orderBy('display_order')
+            ->orderBy('id')
+            ->get()
+            ->groupBy(fn (ProgrammeFee $fee) => (int) $fee->program_id);
+
+        foreach ($missing as $id) {
+            self::$allFeesByProgram[$id] = $grouped->get($id, collect())->values();
+        }
     }
 
     /**
@@ -31,29 +74,26 @@ class ProgrammeFeeResolver
             return self::$programCache[$cacheKey];
         }
 
-        $query = ProgrammeFee::query()
-            ->with('feeItem')
-            ->where('program_id', $programId)
-            ->where('is_active', true)
-            ->whereHas('feeItem', fn ($fee) => $fee->where('is_active', true));
+        if (! isset(self::$allFeesByProgram[$programId])) {
+            self::warmPrograms([$programId]);
+        }
 
+        $lines = self::$allFeesByProgram[$programId] ?? collect();
         if ($codes !== []) {
-            $query->where(function ($builder) use ($codes) {
-                $builder->where('level_code', 'all');
-                foreach ($codes as $code) {
-                    $builder->orWhere('level_code', $code);
-                }
-            });
+            $codeSet = array_fill_keys($codes, true);
+            $lines = $lines->filter(
+                static fn (ProgrammeFee $fee) => $fee->level_code === 'all'
+                    || isset($codeSet[(string) $fee->level_code])
+            )->values();
         }
 
         if ($semester !== null && $semester !== '' && $semester !== 'both') {
-            $query->where(function ($builder) use ($semester) {
-                $builder->where('semester', $semester)
-                    ->orWhere('semester', 'both');
-            });
+            $lines = $lines->filter(
+                static fn (ProgrammeFee $fee) => $fee->semester === $semester || $fee->semester === 'both'
+            )->values();
         }
 
-        return self::$programCache[$cacheKey] = $query->orderBy('display_order')->orderBy('id')->get();
+        return self::$programCache[$cacheKey] = $lines;
     }
 
     /**
@@ -124,7 +164,12 @@ class ProgrammeFeeResolver
 
     public static function totalForStudent(Student $student, ?string $semester = null): float
     {
-        return self::scheduleFullAmount(self::forStudent($student, $semester));
+        $cacheKey = (int) $student->id.'|'.(string) $semester.'|'.(string) $student->program_id.'|'.(string) $student->current_level;
+        if (array_key_exists($cacheKey, self::$studentTotalCache)) {
+            return self::$studentTotalCache[$cacheKey];
+        }
+
+        return self::$studentTotalCache[$cacheKey] = self::scheduleFullAmount(self::forStudent($student, $semester));
     }
 
     /**
