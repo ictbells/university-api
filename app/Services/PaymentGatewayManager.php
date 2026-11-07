@@ -6,6 +6,7 @@ use App\Contracts\PaymentGateway;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\User;
+use App\Support\BillingCurrency;
 use App\Support\PaymentGatewaySettings;
 use RuntimeException;
 
@@ -46,12 +47,21 @@ class PaymentGatewayManager
 
     public function initializeInvoice(User $user, Invoice $invoice, ?string $callbackUrl = null): array
     {
-        return $this->driver()->initializeInvoice($user, $invoice, $callbackUrl);
+        $driver = BillingCurrency::isUsd($invoice->currency)
+            ? $this->driver(PaymentGatewaySettings::WEMA)
+            : $this->driver();
+
+        return $driver->initializeInvoice($user, $invoice, $callbackUrl);
     }
 
-    public function initializeWalletTopup(User $user, float $amount, string $portal = 'student'): array
+    public function initializeWalletTopup(User $user, float $amount, string $portal = 'student', string $currency = BillingCurrency::NGN): array
     {
-        return $this->driver()->initializeWalletTopup($user, $amount, $portal);
+        $currency = BillingCurrency::normalize($currency);
+        $driver = BillingCurrency::isUsd($currency)
+            ? $this->driver(PaymentGatewaySettings::WEMA)
+            : $this->driver();
+
+        return $driver->initializeWalletTopup($user, $amount, $portal, $currency);
     }
 
     public function verify(string $reference, ?string $transactionId = null): Payment

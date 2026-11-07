@@ -9,6 +9,7 @@ use App\Services\FeeArrearsService;
 use App\Services\PaymentGatewayManager;
 use App\Services\SemesterFeeService;
 use App\Services\WalletService;
+use App\Support\BillingCurrency;
 use App\Support\SchoolFeeAccess;
 use App\Support\SemesterFeeAccess;
 use Illuminate\Http\Request;
@@ -43,9 +44,14 @@ class WalletController extends Controller
         $prior = $this->arrears->priorUnpaid($student);
         $semesterFee = SemesterFeeAccess::statusPayload($student);
 
+        $currency = BillingCurrency::forStudent($student);
+
         return [
             'id' => $wallet->id,
-            'balance' => $wallet->balance,
+            'balance' => $currency === BillingCurrency::USD ? $wallet->balance_usd : $wallet->balance,
+            'balance_ngn' => $wallet->balance,
+            'balance_usd' => $wallet->balance_usd,
+            'currency' => $currency,
             'transactions' => $wallet->transactions,
             'outstanding' => $this->arrears->outstandingAmount($student),
             'open_invoice_count' => $this->arrears->openCount($student),
@@ -96,8 +102,11 @@ class WalletController extends Controller
 
     public function topup(Request $request)
     {
+        $student = Student::query()->where('user_id', $request->user()->id)->first();
+        $currency = BillingCurrency::forStudent($student);
+        $minimum = BillingCurrency::isUsd($currency) ? 1 : 100;
         $data = $request->validate([
-            'amount' => 'required|numeric|min:100',
+            'amount' => 'required|numeric|min:'.$minimum,
             'portal' => 'nullable|in:student,staff',
         ]);
 
@@ -106,6 +115,7 @@ class WalletController extends Controller
                 $request->user(),
                 (float) $data['amount'],
                 $data['portal'] ?? 'student',
+                $currency,
             );
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);

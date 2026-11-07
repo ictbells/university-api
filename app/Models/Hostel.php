@@ -25,7 +25,7 @@ class Hostel extends BaseModel
         ];
     }
 
-    protected $fillable = ['campus_id', 'name', 'gender', 'category', 'is_active', 'due_required', 'due_amount'];
+    protected $fillable = ['campus_id', 'name', 'gender', 'category', 'is_active', 'due_required', 'due_amount', 'due_amount_usd'];
 
     protected function casts(): array
     {
@@ -33,12 +33,13 @@ class Hostel extends BaseModel
             'is_active' => 'boolean',
             'due_required' => 'boolean',
             'due_amount' => 'decimal:2',
+            'due_amount_usd' => 'decimal:2',
         ];
     }
 
     public function chargesDue(): bool
     {
-        return (bool) $this->due_required && (float) $this->due_amount > 0;
+        return (bool) $this->due_required && ((float) $this->due_amount > 0 || (float) $this->due_amount_usd > 0);
     }
 
     public function blocks(): HasMany

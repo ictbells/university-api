@@ -9,6 +9,7 @@ use App\Models\Role;
 use App\Models\Student;
 use App\Models\User;
 use App\Support\ApplicationReference;
+use App\Support\BillingCurrency;
 use App\Support\CandidateEligibility;
 use App\Support\Studentship;
 use Illuminate\Support\Facades\Log;
@@ -25,7 +26,7 @@ class ApplicationStartService
         private ApplicationAdmissionService $admissions,
     ) {}
 
-    public function start(User $user, Intake $intake, ?string $jambRegistration = null, ?int $programId = null): Application
+    public function start(User $user, Intake $intake, ?string $jambRegistration = null, ?int $programId = null, ?string $country = null): Application
     {
         $intake->loadMissing('term');
         abort_unless($intake->isAcceptingApplications(), 422, 'Applications are not open for this entry mode and session.');
@@ -67,7 +68,14 @@ class ApplicationStartService
             ? Application::query()->whereKey($student->application_id)->value('application_number')
             : null;
 
-        $this->invoices->resolveApplicationFeeAmount($intake);
+        if ($intake->entry_mode === 'pg' && ! in_array($country, [BillingCurrency::COUNTRY_NIGERIA, BillingCurrency::COUNTRY_NON_NIGERIA], true)) {
+            abort(422, 'Select Nigeria or Non-Nigeria before starting a postgraduate application.');
+        }
+        if ($intake->entry_mode !== 'pg') {
+            $country = null;
+        }
+        $billingCurrency = BillingCurrency::fromCountry($country, $intake->entry_mode);
+        $this->invoices->resolveApplicationFeeAmount($intake, $billingCurrency);
 
         $application = Application::query()->create([
             'application_number' => ApplicationReference::generate(),
@@ -76,6 +84,8 @@ class ApplicationStartService
             'academic_session_id' => $sessionId,
             'program_id' => $programId,
             'entry_mode' => $intake->entry_mode,
+            'country' => $country,
+            'billing_currency' => $billingCurrency,
             'jamb_registration' => $jamb,
             'jamb_status' => $jamb
                 ? (CandidateEligibility::findByJamb($jamb, $intake->term?->session_label) ? 'validated' : 'pending')
@@ -89,7 +99,8 @@ class ApplicationStartService
         }
 
         foreach (Application::formSteps($intake->entry_mode) as $step) {
-            $application->steps()->create(['step_key' => $step, 'status' => 'pending', 'payload' => []]);
+            $payload = $step === 'personal_details' && $country ? ['country' => $country] : [];
+            $application->steps()->create(['step_key' => $step, 'status' => 'pending', 'payload' => $payload]);
         }
         $invoice = $this->invoices->createApplicationFeeInvoice($user, $intake, $application->id);
         $application->update(['application_fee_invoice_id' => $invoice->id]);

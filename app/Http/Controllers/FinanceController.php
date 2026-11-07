@@ -294,6 +294,7 @@ class FinanceController extends Controller
             ],
             'installment_tranche' => ['nullable', 'integer', Rule::in(FeeSchedule::INSTALLMENT_TRANCHES)],
             'amount' => 'required|numeric|min:0',
+            'amount_usd' => 'nullable|numeric|min:0',
             'is_required' => 'boolean',
             'display_order' => 'nullable|integer|min:0',
             'is_active' => 'boolean',
@@ -353,6 +354,7 @@ class FinanceController extends Controller
             ],
             'installment_tranche' => ['nullable', 'integer', Rule::in(FeeSchedule::INSTALLMENT_TRANCHES)],
             'amount' => 'sometimes|numeric|min:0',
+            'amount_usd' => 'nullable|numeric|min:0',
             'is_required' => 'boolean',
             'display_order' => 'nullable|integer|min:0',
             'is_active' => 'boolean',
@@ -427,7 +429,15 @@ class FinanceController extends Controller
 
         $perPage = min(50, max(10, (int) $request->input('per_page', 25)));
         $query = $this->invoiceListQuery($request);
-        $totals = $this->invoiceListTotals($query);
+        if ($request->filled('currency')) {
+            $totals = $this->invoiceListTotals($query);
+        } else {
+            $naira = (clone $query)->where(function ($rows) {
+                $rows->where('invoices.currency', 'NGN')->orWhereNull('invoices.currency');
+            });
+            $totals = $this->invoiceListTotals($naira);
+            $totals['usd'] = $this->invoiceListTotals((clone $query)->where('invoices.currency', 'USD'));
+        }
         $page = $query->paginate($perPage);
 
         return response()->json([
@@ -1122,7 +1132,12 @@ class FinanceController extends Controller
         }
 
         $finance = StudentFinanceStatus::summarize($student, $invoices);
-        $walletBalance = round((float) ($student->wallet?->balance ?? 0), 2);
+        $billingCurrency = \App\Support\BillingCurrency::forStudent($student);
+        $walletBalance = round((float) (
+            $billingCurrency === \App\Support\BillingCurrency::USD
+                ? ($student->wallet?->balance_usd ?? 0)
+                : ($student->wallet?->balance ?? 0)
+        ), 2);
         $semesterFee = SemesterFeeAccess::statusPayload($student);
 
         $invoiceIds = $invoices->pluck('id')->filter()->values();
@@ -1166,9 +1181,13 @@ class FinanceController extends Controller
                 'level_label' => \App\Support\StudentAcademicLevel::label($student),
                 'study_level' => \App\Support\StudyLevel::ofStudent($student),
                 'status' => $student->status,
+                'billing_currency' => $billingCurrency,
             ],
             'summary' => [
+                'billing_currency' => $billingCurrency,
                 'wallet_balance' => $walletBalance,
+                'wallet_balance_ngn' => round((float) ($student->wallet?->balance ?? 0), 2),
+                'wallet_balance_usd' => round((float) ($student->wallet?->balance_usd ?? 0), 2),
                 'billed' => $finance['billed'],
                 'rebate_total' => $finance['rebate_total'],
                 'paid' => $finance['paid'],
@@ -1374,9 +1393,9 @@ class FinanceController extends Controller
     {
         abort_unless($request->user()->hasPermission('finance.invoices.manage'), 403);
 
-        [$from, $to, $gateway] = $this->dashboardPeriod($request);
+        [$from, $to, $gateway, $currency] = $this->dashboardPeriod($request);
 
-        return $this->universityStatement->summarize($from, $to, $gateway);
+        return $this->universityStatement->summarize($from, $to, $gateway, $currency);
     }
 
     public function exportDashboard(Request $request)
@@ -1388,16 +1407,17 @@ class FinanceController extends Controller
             'from' => 'nullable|date',
             'to' => 'nullable|date',
             'gateway' => 'nullable|in:paystack,wema,paygate,all,online',
+            'currency' => 'nullable|in:NGN,USD,all,ngn,usd',
         ]);
-        [$from, $to, $gateway] = $this->dashboardPeriod($request);
-        $statement = $this->universityStatement->summarize($from, $to, $gateway);
-        $statement['filter_summary'] = $this->universityStatement->filterSummary($from, $to, $gateway);
+        [$from, $to, $gateway, $currency] = $this->dashboardPeriod($request);
+        $statement = $this->universityStatement->summarize($from, $to, $gateway, $currency);
+        $statement['filter_summary'] = $this->universityStatement->filterSummary($from, $to, $gateway, $currency);
 
         return $this->universityStatement->export($data['format'], $statement);
     }
 
     /**
-     * @return array{0: CarbonInterface|null, 1: CarbonInterface|null, 2: string|null}
+     * @return array{0: CarbonInterface|null, 1: CarbonInterface|null, 2: string|null, 3: string|null}
      */
     private function dashboardPeriod(Request $request): array
     {
@@ -1405,17 +1425,23 @@ class FinanceController extends Controller
             'from' => 'nullable|date',
             'to' => 'nullable|date|after_or_equal:from',
             'gateway' => 'nullable|in:paystack,wema,paygate,all,online',
+            'currency' => 'nullable|in:NGN,USD,all,ngn,usd',
         ]);
 
         $gateway = strtolower(trim((string) ($data['gateway'] ?? '')));
         if ($gateway === '' || $gateway === 'all' || $gateway === 'online') {
             $gateway = null;
         }
+        $currency = strtoupper(trim((string) ($data['currency'] ?? '')));
+        if ($currency === '' || $currency === 'ALL') {
+            $currency = null;
+        }
 
         return [
             isset($data['from']) ? Carbon::parse($data['from'])->startOfDay() : null,
             isset($data['to']) ? Carbon::parse($data['to'])->endOfDay() : null,
             $gateway,
+            $currency,
         ];
     }
 
@@ -1649,10 +1675,15 @@ class FinanceController extends Controller
             ->select('balance')
             ->whereColumn('wallets.student_id', 'students.id')
             ->limit(1);
+        $walletUsd = Wallet::query()
+            ->select('balance_usd')
+            ->whereColumn('wallets.student_id', 'students.id')
+            ->limit(1);
 
         $query = Student::query()
             ->select('students.*')
             ->selectSub($wallet, 'wallet_balance')
+            ->selectSub($walletUsd, 'wallet_balance_usd')
             ->with(['user:id,name,email', 'program.department.faculty', 'application:id,entry_mode'])
             ->orderBy('last_name')
             ->orderBy('first_name');
@@ -2010,7 +2041,12 @@ class FinanceController extends Controller
             'level_label' => StudentAcademicLevel::label($student),
             'study_level' => \App\Support\StudyLevel::ofStudent($student),
             'status' => $student->status,
-            'wallet_balance' => round((float) ($student->wallet_balance ?? 0), 2),
+            'billing_currency' => \App\Support\BillingCurrency::forStudent($student),
+            'wallet_balance' => round((float) (
+                \App\Support\BillingCurrency::isUsd($student->billing_currency)
+                    ? ($student->wallet_balance_usd ?? $student->wallet_balance ?? 0)
+                    : ($student->wallet_balance ?? 0)
+            ), 2),
             'billed' => $summary['billed'],
             'paid' => $summary['paid'],
             'outstanding' => $summary['outstanding'],
@@ -2139,10 +2175,12 @@ class FinanceController extends Controller
         }
 
         $lines = ProgrammeFeeResolver::forStudent($student);
-        $total = round((float) $lines->sum(fn ($line) => $line->effective_amount), 2);
+        $billingCurrency = \App\Support\BillingCurrency::forStudent($student);
+        $total = \App\Support\ProgrammeFeeResolver::scheduleFullAmount($lines, $billingCurrency);
 
         return [
             'schedule_set' => $lines->isNotEmpty() && $total > 0,
+            'currency' => $billingCurrency,
             'total_amount' => $total > 0 ? $total : null,
             'line_count' => $lines->count(),
             'program' => $student->program?->only(['id', 'name', 'code']),
@@ -2204,6 +2242,13 @@ class FinanceController extends Controller
                 ->where('id', '!=', $invoice->id)
                 ->where('academic_session_id', $invoice->academic_session_id)
                 ->whereNotIn('status', ['cancelled', 'disabled'])
+                ->where(function ($rows) use ($invoice) {
+                    if (\App\Support\BillingCurrency::isUsd($invoice->currency)) {
+                        $rows->where('currency', 'USD');
+                    } else {
+                        $rows->where('currency', 'NGN')->orWhereNull('currency');
+                    }
+                })
                 ->where(function ($query) use ($student) {
                     $query->where('student_id', $student->id)
                         ->orWhere(function ($query) use ($student) {
@@ -2214,6 +2259,7 @@ class FinanceController extends Controller
 
             return [
                 'installment_percent' => $percent,
+                'currency' => $invoice->currency,
                 'amount' => $amount,
                 'full_amount' => $fullAmount,
                 'billed_before' => $billedBefore,
@@ -2321,6 +2367,14 @@ class FinanceController extends Controller
         }
         if ($request->filled('category')) {
             $query->where('category', (string) $request->input('category'));
+        }
+        $currency = strtoupper(trim((string) $request->input('currency', '')));
+        if ($currency === 'USD') {
+            $query->where('invoices.currency', 'USD');
+        } elseif ($currency === 'NGN') {
+            $query->where(function ($rows) {
+                $rows->where('invoices.currency', 'NGN')->orWhereNull('invoices.currency');
+            });
         }
         $facultyId = (int) $request->input('faculty_id', $request->input('college_id', 0));
         if ($facultyId) {

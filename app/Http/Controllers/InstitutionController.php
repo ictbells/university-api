@@ -232,6 +232,7 @@ class InstitutionController extends Controller
             'normal_registration_closes_at' => 'nullable|date',
             'late_registration_closes_at' => 'nullable|date',
             'extension_price_per_unit' => 'nullable|numeric|min:0',
+            'extension_price_per_unit_usd' => 'nullable|numeric|min:0',
             'is_current' => 'boolean',
             'auto_schedule' => 'boolean',
         ]);
@@ -273,6 +274,7 @@ class InstitutionController extends Controller
             'normal_registration_closes_at' => 'nullable|date',
             'late_registration_closes_at' => 'nullable|date',
             'extension_price_per_unit' => 'nullable|numeric|min:0',
+            'extension_price_per_unit_usd' => 'nullable|numeric|min:0',
             'is_current' => 'boolean',
             'auto_schedule' => 'boolean',
         ]);
@@ -334,6 +336,7 @@ class InstitutionController extends Controller
             'semesters.*.normal_registration_closes_at' => 'nullable|date',
             'semesters.*.late_registration_closes_at' => 'nullable|date',
             'semesters.*.extension_price_per_unit' => 'nullable|numeric|min:0',
+            'semesters.*.extension_price_per_unit_usd' => 'nullable|numeric|min:0',
             'semesters.*.is_current' => 'boolean',
             'semesters.*.auto_schedule' => 'boolean',
         ]);
@@ -370,6 +373,7 @@ class InstitutionController extends Controller
                         'normal_registration_closes_at' => $semester['normal_registration_closes_at'] ?? null,
                         'late_registration_closes_at' => $semester['late_registration_closes_at'] ?? null,
                         'extension_price_per_unit' => $semester['extension_price_per_unit'] ?? null,
+                        'extension_price_per_unit_usd' => $semester['extension_price_per_unit_usd'] ?? null,
                         'is_current' => ! empty($semester['is_current']),
                         'auto_schedule' => array_key_exists('auto_schedule', $semester)
                             ? ! empty($semester['auto_schedule'])

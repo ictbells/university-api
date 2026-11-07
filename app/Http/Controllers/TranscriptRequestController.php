@@ -49,7 +49,11 @@ class TranscriptRequestController extends Controller
         ]);
 
         try {
-            return response()->json($this->service->quote((int) $data['program_id'], $data['transcript_type']));
+            $student = $request->user()
+                ? \App\Models\Student::query()->where('user_id', $request->user()->id)->first()
+                : null;
+
+            return response()->json($this->service->quote((int) $data['program_id'], $data['transcript_type'], $student));
         } catch (RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }

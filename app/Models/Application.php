@@ -386,6 +386,26 @@ class Application extends BaseModel
         return is_array($payload) && ($payload['nin_locked'] ?? false);
     }
 
+    public function usesPassportIdentity(): bool
+    {
+        return $this->entry_mode === 'pg'
+            && $this->country === \App\Support\BillingCurrency::COUNTRY_NON_NIGERIA;
+    }
+
+    public function identityVerified(): bool
+    {
+        if ($this->usesPassportIdentity()) {
+            return trim((string) $this->passport_number) !== '';
+        }
+
+        return $this->ninVerified();
+    }
+
+    public static function normalizePassport(?string $value): string
+    {
+        return strtoupper((string) preg_replace('/[^A-Za-z0-9\-]/', '', (string) $value));
+    }
+
     /**
      * Merge profile-related step payloads (later steps override earlier keys).
      *

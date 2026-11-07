@@ -26,7 +26,8 @@ class Student extends BaseModel
             'graduated_at' => 'date:Y-m-d',
             'studentship_expires_at' => 'date:Y-m-d',
             'nin_locked' => 'boolean',
-            'nin' => 'encrypted',
+            // Resilient: stale APP_KEY must not 500 login when student is serialized.
+            'nin' => \App\Casts\ResilientEncrypted::class,
         ];
     }
 

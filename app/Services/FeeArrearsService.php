@@ -148,9 +148,18 @@ class FeeArrearsService
 
     public function outstandingAmount(Student $student): float
     {
+        $currency = \App\Support\BillingCurrency::forStudent($student);
+
         return round((float) Invoice::query()
             ->where('student_id', $student->id)
             ->whereIn('status', ['unpaid', 'partial'])
+            ->where(function ($rows) use ($currency) {
+                if (\App\Support\BillingCurrency::isUsd($currency)) {
+                    $rows->where('currency', 'USD');
+                } else {
+                    $rows->where('currency', 'NGN')->orWhereNull('currency');
+                }
+            })
             ->sum('balance'), 2);
     }
 

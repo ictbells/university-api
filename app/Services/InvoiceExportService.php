@@ -227,6 +227,7 @@ class InvoiceExportService
             'programme' => $student?->program?->name ?: '—',
             'college' => $student?->program?->department?->faculty?->name ?: '—',
             'department' => $student?->program?->department?->name ?: '—',
+            'currency' => \App\Support\BillingCurrency::normalize($invoice->currency),
             'amount' => round((float) $invoice->amount, 2),
             'balance' => round((float) $invoice->balance, 2),
             'gateway' => $this->invoiceGatewayLabel($invoice),
@@ -254,6 +255,7 @@ class InvoiceExportService
             'programme' => $student?->program?->name ?: '—',
             'college' => $student?->program?->department?->faculty?->name ?: '—',
             'gateway' => $this->gatewayLabel((string) $payment->method),
+            'currency' => \App\Support\BillingCurrency::normalize($payment->currency ?: $payment->invoice?->currency),
             'amount' => round((float) $payment->amount, 2),
             'balance' => 0.0,
             'status' => 'Successful',
@@ -316,10 +318,10 @@ class InvoiceExportService
     private function headers(string $variant = self::VARIANT_INVOICES): array
     {
         if ($variant === self::VARIANT_PAYMENTS) {
-            return ['S/N', 'Receipt', 'Reference', 'Invoice', 'Payer', 'Matric', 'Category', 'Programme', 'College', 'Gateway', 'Amount', 'Timestamp'];
+            return ['S/N', 'Receipt', 'Reference', 'Invoice', 'Payer', 'Matric', 'Category', 'Programme', 'College', 'Gateway', 'Currency', 'Amount', 'Timestamp'];
         }
 
-        return ['S/N', 'Number', 'Payer', 'Matric', 'Category', 'Programme', 'College', 'Amount', 'Balance', 'Gateway', 'Status', 'Timestamp'];
+        return ['S/N', 'Number', 'Payer', 'Matric', 'Category', 'Programme', 'College', 'Currency', 'Amount', 'Balance', 'Gateway', 'Status', 'Timestamp'];
     }
 
     /**
@@ -340,6 +342,7 @@ class InvoiceExportService
                 $row['programme'],
                 $row['college'],
                 $row['gateway'],
+                $row['currency'] ?? 'NGN',
                 $display ? ExportNumbers::display($row['amount']) : $row['amount'],
                 $row['date'],
             ];
@@ -353,6 +356,7 @@ class InvoiceExportService
             $row['category'],
             $row['programme'],
             $row['college'],
+            $row['currency'] ?? 'NGN',
             $display ? ExportNumbers::display($row['amount']) : $row['amount'],
             $display ? ExportNumbers::display($row['balance']) : $row['balance'],
             $row['gateway'] ?? '—',

@@ -300,6 +300,7 @@ class ApplicantImportService
         $applicationNumber = $oldNumber !== '' ? $oldNumber : ApplicationReference::generate();
         $complete = $this->rowLooksComplete($data, $entryMode);
 
+        $country = $entryMode === 'pg' ? $this->country($data['country'] ?? null) : null;
         $application = Application::query()->create([
             'application_number' => $applicationNumber,
             'user_id' => $user->id,
@@ -307,6 +308,8 @@ class ApplicantImportService
             'academic_session_id' => $intake->academicSessionId(),
             'program_id' => $firstProgram?->id,
             'entry_mode' => $entryMode,
+            'country' => $country,
+            'billing_currency' => \App\Support\BillingCurrency::fromCountry($country, $entryMode),
             'jamb_registration' => $jamb !== '' ? $jamb : null,
             'jamb_status' => $jamb !== '' ? 'pending' : null,
             'stage' => 'form_in_progress',

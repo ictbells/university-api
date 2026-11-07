@@ -13,6 +13,7 @@ use App\Models\MedicalBill;
 use App\Models\ProgrammeFee;
 use App\Models\Student;
 use App\Models\User;
+use App\Support\BillingCurrency;
 use App\Support\FeeSchedule;
 use App\Support\ProgrammeFeeResolver;
 use App\Support\SemesterFeeAccess;
@@ -34,7 +35,10 @@ class InvoiceService
         ?string $description = null,
         ?int $academicTermId = null,
     ): Invoice {
-        $amount = $amountOverride !== null ? round($amountOverride, 2) : (float) $fee->amount;
+        $currency = $this->resolveCurrency($applicationId, $studentId);
+        $amount = $amountOverride !== null
+            ? round($amountOverride, 2)
+            : BillingCurrency::feeItemAmount($fee, $currency);
         $walletAllowed = FeeSchedule::walletAllowed($fee->category);
         $term = $this->resolveTerm($academicTermId);
 
@@ -48,6 +52,7 @@ class InvoiceService
             'academic_term_id' => $term?->id,
             'level_code' => $this->levelCodeForStudentId($studentId),
             'category' => $fee->category,
+            'currency' => $currency,
             'amount' => $amount,
             'full_amount' => $amount,
             'balance' => $amount,
@@ -79,6 +84,7 @@ class InvoiceService
         if ($amount <= 0) {
             throw new InvalidArgumentException('Charge amount must be greater than zero.');
         }
+        $currency = $this->resolveCurrency($applicationId, $studentId);
 
         $provided = $number !== null && trim($number) !== '';
         if ($provided) {
@@ -99,6 +105,7 @@ class InvoiceService
             'academic_term_id' => $term?->id,
             'level_code' => $this->levelCodeForStudentId($studentId),
             'category' => $category,
+            'currency' => $currency,
             'amount' => $amount,
             'full_amount' => $amount,
             'balance' => $amount,
@@ -135,6 +142,7 @@ class InvoiceService
         if ($amount <= 0) {
             throw new InvalidArgumentException('Charge amount must be greater than zero.');
         }
+        $currency = BillingCurrency::forStudent($student);
 
         $number = $this->nextInvoiceNumber();
         $invoice = Invoice::query()->create([
@@ -143,6 +151,7 @@ class InvoiceService
             'student_id' => $student->id,
             'application_id' => $student->application_id,
             'category' => 'clinic',
+            'currency' => $currency,
             'amount' => $amount,
             'full_amount' => $amount,
             'balance' => $amount,
@@ -203,9 +212,10 @@ class InvoiceService
         $category = count($uniqueCategories) === 1 ? $uniqueCategories[0] : 'sundry';
         $walletAllowed = ! in_array(false, $walletFlags, true);
 
+        $currency = BillingCurrency::forStudent($student);
         $lines = [];
         foreach ($fees as $fee) {
-            $amount = round((float) $fee->amount, 2);
+            $amount = BillingCurrency::feeItemAmount($fee, $currency);
             $description = $fee->name;
             // Tranche-tagged schedule items already represent a fixed share; do not pro-rate again.
             $tagged = FeeSchedule::allowsInstallmentTranche((string) $fee->category)
@@ -241,6 +251,7 @@ class InvoiceService
             'academic_term_id' => $term?->id,
             'level_code' => $this->levelCodeForStudentId($student->id),
             'category' => $category,
+            'currency' => $currency,
             'installment_percent' => collect($fees)->contains(
                 fn (FeeItem $fee) => FeeSchedule::allowsInstallmentTranche((string) $fee->category)
             ) ? $percent : null,
@@ -274,13 +285,16 @@ class InvoiceService
             return $existing->loadMissing('items');
         }
 
-        $amount = $this->resolveApplicationFeeAmount($intake);
+        $application = Application::query()->find($applicationId);
+        $currency = BillingCurrency::forApplication($application);
+        $amount = $this->resolveApplicationFeeAmount($intake, $currency);
         $number = $this->nextInvoiceNumber();
         $invoice = Invoice::query()->create([
             'number' => $number,
             'user_id' => $user->id,
             'application_id' => $applicationId,
             'category' => 'application_fee',
+            'currency' => $currency,
             'amount' => $amount,
             'full_amount' => $amount,
             'balance' => $amount,
@@ -295,18 +309,23 @@ class InvoiceService
         return $invoice->fresh('items');
     }
 
-    public function resolveApplicationFeeAmount(Intake $intake): float
+    public function resolveApplicationFeeAmount(Intake $intake, string $currency = BillingCurrency::NGN): float
     {
-        $catalog = $this->catalogFeeForEntryMode('application_fee', $intake->entry_mode);
-        if ($catalog && (float) $catalog->amount > 0) {
-            return (float) $catalog->amount;
+        $catalog = $this->catalogFeeForEntryMode('application_fee', $intake->entry_mode, $currency);
+        $column = BillingCurrency::isUsd($currency) ? 'amount_usd' : 'amount';
+        if ($catalog && (float) $catalog->{$column} > 0) {
+            return (float) $catalog->{$column};
         }
 
-        if ($intake->application_fee_amount !== null) {
-            return (float) $intake->application_fee_amount;
+        $fallback = BillingCurrency::isUsd($currency)
+            ? $intake->application_fee_amount_usd
+            : $intake->application_fee_amount;
+        if ($fallback !== null && (float) $fallback > 0) {
+            return (float) $fallback;
         }
 
-        throw new RuntimeException('Set an application fee in the fee catalog for this entry mode, or on the application session, before applicants can apply.');
+        $label = BillingCurrency::isUsd($currency) ? 'USD ' : '';
+        throw new RuntimeException('Set a '.$label.'application fee in the fee catalog for this entry mode, or on the application session, before applicants can apply.');
     }
 
     public function createAcceptanceFeeInvoice(
@@ -329,11 +348,13 @@ class InvoiceService
             return $existing->loadMissing('items');
         }
 
-        $amount = $amountOverride ?? $this->resolveAcceptanceFeeAmount($intake);
+        $application = Application::query()->find($applicationId);
+        $currency = BillingCurrency::forApplication($application);
+        $amount = $amountOverride ?? $this->resolveAcceptanceFeeAmount($intake, null, $currency);
         if ($amount <= 0) {
             throw new RuntimeException('Set an acceptance fee amount in the fee catalog for this entry mode, or on the application session.');
         }
-        $fee = $this->catalogFeeForEntryMode('acceptance_fee', $intake->entry_mode);
+        $fee = $this->catalogFeeForEntryMode('acceptance_fee', $intake->entry_mode, $currency);
 
         $number = $this->nextInvoiceNumber();
         $invoice = Invoice::query()->create([
@@ -341,6 +362,7 @@ class InvoiceService
             'user_id' => $user->id,
             'application_id' => $applicationId,
             'category' => 'acceptance_fee',
+            'currency' => $currency,
             'amount' => $amount,
             'full_amount' => $amount,
             'balance' => $amount,
@@ -356,7 +378,7 @@ class InvoiceService
         return $invoice->fresh('items');
     }
 
-    public function resolveAcceptanceFeeAmount(?Intake $intake, ?float $override = null): float
+    public function resolveAcceptanceFeeAmount(?Intake $intake, ?float $override = null, string $currency = BillingCurrency::NGN): float
     {
         if ($override !== null) {
             $amount = round($override, 2);
@@ -367,17 +389,21 @@ class InvoiceService
             return $amount;
         }
 
-        $fee = $this->catalogFeeForEntryMode('acceptance_fee', $intake?->entry_mode);
-        if ($fee && (float) $fee->amount > 0) {
-            return (float) $fee->amount;
+        $fee = $this->catalogFeeForEntryMode('acceptance_fee', $intake?->entry_mode, $currency);
+        $column = BillingCurrency::isUsd($currency) ? 'amount_usd' : 'amount';
+        if ($fee && (float) $fee->{$column} > 0) {
+            return (float) $fee->{$column};
         }
 
-        $fromIntake = $intake?->acceptanceFeeAmount();
+        $fromIntake = BillingCurrency::isUsd($currency)
+            ? ($intake?->acceptance_fee_amount_usd !== null ? (float) $intake->acceptance_fee_amount_usd : null)
+            : $intake?->acceptanceFeeAmount();
         if ($fromIntake !== null && $fromIntake > 0) {
             return $fromIntake;
         }
 
-        throw new RuntimeException('Set an acceptance fee in the fee catalog for this entry mode, or on the application session, before students can pay.');
+        $label = BillingCurrency::isUsd($currency) ? 'USD ' : '';
+        throw new RuntimeException('Set a '.$label.'acceptance fee in the fee catalog for this entry mode, or on the application session, before students can pay.');
     }
 
     public function ensureAcceptanceInvoiceIfOffered(Application $application): ?Invoice
@@ -416,12 +442,13 @@ class InvoiceService
             throw new RuntimeException('This application has no applicant account.');
         }
 
-        $amount = $this->resolveAcceptanceFeeAmount($application->intake, $amountOverride);
+        $currency = BillingCurrency::forApplication($application);
+        $amount = $this->resolveAcceptanceFeeAmount($application->intake, $amountOverride, $currency);
         $intake = $application->intake;
         if ($intake) {
             $invoice = $this->createAcceptanceFeeInvoice($user, $intake, $application->id, $amount);
         } else {
-            $fee = $this->catalogFeeForEntryMode('acceptance_fee', $application->entry_mode);
+            $fee = $this->catalogFeeForEntryMode('acceptance_fee', $application->entry_mode, $currency);
             if (! $fee) {
                 throw new RuntimeException('Add an active Acceptance fee in the fee catalog for this entry mode.');
             }
@@ -465,8 +492,9 @@ class InvoiceService
         return $invoice->fresh('items');
     }
 
-    private function catalogFeeForEntryMode(string $category, ?string $entryMode): ?FeeItem
+    private function catalogFeeForEntryMode(string $category, ?string $entryMode, string $currency = BillingCurrency::NGN): ?FeeItem
     {
+        $column = BillingCurrency::isUsd($currency) ? 'amount_usd' : 'amount';
         $base = FeeItem::query()
             ->where('category', $category)
             ->where('is_active', true)
@@ -475,7 +503,7 @@ class InvoiceService
 
         if ($entryMode) {
             $match = (clone $base)->where('entry_mode', $entryMode)->first();
-            if ($match && (float) $match->amount > 0) {
+            if ($match && (float) $match->{$column} > 0) {
                 return $match;
             }
         }
@@ -485,11 +513,31 @@ class InvoiceService
                 $query->whereNull('entry_mode')->orWhere('entry_mode', '');
             })
             ->first();
-        if ($generic && (float) $generic->amount > 0) {
+        if ($generic && (float) $generic->{$column} > 0) {
             return $generic;
         }
 
         return null;
+    }
+
+    private function resolveCurrency(?int $applicationId, ?int $studentId): string
+    {
+        if ($studentId) {
+            $student = Student::query()->find($studentId);
+            if ($student) {
+                return BillingCurrency::forStudent($student);
+            }
+        }
+        if ($applicationId) {
+            return BillingCurrency::forApplication(Application::query()->find($applicationId));
+        }
+
+        return BillingCurrency::NGN;
+    }
+
+    private function pricedLine(ProgrammeFee $fee, string $currency): float
+    {
+        return $fee->pricedAmount($currency);
     }
 
     public function createTuitionInvoice(
@@ -529,7 +577,8 @@ class InvoiceService
         $lines = $levelCode !== null && $levelCode !== '' && $student->program_id
             ? ProgrammeFeeResolver::forProgram((int) $student->program_id, $levelCode, $semester)
             : ProgrammeFeeResolver::forStudent($student, $semester);
-        $fullAmount = ProgrammeFeeResolver::scheduleFullAmount($lines);
+        $currency = BillingCurrency::forStudent($student);
+        $fullAmount = ProgrammeFeeResolver::scheduleFullAmount($lines, $currency);
 
         if ($lines->isEmpty() || $fullAmount <= 0) {
             throw new RuntimeException('Programme school fees have not been set for this programme and level. Contact the bursary.');
@@ -554,6 +603,7 @@ class InvoiceService
                 $resolvedLevel,
                 $forSession,
                 $includeLegacy,
+                $currency,
             );
         }
 
@@ -574,6 +624,7 @@ class InvoiceService
             'academic_session_id' => $sessionId,
             'level_code' => $resolvedLevel,
             'category' => 'tuition',
+            'currency' => $currency,
             'installment_percent' => $percent,
             'amount' => $amount,
             'full_amount' => $fullAmount,
@@ -585,7 +636,7 @@ class InvoiceService
         $arrearsSuffix = $this->arrearsDescriptionSuffix($forSession, $resolvedLevel, $student);
         $scale = $deltaPercent / 100;
         foreach ($lines as $line) {
-            $lineAmount = round($line->effective_amount * $scale, 2);
+            $lineAmount = round($this->pricedLine($line, $currency) * $scale, 2);
             if ($lineAmount <= 0) {
                 continue;
             }
@@ -622,6 +673,7 @@ class InvoiceService
         ?string $levelCode = null,
         ?AcademicSession $forSession = null,
         bool $includeLegacy = false,
+        string $currency = BillingCurrency::NGN,
     ): Invoice {
         $billedStatuses = ['paid', 'partial', 'unpaid'];
         $billable = $this->billableTrancheLines(
@@ -648,12 +700,13 @@ class InvoiceService
                 $sessionId,
                 $includeLegacy,
                 $billedStatuses,
+                $currency,
             );
             $billable = $fallback['lines'];
             $scale = $fallback['scale'];
             $amount = $fallback['amount'];
         } else {
-            $amount = round((float) $billable->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
+            $amount = round((float) $billable->sum(fn (ProgrammeFee $fee) => $this->pricedLine($fee, $currency)), 2);
         }
 
         if ($billable->isEmpty() || $amount <= 0) {
@@ -669,6 +722,7 @@ class InvoiceService
             'academic_session_id' => $sessionId,
             'level_code' => $levelCode,
             'category' => 'tuition',
+            'currency' => $currency,
             'installment_percent' => $percent,
             'amount' => $amount,
             'full_amount' => $fullAmount,
@@ -679,9 +733,10 @@ class InvoiceService
 
         $arrearsSuffix = $this->arrearsDescriptionSuffix($forSession, $levelCode, $student);
         foreach ($billable as $line) {
+            $priced = $this->pricedLine($line, $currency);
             $lineAmount = $scale === null
-                ? round((float) $line->effective_amount, 2)
-                : round((float) $line->effective_amount * $scale, 2);
+                ? round($priced, 2)
+                : round($priced * $scale, 2);
             if ($lineAmount <= 0) {
                 continue;
             }
@@ -722,6 +777,7 @@ class InvoiceService
         ?int $sessionId,
         bool $includeLegacy,
         array $billedStatuses,
+        string $currency = BillingCurrency::NGN,
     ): array {
         $deltaPercent = $percent - $paidPercent;
         if ($deltaPercent <= 0.009 || $fullAmount <= 0) {
@@ -735,7 +791,7 @@ class InvoiceService
             fn (ProgrammeFee $line) => ! $this->trancheLineAlreadyPaid($line, $paidProgrammeFeeIds, $legacyPaidFeeItemIds)
         )->values();
 
-        $unpaidTotal = round((float) $unpaid->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
+        $unpaidTotal = round((float) $unpaid->sum(fn (ProgrammeFee $fee) => $this->pricedLine($fee, $currency)), 2);
         $target = round($fullAmount * ($deltaPercent / 100), 2);
         $amount = round(min($target, $unpaidTotal), 2);
         if ($unpaid->isEmpty() || $amount <= 0.009 || $unpaidTotal <= 0.009) {
@@ -817,6 +873,7 @@ class InvoiceService
         if ($lines->isEmpty()) {
             return 0.0;
         }
+        $currency = BillingCurrency::forStudent($student);
 
         $hasTranches = $lines->contains(fn (ProgrammeFee $fee) => FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
             && $fee->effective_installment_tranche !== null);
@@ -831,10 +888,10 @@ class InvoiceService
                 ['paid', 'partial'],
             );
 
-            return round((float) $billable->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
+            return round((float) $billable->sum(fn (ProgrammeFee $fee) => $this->pricedLine($fee, $currency)), 2);
         }
 
-        $fullAmount = ProgrammeFeeResolver::scheduleFullAmount($lines);
+        $fullAmount = ProgrammeFeeResolver::scheduleFullAmount($lines, $currency);
 
         return round($fullAmount * ((100 - $paidPercent) / 100), 2);
     }

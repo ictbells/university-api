@@ -32,6 +32,7 @@ class PaystackService implements PaymentGateway
             (float) $invoice->balance,
             $invoice->id,
             $invoice->category,
+            \App\Support\BillingCurrency::normalize($invoice->currency),
         );
 
         $secret = config('services.paystack.secret');
@@ -69,7 +70,7 @@ class PaystackService implements PaymentGateway
         ];
     }
 
-    public function initializeWalletTopup(User $user, float $amount, string $portal = 'student'): array
+    public function initializeWalletTopup(User $user, float $amount, string $portal = 'student', string $currency = 'NGN'): array
     {
         $user->loadMissing('student.wallet');
         if (! $user->student?->wallet) {
@@ -83,6 +84,7 @@ class PaystackService implements PaymentGateway
             $amount,
             null,
             'wallet_topup',
+            \App\Support\BillingCurrency::normalize($currency),
         );
 
         $secret = config('services.paystack.secret');

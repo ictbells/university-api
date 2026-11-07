@@ -200,6 +200,7 @@ class AlatpayService implements PaymentGateway
             (float) $invoice->balance,
             $invoice->id,
             $invoice->category,
+            \App\Support\BillingCurrency::normalize($invoice->currency),
         );
 
         // Must match payments.reference. createPendingPayment may reuse an existing
@@ -217,16 +218,18 @@ class AlatpayService implements PaymentGateway
                 'purpose' => $invoice->category,
             ],
             requireDemoFlag: true,
+            currency: \App\Support\BillingCurrency::normalize($invoice->currency),
         );
     }
 
-    public function initializeWalletTopup(User $user, float $amount, string $portal = 'student'): array
+    public function initializeWalletTopup(User $user, float $amount, string $portal = 'student', string $currency = 'NGN'): array
     {
         $user->loadMissing('student.wallet');
         if (! $user->student?->wallet) {
             throw new RuntimeException('Wallet is only available after student creation.');
         }
         $reference = 'WEMA-W-'.Str::upper(Str::random(12));
+        $currency = \App\Support\BillingCurrency::normalize($currency);
         $payment = $this->fulfillment->createPendingPayment(
             $user,
             $this->key(),
@@ -234,6 +237,7 @@ class AlatpayService implements PaymentGateway
             $amount,
             null,
             'wallet_topup',
+            $currency,
         );
 
         $orderReference = (string) $payment->reference;
@@ -249,6 +253,7 @@ class AlatpayService implements PaymentGateway
                 'portal' => $portal,
             ],
             requireDemoFlag: false,
+            currency: $currency,
         );
     }
 
@@ -469,9 +474,14 @@ class AlatpayService implements PaymentGateway
         string $callbackUrl,
         array $metadata,
         bool $requireDemoFlag,
+        string $currency = 'NGN',
     ): array {
+        $currency = \App\Support\BillingCurrency::normalize($currency);
         $public = (string) config('services.wema.public');
         $businessId = (string) config('services.wema.business_id');
+        if (\App\Support\BillingCurrency::isUsd($currency) && ($public === '' || $businessId === '')) {
+            throw new RuntimeException('USD payments are not configured. Wema AlatPay keys are required for foreign-currency checkout.');
+        }
         if ($public === '' || $businessId === '') {
             if ($requireDemoFlag && ! $this->demoFulfillAllowed()) {
                 throw new RuntimeException('Online payments are not configured. Please pay at the admissions office.');
@@ -498,7 +508,7 @@ class AlatpayService implements PaymentGateway
                 'api_key' => $public,
                 'business_id' => $businessId,
                 'amount' => round($amount, 2),
-                'currency' => 'NGN',
+                'currency' => $currency,
                 'email' => $user->email,
                 'first_name' => $customer['first'],
                 'last_name' => $customer['last'],

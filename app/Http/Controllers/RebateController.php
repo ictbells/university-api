@@ -217,6 +217,7 @@ class RebateController extends Controller
             ],
             'description' => ['nullable', 'string', 'max:500'],
             'kind' => ['required', Rule::in(['percent', 'amount'])],
+            'currency' => ['nullable', Rule::in(['NGN', 'USD'])],
             'default_value' => ['required', 'numeric', 'min:0.01'],
             'is_active' => ['sometimes', 'boolean'],
         ]);
@@ -228,6 +229,9 @@ class RebateController extends Controller
         $data['description'] = isset($data['description']) ? (trim((string) $data['description']) ?: null) : null;
         $data['name'] = trim($data['name']);
         $data['is_active'] = $request->has('is_active') ? $request->boolean('is_active') : ($existing?->is_active ?? true);
+        $data['currency'] = $data['kind'] === 'percent'
+            ? 'NGN'
+            : strtoupper((string) ($data['currency'] ?? $existing?->currency ?? 'NGN'));
 
         return $data;
     }
@@ -239,6 +243,7 @@ class RebateController extends Controller
             'name' => $type->name,
             'description' => $type->description,
             'kind' => $type->kind,
+            'currency' => $type->currency ?: 'NGN',
             'default_value' => (float) $type->default_value,
             'is_active' => (bool) $type->is_active,
             'created_at' => $type->created_at,

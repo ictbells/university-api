@@ -280,7 +280,11 @@ class ClinicController extends Controller
             function () use ($visit, $data) {
                 $fee = FeeItem::query()->findOrFail($data['fee_item_id']);
                 $qty = (float) ($data['quantity'] ?? 1);
-                $unit = round((float) $fee->amount, 2);
+                $visit->loadMissing('student');
+                $unit = \App\Support\BillingCurrency::feeItemAmount(
+                    $fee,
+                    \App\Support\BillingCurrency::forStudent($visit->student),
+                );
                 $profile = MedicalProfile::query()->firstOrCreate(['student_id' => $visit->student_id]);
                 $nhisCovered = array_key_exists('nhis_covered', $data)
                     ? (bool) $data['nhis_covered']

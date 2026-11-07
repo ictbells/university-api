@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\ProgrammeFee;
 use App\Models\Student;
+use App\Support\BillingCurrency;
 use Illuminate\Support\Collection;
 
 class ProgrammeFeeResolver
@@ -164,12 +165,13 @@ class ProgrammeFeeResolver
 
     public static function totalForStudent(Student $student, ?string $semester = null): float
     {
-        $cacheKey = (int) $student->id.'|'.(string) $semester.'|'.(string) $student->program_id.'|'.(string) $student->current_level;
+        $currency = BillingCurrency::forStudent($student);
+        $cacheKey = (int) $student->id.'|'.(string) $semester.'|'.(string) $student->program_id.'|'.(string) $student->current_level.'|'.$currency;
         if (array_key_exists($cacheKey, self::$studentTotalCache)) {
             return self::$studentTotalCache[$cacheKey];
         }
 
-        return self::$studentTotalCache[$cacheKey] = self::scheduleFullAmount(self::forStudent($student, $semester));
+        return self::$studentTotalCache[$cacheKey] = self::scheduleFullAmount(self::forStudent($student, $semester), $currency);
     }
 
     /**
@@ -178,11 +180,14 @@ class ProgrammeFeeResolver
      *
      * @param  Collection<int, ProgrammeFee>  $lines
      */
-    public static function scheduleFullAmount(Collection $lines): float
+    public static function scheduleFullAmount(Collection $lines, string $currency = BillingCurrency::NGN): float
     {
+        $amountOf = fn (ProgrammeFee $fee) => BillingCurrency::isUsd($currency)
+            ? $fee->pricedAmount($currency)
+            : $fee->effective_amount;
         $tagged = $lines->filter(fn (ProgrammeFee $fee) => self::isTaggedSlice($fee));
         if ($tagged->isEmpty()) {
-            return round((float) $lines->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
+            return round((float) $lines->sum($amountOf), 2);
         }
 
         $slices = $tagged->filter(
@@ -191,13 +196,12 @@ class ProgrammeFeeResolver
         if ($slices->isNotEmpty()) {
             $untagged = $lines->reject(fn (ProgrammeFee $fee) => self::isTaggedSlice($fee));
 
-            return round((float) $slices->sum(fn (ProgrammeFee $fee) => $fee->effective_amount)
-                + $untagged->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
+            return round((float) $slices->sum($amountOf) + $untagged->sum($amountOf), 2);
         }
 
         return round((float) $tagged
             ->filter(fn (ProgrammeFee $fee) => (int) $fee->effective_installment_tranche === 100)
-            ->sum(fn (ProgrammeFee $fee) => $fee->effective_amount), 2);
+            ->sum($amountOf), 2);
     }
 
     private static function isTaggedSlice(ProgrammeFee $fee): bool

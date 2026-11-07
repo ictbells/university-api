@@ -353,6 +353,11 @@ class ApplicationController extends Controller
                 'max:20',
                 Rule::unique('users', 'jamb_registration')->ignore($request->user()->id),
             ],
+            'country' => [
+                Rule::requiredIf(fn () => $request->input('entry_mode') === 'pg'),
+                'nullable',
+                'in:Nigeria,Non-Nigeria',
+            ],
         ]);
 
         if ($request->filled('jamb_registration')) {
@@ -375,6 +380,7 @@ class ApplicationController extends Controller
                 $intake,
                 $data['jamb_registration'] ?? null,
                 isset($data['program_id']) ? (int) $data['program_id'] : null,
+                $data['country'] ?? null,
             );
         } catch (RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -399,20 +405,50 @@ class ApplicationController extends Controller
         }
         $step = $application->steps()->where('step_key', $data['step_key'])->firstOrFail();
         $payload = $data['payload'];
-        if ($data['step_key'] !== 'biodata' && ! $application->ninVerified()) {
-            return response()->json(['message' => 'Verify your NIN before continuing the application form.'], 422);
+        if ($data['step_key'] !== 'biodata' && ! $application->identityVerified()) {
+            return response()->json([
+                'message' => $application->usesPassportIdentity()
+                    ? 'Enter your passport or ID number before continuing the application form.'
+                    : 'Verify your NIN before continuing the application form.',
+            ], 422);
         }
         if ($data['step_key'] === 'biodata') {
             $existing = $step->payload ?? [];
-            if (! ($existing['nin_locked'] ?? false)) {
-                return response()->json(['message' => 'Verify your NIN before saving biodata.'], 422);
-            }
-            foreach (['nin', 'first_name', 'middle_name', 'last_name', 'date_of_birth', 'gender', 'photo_path'] as $locked) {
-                if (isset($existing[$locked])) {
-                    $payload[$locked] = $existing[$locked];
+            if ($application->usesPassportIdentity()) {
+                $request->merge(['payload' => $payload]);
+                $identity = $request->validate([
+                    'payload.passport_number' => 'required|string|min:5|max:40',
+                    'payload.first_name' => 'required|string|max:80',
+                    'payload.middle_name' => 'nullable|string|max:80',
+                    'payload.last_name' => 'required|string|max:80',
+                    'payload.date_of_birth' => 'required|date|before:today',
+                    'payload.gender' => 'required|in:Male,Female',
+                ])['payload'];
+                $passport = Application::normalizePassport($identity['passport_number'] ?? null);
+                if (strlen($passport) < 5) {
+                    return response()->json(['message' => 'Enter your passport or ID number.'], 422);
                 }
+                $application->update(['passport_number' => $passport]);
+                $payload = array_merge($existing, $payload, [
+                    'passport_number' => $passport,
+                    'first_name' => trim((string) $identity['first_name']),
+                    'middle_name' => trim((string) ($identity['middle_name'] ?? '')) ?: null,
+                    'last_name' => trim((string) $identity['last_name']),
+                    'date_of_birth' => $identity['date_of_birth'],
+                    'gender' => $identity['gender'],
+                ]);
+                unset($payload['nin_locked']);
+            } else {
+                if (! ($existing['nin_locked'] ?? false)) {
+                    return response()->json(['message' => 'Verify your NIN before saving biodata.'], 422);
+                }
+                foreach (['nin', 'first_name', 'middle_name', 'last_name', 'date_of_birth', 'gender', 'photo_path'] as $locked) {
+                    if (isset($existing[$locked])) {
+                        $payload[$locked] = $existing[$locked];
+                    }
+                }
+                $payload['nin_locked'] = true;
             }
-            $payload['nin_locked'] = true;
         }
         if ($data['step_key'] === 'personal_details') {
             $request->merge(['payload' => $payload]);
@@ -425,6 +461,10 @@ class ApplicationController extends Controller
                 'payload.lga' => 'required|string|max:100',
                 'payload.lga_id' => 'nullable|integer',
             ])['payload'] + $payload;
+
+            if ($application->entry_mode === 'pg' && in_array($application->country, ['Nigeria', 'Non-Nigeria'], true)) {
+                $payload['country'] = $application->country;
+            }
 
             if (($payload['country'] ?? '') === 'Nigeria') {
                 if (empty($payload['state_id'])) {
@@ -647,8 +687,12 @@ class ApplicationController extends Controller
             ], 422);
         }
         $application->ensureFormSteps();
-        if (! $application->ninVerified()) {
-            return response()->json(['message' => 'Verify your NIN before submitting your application.'], 422);
+        if (! $application->identityVerified()) {
+            return response()->json([
+                'message' => $application->usesPassportIdentity()
+                    ? 'Enter your passport or ID number before submitting your application.'
+                    : 'Verify your NIN before submitting your application.',
+            ], 422);
         }
         if ($blocked = $this->rejectIfProgrammeMissing($application)) {
             return $blocked;
@@ -693,8 +737,12 @@ class ApplicationController extends Controller
         if (! in_array($application->stage, ['fee_paid', 'form_in_progress'], true)) {
             return response()->json(['message' => 'Pay the application fee before uploading documents.'], 422);
         }
-        if (! $application->ninVerified()) {
-            return response()->json(['message' => 'Verify your NIN before uploading documents.'], 422);
+        if (! $application->identityVerified()) {
+            return response()->json([
+                'message' => $application->usesPassportIdentity()
+                    ? 'Enter your passport or ID number before uploading documents.'
+                    : 'Verify your NIN before uploading documents.',
+            ], 422);
         }
         $allowed = collect(AdmissionEntryRules::requiredDocuments((string) $application->entry_mode, $application))
             ->pluck('key')

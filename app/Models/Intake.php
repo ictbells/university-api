@@ -20,7 +20,7 @@ class Intake extends BaseModel
 
     public const CLOSED_SUBMIT_MESSAGE = 'The application window for this category has closed. You cannot submit your application.';
 
-    protected $fillable = ['academic_term_id', 'name', 'entry_mode', 'opens_on', 'closes_on', 'is_open', 'application_fee_amount', 'acceptance_fee_amount'];
+    protected $fillable = ['academic_term_id', 'name', 'entry_mode', 'opens_on', 'closes_on', 'is_open', 'application_fee_amount', 'application_fee_amount_usd', 'acceptance_fee_amount', 'acceptance_fee_amount_usd'];
 
     protected function casts(): array
     {
@@ -29,7 +29,9 @@ class Intake extends BaseModel
             'closes_on' => 'date',
             'is_open' => 'boolean',
             'application_fee_amount' => 'decimal:2',
+            'application_fee_amount_usd' => 'decimal:2',
             'acceptance_fee_amount' => 'decimal:2',
+            'acceptance_fee_amount_usd' => 'decimal:2',
         ];
     }
 

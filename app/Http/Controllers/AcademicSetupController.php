@@ -161,6 +161,16 @@ class AcademicSetupController extends Controller
                 } catch (\Throwable) {
                     $intake->setAttribute('resolved_acceptance_fee_amount', $intake->acceptance_fee_amount);
                 }
+                try {
+                    $intake->setAttribute('resolved_application_fee_amount_usd', $invoices->resolveApplicationFeeAmount($intake, \App\Support\BillingCurrency::USD));
+                } catch (\Throwable) {
+                    $intake->setAttribute('resolved_application_fee_amount_usd', $intake->application_fee_amount_usd);
+                }
+                try {
+                    $intake->setAttribute('resolved_acceptance_fee_amount_usd', $invoices->resolveAcceptanceFeeAmount($intake, null, \App\Support\BillingCurrency::USD));
+                } catch (\Throwable) {
+                    $intake->setAttribute('resolved_acceptance_fee_amount_usd', $intake->acceptance_fee_amount_usd);
+                }
 
                 return $intake;
             });
@@ -304,7 +314,9 @@ class AcademicSetupController extends Controller
             'opens_on' => 'required|date',
             'closes_on' => 'required|date|after_or_equal:opens_on',
             'application_fee_amount' => 'nullable|numeric|min:0',
+            'application_fee_amount_usd' => 'nullable|numeric|min:0',
             'acceptance_fee_amount' => 'nullable|numeric|min:0',
+            'acceptance_fee_amount_usd' => 'nullable|numeric|min:0',
             'is_open' => 'sometimes|boolean',
         ]);
         $validated['is_open'] = $request->boolean('is_open', true);
@@ -329,7 +341,9 @@ class AcademicSetupController extends Controller
             'opens_on' => 'sometimes|date',
             'closes_on' => 'sometimes|date|after_or_equal:opens_on',
             'application_fee_amount' => 'nullable|numeric|min:0',
+            'application_fee_amount_usd' => 'nullable|numeric|min:0',
             'acceptance_fee_amount' => 'nullable|numeric|min:0',
+            'acceptance_fee_amount_usd' => 'nullable|numeric|min:0',
             'is_open' => 'sometimes|boolean',
         ]);
         if ($request->has('is_open')) {
@@ -377,6 +391,17 @@ class AcademicSetupController extends Controller
             ->map(function (Intake $intake) {
                 $intake->setAttribute('requires_jamb', AdmissionEntryRules::requiresJambRegistration($intake->entry_mode));
                 $intake->setAttribute('candidate_list_required', CandidateEligibility::candidateListRequiredFor($intake));
+                $invoices = app(InvoiceService::class);
+                try {
+                    $intake->setAttribute('resolved_application_fee_amount', $invoices->resolveApplicationFeeAmount($intake));
+                } catch (\Throwable) {
+                    $intake->setAttribute('resolved_application_fee_amount', $intake->application_fee_amount);
+                }
+                try {
+                    $intake->setAttribute('resolved_application_fee_amount_usd', $invoices->resolveApplicationFeeAmount($intake, \App\Support\BillingCurrency::USD));
+                } catch (\Throwable) {
+                    $intake->setAttribute('resolved_application_fee_amount_usd', $intake->application_fee_amount_usd);
+                }
 
                 return $intake;
             });

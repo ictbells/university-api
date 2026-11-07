@@ -558,7 +558,7 @@ class HostelService
 
     public function formatAllocation(HostelAllocation $allocation): array
     {
-        $allocation->loadMissing(['bed.room.block.hostel', 'academicTerm']);
+        $allocation->loadMissing(['bed.room.block.hostel', 'academicTerm', 'student']);
         $bed = $allocation->bed;
         $room = $bed?->room;
         $hostel = $room?->block?->hostel;
@@ -580,7 +580,8 @@ class HostelService
             'term' => $allocation->academicTerm?->name,
             'session' => $allocation->academicTerm?->session_label,
             'due_required' => (bool) ($hostel?->due_required),
-            'due_amount' => $hostel && $hostel->chargesDue() ? (float) $hostel->due_amount : null,
+            'due_amount' => $this->dueAmountFor($hostel, $allocation->student),
+            'currency' => \App\Support\BillingCurrency::forStudent($allocation->student),
         ];
     }
 
@@ -691,7 +692,8 @@ class HostelService
                 'gender' => $hostel->gender,
                 'category' => $hostel->category,
                 'due_required' => (bool) $hostel->due_required,
-                'due_amount' => $hostel->chargesDue() ? (float) $hostel->due_amount : null,
+                'due_amount' => $this->dueAmountFor($hostel, $student),
+                'currency' => \App\Support\BillingCurrency::forStudent($student),
                 'levels' => $this->formatAcademicLevels($hostel->academicLevels),
                 'available_rooms' => $blocks->sum('available_rooms'),
                 'blocks' => $blocks->all(),
@@ -928,13 +930,39 @@ class HostelService
         return $summary;
     }
 
+    private function dueAmountFor(?Hostel $hostel, ?Student $student): ?float
+    {
+        if (! $hostel?->due_required) {
+            return null;
+        }
+        if (\App\Support\BillingCurrency::isUsd(\App\Support\BillingCurrency::forStudent($student))) {
+            $amount = round((float) $hostel->due_amount_usd, 2);
+
+            return $amount > 0 ? $amount : null;
+        }
+        $amount = round((float) $hostel->due_amount, 2);
+
+        return $amount > 0 ? $amount : null;
+    }
+
     private function raiseHostelDueIfRequired(Student $student, ?Hostel $hostel): void
     {
-        if (! $hostel?->chargesDue() || ! $student->user) {
+        if (! $hostel?->due_required || ! $student->user) {
             return;
         }
 
-        $amount = (float) $hostel->due_amount;
+        $currency = \App\Support\BillingCurrency::forStudent($student);
+        if (\App\Support\BillingCurrency::isUsd($currency)) {
+            $amount = round((float) $hostel->due_amount_usd, 2);
+            if ($amount <= 0) {
+                throw new \RuntimeException('Set a USD hostel due before allocating a bed to a foreign student.');
+            }
+        } else {
+            $amount = round((float) $hostel->due_amount, 2);
+            if ($amount <= 0) {
+                return;
+            }
+        }
         $description = 'Hostel due — '.$hostel->name;
         $fee = FeeItem::query()->where('category', 'hostel')->where('is_active', true)->first();
         if ($fee) {

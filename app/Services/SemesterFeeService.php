@@ -6,6 +6,7 @@ use App\Models\AcademicTerm;
 use App\Models\FeeItem;
 use App\Models\Invoice;
 use App\Models\Student;
+use App\Support\BillingCurrency;
 use App\Support\SemesterFeeAccess;
 use App\Support\Studentship;
 use RuntimeException;
@@ -81,7 +82,7 @@ class SemesterFeeService
 
         $fee = $this->resolveCatalogFee();
         $term ??= $this->resolveTerm();
-        $amount = round((float) $fee->amount, 2);
+        $amount = BillingCurrency::feeItemAmount($fee, BillingCurrency::forStudent($student));
 
         $existing = Invoice::query()
             ->where('student_id', $student->id)
@@ -96,6 +97,7 @@ class SemesterFeeService
                 && (round((float) $existing->amount, 2) <= 0 || round((float) $existing->balance, 2) <= 0)
             ) {
                 $existing->forceFill([
+                    'currency' => BillingCurrency::forStudent($student),
                     'amount' => $amount,
                     'full_amount' => $amount,
                     'balance' => $amount,

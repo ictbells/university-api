@@ -45,6 +45,7 @@ class ReturningStudentApplicationTest extends TestCase
         $this->postJson('/api/applications', [
             'entry_mode' => 'pg',
             'intake_id' => $pgIntake->id,
+            'country' => 'Nigeria',
         ])->assertStatus(422)
             ->assertJsonPath('message', Studentship::INCOMPLETE_PROGRAMME_MESSAGE);
 
@@ -95,6 +96,7 @@ class ReturningStudentApplicationTest extends TestCase
         $this->postJson('/api/applications', [
             'entry_mode' => 'pg',
             'intake_id' => $pgIntake->id,
+            'country' => 'Nigeria',
         ])->assertOk()
             ->assertJsonPath('id', $pg->id);
 
@@ -113,6 +115,7 @@ class ReturningStudentApplicationTest extends TestCase
         $response = $this->postJson('/api/applications', [
             'entry_mode' => 'pg',
             'intake_id' => $pgIntake->id,
+            'country' => 'Nigeria',
         ])->assertOk();
 
         $newId = (int) $response->json('id');
@@ -169,6 +172,7 @@ class ReturningStudentApplicationTest extends TestCase
         $response = $this->postJson('/api/applications', [
             'entry_mode' => 'pg',
             'intake_id' => $pgIntake->id,
+            'country' => 'Nigeria',
         ])->assertOk()
             ->assertJsonPath('credentials_emailed', true);
 

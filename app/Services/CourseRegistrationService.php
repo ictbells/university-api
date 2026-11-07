@@ -652,9 +652,17 @@ class CourseRegistrationService
         if ($units < $min || $units > $max) {
             $this->fail('approved_units', "Approved units must be between {$min} and {$max}.");
         }
-        $rate = (float) $term->extension_price_per_unit;
-        if ($rate <= 0) {
-            $this->fail('extension_price_per_unit', 'Set an extension price per unit on this semester before approving.');
+        $currency = \App\Support\BillingCurrency::forStudent($extension->student);
+        if (\App\Support\BillingCurrency::isUsd($currency)) {
+            $rate = (float) $term->extension_price_per_unit_usd;
+            if ($rate <= 0) {
+                $this->fail('extension_price_per_unit_usd', 'Set a USD extension price per unit on this semester before approving a foreign student.');
+            }
+        } else {
+            $rate = (float) $term->extension_price_per_unit;
+            if ($rate <= 0) {
+                $this->fail('extension_price_per_unit', 'Set an extension price per unit on this semester before approving.');
+            }
         }
 
         $amount = round($units * $rate, 2);

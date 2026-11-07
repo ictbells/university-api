@@ -23,7 +23,20 @@ class StaffSecurityService
 
     public function hasTwoFactorConfigured(User $user): bool
     {
-        return (bool) ($user->two_factor_secret && $user->two_factor_confirmed_at);
+        $raw = $user->getAttributes()['two_factor_secret'] ?? null;
+        $secret = $user->two_factor_secret;
+
+        // Cipher no longer decrypts (APP_KEY change) — clear so staff can re-enrol 2FA.
+        if (is_string($raw) && $raw !== '' && ($secret === null || $secret === '')) {
+            $user->forceFill([
+                'two_factor_secret' => null,
+                'two_factor_confirmed_at' => null,
+            ])->save();
+
+            return false;
+        }
+
+        return (bool) ($secret && $user->two_factor_confirmed_at);
     }
 
     public function passwordChangeRequired(User $user): bool

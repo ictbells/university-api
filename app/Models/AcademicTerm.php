@@ -15,6 +15,7 @@ class AcademicTerm extends BaseModel
         'normal_registration_closes_at',
         'late_registration_closes_at',
         'extension_price_per_unit',
+        'extension_price_per_unit_usd',
         'is_current',
         'auto_schedule',
     ];
@@ -29,6 +30,7 @@ class AcademicTerm extends BaseModel
             'normal_registration_closes_at' => 'datetime',
             'late_registration_closes_at' => 'datetime',
             'extension_price_per_unit' => 'decimal:2',
+            'extension_price_per_unit_usd' => 'decimal:2',
         ];
     }
 

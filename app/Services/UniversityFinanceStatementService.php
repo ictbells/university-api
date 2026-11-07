@@ -8,6 +8,7 @@ use App\Models\InvoiceRebate;
 use App\Models\Payment;
 use App\Models\Setting;
 use App\Models\Wallet;
+use App\Support\BillingCurrency;
 use App\Support\ExportNumbers;
 use App\Support\FeeSchedule;
 use App\Support\InstitutionLogo;
@@ -30,11 +31,28 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class UniversityFinanceStatementService
 {
+    private ?string $reportCurrency = BillingCurrency::NGN;
+
+    private string $exportCurrency = BillingCurrency::NGN;
+
     /**
      * @return array<string, mixed>
      */
-    public function summarize(?CarbonInterface $from = null, ?CarbonInterface $to = null, ?string $gateway = null): array
+    public function summarize(?CarbonInterface $from = null, ?CarbonInterface $to = null, ?string $gateway = null, ?string $currency = null): array
     {
+        $filter = strtoupper(trim((string) $currency));
+        if (! in_array($filter, [BillingCurrency::NGN, BillingCurrency::USD], true)) {
+            $ngn = $this->summarize($from, $to, $gateway, BillingCurrency::NGN);
+            $usd = $this->summarize($from, $to, $gateway, BillingCurrency::USD);
+            $ngn['currency'] = 'all';
+            $ngn['totals_usd'] = $usd['totals'];
+            $ngn['today_usd'] = $usd['today'];
+            $ngn['this_month_usd'] = $usd['this_month'];
+
+            return $ngn;
+        }
+
+        $this->reportCurrency = $filter;
         $from = $from?->copy()->startOfDay();
         $to = $to?->copy()->endOfDay();
         $now = now();
@@ -54,13 +72,13 @@ class UniversityFinanceStatementService
         $onlinePaymentsCount = (clone $onlineQuery)->count();
         $invoiced = $this->money($this->activeInvoices($from, $to)->sum('amount'));
         $rebates = $this->money($this->activeRebates($from, $to)->sum('invoice_rebates.amount'));
-        $outstanding = $this->money(
-            Invoice::query()
-                ->whereNotIn('status', ['cancelled', 'disabled'])
-                ->whereIn('status', ['unpaid', 'partial'])
-                ->sum('balance')
-        );
-        $walletLiability = $this->money((float) Wallet::query()->sum('balance'));
+        $outstandingQuery = Invoice::query()
+            ->whereNotIn('status', ['cancelled', 'disabled'])
+            ->whereIn('status', ['unpaid', 'partial']);
+        $this->constrainCurrency($outstandingQuery, 'invoices.currency');
+        $outstanding = $this->money($outstandingQuery->sum('balance'));
+        $walletColumn = $this->reportCurrency === BillingCurrency::USD ? 'balance_usd' : 'balance';
+        $walletLiability = $this->money((float) Wallet::query()->sum($walletColumn));
 
         $todayFrom = $now->copy()->startOfDay();
         $todayTo = $now->copy()->endOfDay();
@@ -74,6 +92,7 @@ class UniversityFinanceStatementService
                 'label' => $this->periodLabel($from, $to),
             ],
             'gateway' => $gateway,
+            'currency' => $this->reportCurrency,
             'gateways' => collect(PaymentGatewaySettings::keys())
                 ->map(fn (string $key) => [
                     'key' => $key,
@@ -111,14 +130,14 @@ class UniversityFinanceStatementService
             ],
             'invoice_counts' => [
                 'issued' => $this->activeInvoices($from, $to)->count(),
-                'unpaid' => Invoice::query()->where('status', 'unpaid')->count(),
-                'partial' => Invoice::query()->where('status', 'partial')->count(),
-                'paid' => Invoice::query()->where('status', 'paid')->count(),
+                'unpaid' => $this->constrainCurrency(Invoice::query()->where('status', 'unpaid'), 'currency')->count(),
+                'partial' => $this->constrainCurrency(Invoice::query()->where('status', 'partial'), 'currency')->count(),
+                'paid' => $this->constrainCurrency(Invoice::query()->where('status', 'paid'), 'currency')->count(),
             ],
             'payment_counts' => [
                 'successful' => $this->successfulPayments($from, $to)->count(),
-                'pending' => $this->applyPeriod(Payment::query()->where('status', 'pending'), $from, $to)->count(),
-                'failed' => $this->applyPeriod(Payment::query()->whereIn('status', ['failed', 'cancelled']), $from, $to)->count(),
+                'pending' => $this->constrainCurrency($this->applyPeriod(Payment::query()->where('status', 'pending'), $from, $to), 'currency')->count(),
+                'failed' => $this->constrainCurrency($this->applyPeriod(Payment::query()->whereIn('status', ['failed', 'cancelled']), $from, $to), 'currency')->count(),
                 'online_successful' => $onlinePaymentsCount,
             ],
             'by_category' => $this->byCategory($from, $to),
@@ -132,6 +151,9 @@ class UniversityFinanceStatementService
 
     public function export(string $format, array $statement): Response
     {
+        $this->exportCurrency = ($statement['currency'] ?? BillingCurrency::NGN) === BillingCurrency::USD
+            ? BillingCurrency::USD
+            : BillingCurrency::NGN;
         $generatedAt = now()->format('d M Y H:i:s');
         $title = 'University financial statement';
         $filename = 'university_financial_statement_'.now()->format('Ymd_His');
@@ -147,13 +169,15 @@ class UniversityFinanceStatementService
     /**
      * @return list<string>
      */
-    public function filterSummary(?CarbonInterface $from, ?CarbonInterface $to, ?string $gateway = null): array
+    public function filterSummary(?CarbonInterface $from, ?CarbonInterface $to, ?string $gateway = null, ?string $currency = null): array
     {
         $summary = ['Period: '.$this->periodLabel($from, $to)];
         $gateway = $this->normalizeGateway($gateway);
         $summary[] = $gateway
             ? 'Online gateway: '.$this->methodLabel($gateway)
             : 'Online gateways: Paystack, Wema Bank, PayGate';
+        $currency = strtoupper(trim((string) $currency));
+        $summary[] = 'Currency: '.($currency === BillingCurrency::USD ? 'USD' : ($currency === BillingCurrency::NGN ? 'NGN' : 'NGN and USD, reported separately'));
 
         return $summary;
     }
@@ -415,12 +439,10 @@ class UniversityFinanceStatementService
 
     private function successfulPayments(?CarbonInterface $from, ?CarbonInterface $to): Builder
     {
-        return $this->applyPeriod(
-            Payment::query()->whereIn('payments.status', ['successful', 'paid']),
-            $from,
-            $to,
-            'payments.created_at',
-        );
+        $query = Payment::query()->whereIn('payments.status', ['successful', 'paid']);
+        $this->constrainCurrency($query, 'payments.currency');
+
+        return $this->applyPeriod($query, $from, $to, 'payments.created_at');
     }
 
     /**
@@ -449,12 +471,10 @@ class UniversityFinanceStatementService
 
     private function activeInvoices(?CarbonInterface $from, ?CarbonInterface $to): Builder
     {
-        return $this->applyPeriod(
-            Invoice::query()->whereNotIn('invoices.status', ['cancelled', 'disabled']),
-            $from,
-            $to,
-            'invoices.created_at',
-        );
+        $query = Invoice::query()->whereNotIn('invoices.status', ['cancelled', 'disabled']);
+        $this->constrainCurrency($query, 'invoices.currency');
+
+        return $this->applyPeriod($query, $from, $to, 'invoices.created_at');
     }
 
     private function activeRebates(?CarbonInterface $from, ?CarbonInterface $to): Builder
@@ -463,7 +483,11 @@ class UniversityFinanceStatementService
             InvoiceRebate::query()
                 ->join('invoices', 'invoices.id', '=', 'invoice_rebates.invoice_id')
                 ->whereNull('invoice_rebates.reversed_at')
-                ->whereNotIn('invoices.status', ['cancelled', 'disabled']),
+                ->whereNotIn('invoices.status', ['cancelled', 'disabled'])
+                ->when($this->reportCurrency === BillingCurrency::USD, fn (Builder $query) => $query->where('invoices.currency', BillingCurrency::USD))
+                ->when($this->reportCurrency !== BillingCurrency::USD, fn (Builder $query) => $query->where(function (Builder $rows) {
+                    $rows->where('invoices.currency', BillingCurrency::NGN)->orWhereNull('invoices.currency');
+                })),
             $from,
             $to,
             'invoice_rebates.created_at',
@@ -537,9 +561,22 @@ class UniversityFinanceStatementService
         return round($value, 2);
     }
 
+    private function constrainCurrency(Builder $query, string $column): Builder
+    {
+        if ($this->reportCurrency === BillingCurrency::USD) {
+            return $query->where($column, BillingCurrency::USD);
+        }
+
+        return $query->where(function (Builder $rows) use ($column) {
+            $rows->where($column, BillingCurrency::NGN)->orWhereNull($column);
+        });
+    }
+
     private function naira(float $value): string
     {
-        return 'NGN '.number_format($value, 2);
+        $prefix = $this->exportCurrency === BillingCurrency::USD ? 'USD ' : 'NGN ';
+
+        return $prefix.number_format($value, 2);
     }
 
     /**
@@ -604,6 +641,17 @@ class UniversityFinanceStatementService
             ['Outstanding receivables (now)', $totals['outstanding']],
             ['Student wallet liability (now)', $totals['wallet_liability']],
         ]);
+        if (isset($statement['totals_usd']) && is_array($statement['totals_usd'])) {
+            $usd = $statement['totals_usd'];
+            $row += 1;
+            $row = $this->writeExcelSection($sheet, $row, 'US dollars (not included above)', [
+                ['USD invoices issued (period)', $usd['invoiced']],
+                ['USD fee collections', $usd['collected']],
+                ['USD outstanding receivables (now)', $usd['outstanding']],
+                ['USD wallet liability (now)', $usd['wallet_liability']],
+                ['USD wallet top-ups', $usd['wallet_inflows']],
+            ]);
+        }
         $row += 1;
         $row = $this->writeExcelTable(
             $sheet,
@@ -744,6 +792,21 @@ class UniversityFinanceStatementService
             ['Outstanding receivables (now)', $totals['outstanding']],
             ['Student wallet liability (now)', $totals['wallet_liability']],
         ]);
+        if (isset($statement['totals_usd']) && is_array($statement['totals_usd'])) {
+            $usd = $statement['totals_usd'];
+            $section->addTextBreak(1);
+            $section->addText('US dollars (not included above)', ['bold' => true, 'size' => 12, 'color' => '0C4A6E']);
+            $previous = $this->exportCurrency;
+            $this->exportCurrency = BillingCurrency::USD;
+            $this->wordKeyValues($section, [
+                ['USD invoices issued (period)', $usd['invoiced']],
+                ['USD fee collections', $usd['collected']],
+                ['USD outstanding receivables (now)', $usd['outstanding']],
+                ['USD wallet liability (now)', $usd['wallet_liability']],
+                ['USD wallet top-ups', $usd['wallet_inflows']],
+            ]);
+            $this->exportCurrency = $previous;
+        }
         $section->addTextBreak(1);
         $section->addText('By fee category', ['bold' => true, 'size' => 12, 'color' => '0C4A6E']);
         $this->wordTable($section, ['Category', 'Invoiced', 'Collected', 'Outstanding'], collect($statement['by_category'])->map(fn ($line) => [

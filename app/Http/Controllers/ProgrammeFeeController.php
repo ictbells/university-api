@@ -250,6 +250,7 @@ class ProgrammeFeeController extends Controller
             'items' => 'required|array|min:1',
             'items.*.fee_item_id' => 'required|integer|exists:fee_items,id',
             'items.*.amount' => 'nullable|numeric|min:0',
+            'items.*.amount_usd' => 'nullable|numeric|min:0',
             'items.*.installment_tranche' => ['nullable', 'integer', Rule::in(FeeSchedule::INSTALLMENT_TRANCHES)],
             'items.*.display_order' => 'nullable|integer|min:0',
             'items.*.is_active' => 'nullable|boolean',
@@ -279,6 +280,7 @@ class ProgrammeFeeController extends Controller
                             ],
                             [
                                 'amount' => array_key_exists('amount', $item) ? $item['amount'] : null,
+                                'amount_usd' => array_key_exists('amount_usd', $item) ? $item['amount_usd'] : null,
                                 'display_order' => $item['display_order'] ?? ($index + 1),
                                 'is_active' => array_key_exists('is_active', $item) ? (bool) $item['is_active'] : true,
                             ]
@@ -367,6 +369,7 @@ class ProgrammeFeeController extends Controller
                                 ],
                                 [
                                     'amount' => $line->amount,
+                                    'amount_usd' => $line->amount_usd,
                                     'display_order' => $line->display_order ?? ($index + 1),
                                     'is_active' => (bool) $line->is_active,
                                 ]
@@ -471,6 +474,7 @@ class ProgrammeFeeController extends Controller
             'program_id' => [$required, 'integer', 'exists:programs,id'],
             'fee_item_id' => [$required, 'integer', 'exists:fee_items,id'],
             'amount' => 'nullable|numeric|min:0',
+            'amount_usd' => 'nullable|numeric|min:0',
             'installment_tranche' => ['nullable', 'integer', Rule::in(FeeSchedule::INSTALLMENT_TRANCHES)],
             'level_code' => 'nullable|string|max:20',
             'semester' => ['nullable', Rule::in(FeeSchedule::SEMESTERS)],
@@ -524,7 +528,13 @@ class ProgrammeFeeController extends Controller
             'program_id' => $fee->program_id,
             'fee_item_id' => $fee->fee_item_id,
             'amount' => $fee->amount,
+            'amount_usd' => $fee->amount_usd,
             'effective_amount' => $fee->effective_amount,
+            'effective_amount_usd' => $fee->feeItem ? (
+                ($fee->amount_usd !== null && (float) $fee->amount_usd > 0)
+                    ? (float) $fee->amount_usd
+                    : ($fee->feeItem->amount_usd !== null ? (float) $fee->feeItem->amount_usd : null)
+            ) : null,
             'installment_tranche' => $fee->installment_tranche,
             'effective_installment_tranche' => $fee->effective_installment_tranche,
             'effective_installment_tranche_label' => FeeSchedule::installmentTrancheLabel($fee->effective_installment_tranche),

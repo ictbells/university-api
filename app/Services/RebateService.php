@@ -8,6 +8,7 @@ use App\Models\MedicalBill;
 use App\Models\Payment;
 use App\Models\RebateType;
 use App\Models\User;
+use App\Support\BillingCurrency;
 use App\Support\FeeSchedule;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -35,6 +36,9 @@ class RebateService
 
         if (! $type->is_active) {
             throw new RuntimeException('This rebate type is inactive.');
+        }
+        if ($kind !== 'percent' && BillingCurrency::normalize($type->currency) !== BillingCurrency::normalize($invoice->currency)) {
+            throw new RuntimeException('A fixed rebate can only be applied to invoices in the same currency.');
         }
 
         $amount = $this->computeAmount($invoice, $kind, $value);

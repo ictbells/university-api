@@ -15,6 +15,7 @@ class FeeItem extends BaseModel
         'transcript_type',
         'program_id',
         'amount',
+        'amount_usd',
         'wallet_allowed',
         'is_required',
         'display_order',
@@ -28,6 +29,7 @@ class FeeItem extends BaseModel
             'is_required' => 'boolean',
             'is_active' => 'boolean',
             'amount' => 'decimal:2',
+            'amount_usd' => 'decimal:2',
             'display_order' => 'integer',
             'installment_tranche' => 'integer',
         ];

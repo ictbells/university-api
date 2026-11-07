@@ -44,7 +44,8 @@ class User extends Authenticatable
             'password_changed_at' => 'datetime',
             'last_activity_at' => 'datetime',
             'password' => 'hashed',
-            'two_factor_secret' => 'encrypted',
+            // Resilient: APP_KEY rotation must not 500 staff login when reading 2FA.
+            'two_factor_secret' => \App\Casts\ResilientEncrypted::class,
         ];
     }
 
@@ -233,6 +234,6 @@ class User extends Authenticatable
             ? $this->latestApplication
             : $this->latestApplication()->first();
 
-        return (bool) $application?->ninVerified();
+        return (bool) $application?->identityVerified();
     }
 }

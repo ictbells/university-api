@@ -322,7 +322,7 @@ class ApplicationSignupGateTest extends TestCase
         Http::fake();
         Mail::fake();
 
-        $this->postJson('/api/register', $this->registerPayload(['intake_id' => $pg->id]))
+        $this->postJson('/api/register', $this->registerPayload(['intake_id' => $pg->id, 'country' => 'Nigeria']))
             ->assertOk()
             ->assertJsonPath('message', 'Registration successful');
 
@@ -346,6 +346,74 @@ class ApplicationSignupGateTest extends TestCase
             'login' => $application->application_number,
             'password' => 'Secret1!x',
             'portal' => 'student',
+        ])->assertOk();
+    }
+
+    public function test_foreign_postgraduate_registers_with_a_passport_instead_of_nin(): void
+    {
+        $term = $this->openApplicationSession()->term;
+        $pg = Intake::query()->create([
+            'academic_term_id' => $term->id,
+            'name' => 'PG Foreign 2025',
+            'entry_mode' => 'pg',
+            'is_open' => true,
+            'application_fee_amount' => 15000,
+            'application_fee_amount_usd' => 40,
+            'opens_on' => now()->subDay()->toDateString(),
+            'closes_on' => now()->addMonth()->toDateString(),
+        ]);
+        $this->ensureApplicantRole();
+        Http::fake();
+        Mail::fake();
+
+        $this->postJson('/api/register', [
+            'email' => 'ada.foreign@gmail.com',
+            'phone' => '+447700900123',
+            'alternate_phone' => '+12025550199',
+            'password' => 'Secret1!x',
+            'password_confirmation' => 'Secret1!x',
+            'intake_id' => $pg->id,
+            'country' => 'Non-Nigeria',
+            'passport_number' => 'ab 12-345',
+            'first_name' => 'Ada',
+            'middle_name' => 'Ngozi',
+            'last_name' => 'Foreign',
+            'date_of_birth' => '1998-04-12',
+            'gender' => 'Female',
+        ])->assertOk()
+            ->assertJsonPath('message', 'Registration successful')
+            ->assertJsonPath('nin_verified', true);
+
+        $application = Application::query()->where('billing_currency', 'USD')->first();
+        $this->assertNotNull($application);
+        $this->assertSame('AB12-345', $application->passport_number);
+        $this->assertSame('Non-Nigeria', $application->country);
+        $this->assertTrue($application->identityVerified());
+        $this->assertFalse($application->ninVerified());
+        $this->assertSame(0, NinVerification::query()->count());
+        $biodata = $application->steps()->where('step_key', 'biodata')->first();
+        $this->assertSame('Ada', $biodata->payload['first_name'] ?? null);
+        $this->assertSame('Foreign', $biodata->payload['last_name'] ?? null);
+        $this->assertSame('Ada Ngozi Foreign', $application->user->name);
+
+        $this->postJson('/api/register', $this->registerPayload([
+            'email' => 'local.pg@gmail.com',
+            'intake_id' => $pg->id,
+            'country' => 'Nigeria',
+            'nin' => null,
+        ]))->assertStatus(422)->assertJsonValidationErrors(['nin']);
+
+        $application->update(['stage' => 'form_in_progress']);
+        Sanctum::actingAs($application->user);
+        $this->postJson("/api/applications/{$application->id}/steps", [
+            'step_key' => 'personal_details',
+            'payload' => [
+                'marital_status' => 'Single',
+                'religion' => 'Christianity',
+                'country' => 'Non-Nigeria',
+                'state' => 'Greater London',
+                'lga' => 'Westminster',
+            ],
         ])->assertOk();
     }
 

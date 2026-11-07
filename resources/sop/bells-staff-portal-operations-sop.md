@@ -1,8 +1,8 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.77  
-**Effective date:** October 2026  
+**Version:** 1.78  
+**Effective date:** November 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
 
@@ -609,7 +609,7 @@ E-exam sync is not included in this release.
 
 ### 8.7 Services
 
-- **Fees & payments** — **Payment dashboard** (university financial statement: fee collections, invoices issued, outstanding receivables, wallet liability; download PDF/Excel/Word; remittance breakdown can include **by fee item**), **Fee categories** (charge types, including programme-schedule vs operational) and **Fee items** (priced lines: **application and acceptance fees per entry mode**, **official transcript fees per programme and transcript type**, **Clinic services** visit charges, **Semester fee** (one university-wide amount for enrolled students each academic term — not a programme schedule line), and **school-fee installment shares**: any programme-schedule catalog line — tuition, ICT, laboratory, infrastructure, and the rest — can be tagged 1st/2nd/3rd/4th 25% or optional Full 100% pay-at-once; application, acceptance, and transcript fees stay online-only and cannot use shares), rebates, **Programme fees** (assign catalog lines to programmes with a naira override per line; select several levels at once when the amount is the same; copy a schedule to other programmes in the same college), **Generate invoice** (enter matric number for operational catalog items; also **Generate semester fee** for every active enrolled student for a selected term — see below), **Payments** (staff can **View receipt** on a paid invoice or successful wallet top-up; see **Official Receipt** below), **Students Financial Status** (same billed/paid/outstanding as the student portal **Financial status** page; tuition installment **Balance due** is cumulative session remaining), **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices filter by session and level; Programme fees filter by level. When schedule lines are tagged with installment shares, student school-fee invoices bill those fixed amounts (already-paid fee items are skipped; 50% bills unpaid 1st + 2nd slices). Untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices. Hostel **Accommodation** on a school-fee sheet is a schedule catalog item, not a hostel-bed charge.
+- **Fees & payments** — **Payment dashboard** (university financial statement: fee collections, invoices issued, outstanding receivables, wallet liability; download PDF/Excel/Word; remittance breakdown can include **by fee item**), **Fee categories** (charge types, including programme-schedule vs operational) and **Fee items** (priced lines: **application and acceptance fees per entry mode**, **official transcript fees per programme and transcript type**, **Clinic services** visit charges, **Semester fee** (one university-wide amount for enrolled students each academic term — not a programme schedule line), and **school-fee installment shares**: any programme-schedule catalog line — tuition, ICT, laboratory, infrastructure, and the rest — can be tagged 1st/2nd/3rd/4th 25% or optional Full 100% pay-at-once; application, acceptance, and transcript fees stay online-only and cannot use shares), rebates, **Programme fees** (assign catalog lines to programmes with a naira override per line; select several levels at once when the amount is the same; copy a schedule to other programmes in the same college), **Generate invoice** (enter matric number for operational catalog items; also **Generate semester fee** for every active enrolled student for a selected term — see below), **Payments** (staff can **View receipt** on a paid invoice or successful wallet top-up; see **Official Receipt** below), **Students Financial Status** (same billed/paid/outstanding as the student portal **Financial status** page; tuition installment **Balance due** is cumulative session remaining), **Import invoices**, and **Import wallet history** (`finance.invoices.manage`; dedicated import permission `finance.invoices.import` is also accepted). Invoices filter by session and level; Programme fees filter by level. When schedule lines are tagged with installment shares, student school-fee invoices bill those fixed amounts (already-paid fee items are skipped; 50% bills unpaid 1st + 2nd slices). Untagged schedules still pro-rate the full total by 25/50/75/100. The **Medical levy** is a programme schedule charge. **Clinic services** is an operational catalog: Finance sets name and amount; clinic staff attach those lines to a visit (quantity only) and cannot type prices. Hostel **Accommodation** on a school-fee sheet is a schedule catalog item, not a hostel-bed charge. **Non-Nigeria postgraduate** applicants and students are billed in US dollars for every charge; Nigeria and all other categories stay in naira. See **Foreign postgraduate payments (USD)** below.
 
 #### Official Receipt
 
@@ -645,6 +645,47 @@ Use this for a **flat charge that every enrolled student pays each academic term
 3. **Fees & payments → Generate invoice** — optional **Generate semester fee** still bills every active enrolled student for a selected term in one run (useful for staff reporting). Re-running skips students already billed. ICT may also run `php artisan fees:generate-semester` (optional `--term=`).
 4. **Pay first** — when a semester is marked **Current** and the catalog amount is greater than zero, students must settle that term’s semester fee before paying other student invoices (tuition, hostel, clinic, sundry, and the rest) or creating a tuition installment. They **can** still fund the campus wallet. After the semester fee is paid, other charges unlock. If **no semester is current**, the pay-first rule does not apply and other payments proceed. If the catalog amount is zero or unset, no semester fee is raised and other payments stay allowed.
 5. Students see the invoice on **Transaction history** / financial status with a banner to pay the semester fee first.
+
+#### Foreign postgraduate payments (USD)
+
+Nigeria stays the default and is always billed in naira. Only **postgraduate** signup and Apply ask **Nigeria** or **Non-Nigeria**, and they ask it **before** the application is created. **Non-Nigeria** means every charge for that person is in **US dollars**. Undergraduate, JUPEB, and transfer do not ask this and stay in naira. There is **no conversion** from a naira price. A blank USD amount means that charge cannot be billed to a Non-Nigeria applicant or student.
+
+The choice is stored on the application and **locked** on the personal-details step, so a paid dollar application fee cannot be switched to naira mid-form. Physical clearance copies the country and billing currency onto the student. Changing country later does **not** rewrite invoices already issued and does **not** move money between the naira purse and the dollar purse. The next **new** invoice follows the student’s current country.
+
+**Prices Finance must set** (beside the existing naira amount):
+
+| Where | USD field | Used for |
+|-------|-----------|----------|
+| **Fee items** | Amount (USD) | Application fee, acceptance fee, tuition and other schedule lines, semester fee, clinic lines, sundry, and transcript |
+| **Programme fees** | Amount override (USD) | Programme schedule for a Non-Nigeria student. Blank uses the catalog USD amount. **Copy schedule** copies the USD override. The naira figure on the schedule is unchanged |
+| **Application sessions** (postgraduate) | Resolved application fee (USD) and acceptance fee (USD) | Fallback only when the catalog has no positive USD amount for that entry mode |
+| **Hostel** | Due amount (USD) | Bed charge when a Non-Nigeria student is allocated. Naira due is not used for them |
+| **Offer** decision | Acceptance fee (USD) | The amount typed on the offer for a Non-Nigeria applicant. The label is naira for Nigeria |
+| **Academic term** | Extension price per unit (USD) | Late course-registration extension for a Non-Nigeria student. A blank price blocks that extension |
+
+A semester-fee catalog line must still have a positive **naira** amount (that is what makes the fee compulsory for everyone). A Non-Nigeria student is billed the **USD** amount; if that USD amount is missing, that student’s semester bill fails and other students are unaffected.
+
+**How a Non-Nigeria postgraduate applicant is charged**
+
+1. Signup or Apply: they choose **Non-Nigeria**. The application-fee invoice is created in USD. If the postgraduate application fee has no USD price, start is refused and Finance must set it first.
+2. They pay that invoice by **card on Wema** (AlatPay). Dollar card checkout always uses Wema, even when the campus default gateway is Paystack or Paygate. Transfer and USSD stay naira-only. If Wema is not configured, dollar checkout is refused (it is not completed as a demo payment).
+3. Staff issue the offer as usual. The acceptance invoice uses the USD acceptance price (catalog, then the postgraduate session fallback, or the USD amount typed on the offer).
+4. They pay acceptance by Wema card in USD.
+5. Physical clearance opens the student record and a **dollar wallet at $0.00**. The existing naira balance on that wallet stays separate and is left at zero for them. They cannot top up in naira, and a naira student cannot top up in dollars. The dollar minimum top-up is **$1.00** (the naira minimum stays ₦100).
+6. Later invoices are USD: tuition installments, programme-schedule lines, semester fee, hostel due, clinic lines, sundry, transcript, and course-registration extension. A missing USD price refuses that charge.
+7. They top up the dollar wallet on Wema. Tuition, hostel, semester fee, clinic, and sundry then pay from that dollar balance under the same pay-first rules as naira (previous-session arrears, then semester fee, then other charges). Application fee, acceptance fee, and transcript are **not** paid from either purse; transcript stays a direct Wema card payment.
+
+A naira balance is never spent on a dollar invoice, and a dollar balance is never spent on a naira invoice. A short dollar balance is rejected.
+
+**Rebates.** A **fixed** rebate applies only to invoices in the same currency (set Currency on an amount rebate). A **percent** rebate applies in either currency.
+
+**Reports.** Naira and dollars are never added into one total.
+
+- **Payment dashboard** — Currency: All, NGN, or USD. **All** keeps the main cards in naira and shows dollar collected, invoiced, outstanding, and wallet liability separately. Choosing USD shows only dollar figures.
+- **Payments** (invoice report) — the same Currency filter. **Foreign currency** sets the filter to USD and downloads the Excel export (date, category, session, programme, college, and department filters still apply). Exports include a Currency column. Dollar wallet top-ups stay off the naira cash totals, the same way naira top-ups already do.
+- **Students Financial Status** — a Non-Nigeria student shows their billing currency, so outstanding is not printed as naira. Their wallet line is the dollar balance. Naira wallet liability is the sum of naira balances only. Dollar wallet liability is the sum of dollar balances only. **Cleared** still means outstanding is zero in that student’s currency.
+
+**Import.** On applicant import, a blank country stays **Nigeria** (current files do not change). A postgraduate row with country **Non-Nigeria** gets a USD application fee. If that USD price is missing, the row is skipped and logged. Invoice import and wallet-history import keep writing the **naira** purse only.
 
 #### Import invoices and wallet history
 
@@ -711,7 +752,7 @@ Use the audit trail for compliance reviews and incident investigation.
 
 1. Create the **Admission session** for the new year with at least two semesters. Do **not** mark any semester current yet — keep the previous year current for enrolled students.
 2. Confirm **Programmes** have the correct entry modes and are active.
-3. Open **Application sessions** for each category (UTME, DE, JUPEB, Transfer, PG). Set the matching **application fee** and **acceptance fee** under **Fees & payments → Fee items** (one line per entry mode for each). Applicants must select the session they qualify for at signup; opening only UTME does not admit other categories.
+3. Open **Application sessions** for each category (UTME, DE, JUPEB, Transfer, PG). Set the matching **application fee** and **acceptance fee** under **Fees & payments → Fee items** (one line per entry mode for each). For postgraduate, also set the **USD** amount on those lines (and on every other charge a Non-Nigeria student can receive) before the window opens — see **Foreign postgraduate payments (USD)**. Applicants must select the session they qualify for at signup; opening only UTME does not admit other categories.
 4. Upload **Candidate data** for UTME/DE sessions before applicants register (if JAMB-list enforcement is required).
 5. If migrating from another portal, use **Import applicants** (see §8.5).
 6. When the window ends, **stop accepting** on those application sessions.
@@ -777,6 +818,8 @@ Use the audit trail for compliance reviews and incident investigation.
 | Import invoices / wallet missing | Office link or finance permission missing | Tick `import-invoices` / `import-wallet` and grant `finance.invoices.manage` (or `finance.invoices.import`) |
 | Imported student cannot sign in | Used email or JAMB after matriculation | Sign in with the supplied **matric number** |
 | Imported student not on Registrations | Tuition invoices below 25% paid | Import invoices with tuition `paid_amount` / `installment_percent`; wallet credit alone does not qualify |
+| Non-Nigeria postgraduate cannot start or be billed | USD price is blank for that charge | Set **Amount (USD)** on the fee item (or the programme, hostel, session fallback, or offer override). There is no naira-to-dollar conversion |
+| Dollar card payment is refused | Wema AlatPay is not configured | Dollar checkout uses Wema only. ICT must configure Wema before Non-Nigeria applicants can pay. Paystack and Paygate are not used for USD |
 | Applicant cannot sign in with email | Student portal does not accept email as login | Use application number, JAMB registration, or matric number |
 | Import skipped a row | Duplicate email/NIN/JAMB, missing required field, unknown programme id, or NIN verify failed | Download failed rows; fix and re-upload |
 | NIN import created no user | Verify NIN was on and Prembly rejected the NIN | Correct NIN or import with verification off |
@@ -874,6 +917,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.75 | Oct 2026 | Platform team | Staff sign-in uses Bearer tokens without sending the browser cookie jar (no manual cookie clear); production forbids `SESSION_DRIVER=cookie` |
 | 1.76 | Oct 2026 | Platform team | Course catalog is a free pool (no college/department/programme on create/import); codes unique university-wide via `code_key`; map on Programme courses |
 | 1.77 | Oct 2026 | Platform team | Postgraduate physical clearance can optionally take a historic matric number for older graduates whose history is not migrated; blank still auto-assigns; bulk/UG unchanged |
+| 1.78 | Nov 2026 | Platform team | Non-Nigeria postgraduate applicants are billed in USD for every charge (parallel USD prices, no conversion). Dollar card pay and wallet top-up use Wema; the dollar wallet is separate from naira. Finance reports and wallet liability stay split by currency; Payments has a Foreign currency export |
 | 1.70 | Sep 2026 | Platform team | Students see the exact amount and fee-line breakdown for the chosen tuition installment in a confirmation popup before the invoice is created; Cancel creates nothing |
 
 **Distribution:** Available for download in the staff portal under **System → Resources** by users with the `resources.view` permission.

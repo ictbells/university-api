@@ -12,7 +12,7 @@ interface PaymentGateway
 
     public function initializeInvoice(User $user, Invoice $invoice, ?string $callbackUrl = null): array;
 
-    public function initializeWalletTopup(User $user, float $amount, string $portal = 'student'): array;
+    public function initializeWalletTopup(User $user, float $amount, string $portal = 'student', string $currency = 'NGN'): array;
 
     public function verify(string $reference, ?string $transactionId = null): Payment;
 

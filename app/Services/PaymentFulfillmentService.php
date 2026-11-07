@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\User;
+use App\Support\BillingCurrency;
 use App\Support\FeeSchedule;
 use Illuminate\Support\Facades\DB;
 
@@ -38,7 +39,9 @@ class PaymentFulfillmentService
         float $amount,
         ?int $invoiceId,
         string $purpose,
+        string $currency = BillingCurrency::NGN,
     ): Payment {
+        $currency = BillingCurrency::normalize($currency);
         if ($invoiceId) {
             $existing = Payment::query()
                 ->where('invoice_id', $invoiceId)
@@ -50,6 +53,7 @@ class PaymentFulfillmentService
             if ($existing) {
                 $existing->update([
                     'amount' => $amount,
+                    'currency' => $currency,
                     'purpose' => $purpose,
                 ]);
 
@@ -62,6 +66,7 @@ class PaymentFulfillmentService
             'user_id' => $user->id,
             'method' => $method,
             'amount' => $amount,
+            'currency' => $currency,
             'status' => 'pending',
             'reference' => $reference,
             'paystack_reference' => $reference,
@@ -145,6 +150,7 @@ class PaymentFulfillmentService
                         'payments',
                         $locked->id,
                         $locked->reference,
+                        BillingCurrency::normalize($locked->currency),
                     );
                 }
             }

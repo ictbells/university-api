@@ -67,6 +67,14 @@
                     <tr><td>Rebates granted (period)</td><td class="num">{{ $naira($totals['rebates']) }}</td></tr>
                     <tr><td>Outstanding receivables (now)</td><td class="num">{{ $naira($totals['outstanding']) }}</td></tr>
                     <tr class="total"><td>Student wallet liability (now)</td><td class="num">{{ $naira($totals['wallet_liability']) }}</td></tr>
+                    @if (!empty($statement['totals_usd']))
+                        <tr><td colspan="2"><strong>US dollars (not included above)</strong></td></tr>
+                        <tr><td>USD invoices issued (period)</td><td class="num">USD {{ number_format($statement['totals_usd']['invoiced'], 2) }}</td></tr>
+                        <tr><td>USD fee collections</td><td class="num">USD {{ number_format($statement['totals_usd']['collected'], 2) }}</td></tr>
+                        <tr><td>USD outstanding receivables (now)</td><td class="num">USD {{ number_format($statement['totals_usd']['outstanding'], 2) }}</td></tr>
+                        <tr><td>USD wallet liability (now)</td><td class="num">USD {{ number_format($statement['totals_usd']['wallet_liability'], 2) }}</td></tr>
+                        <tr><td>USD wallet top-ups</td><td class="num">USD {{ number_format($statement['totals_usd']['wallet_inflows'], 2) }}</td></tr>
+                    @endif
                 </table>
             </td>
         </tr>

@@ -68,10 +68,12 @@ class StudentCreationService
                 'gender' => $biodata['gender'] ?? null,
                 'marital_status' => $biodata['marital_status'] ?? null,
                 'religion' => $biodata['religion'] ?? null,
-                'country' => $biodata['country'] ?? null,
+                'country' => ($application->country ?: ($biodata['country'] ?? null)),
+                'billing_currency' => $application->billing_currency ?: \App\Support\BillingCurrency::fromCountry($application->country ?: ($biodata['country'] ?? null), $application->entry_mode),
                 'state' => $biodata['state'] ?? null,
                 'lga' => $biodata['lga'] ?? null,
                 'nin' => $biodata['nin'] ?? null,
+                'passport_number' => $application->passport_number ?: ($biodata['passport_number'] ?? null),
                 'photo_path' => $biodata['photo_path'] ?? null,
                 'phone' => $contact['phone'] ?? $biodata['phone'] ?? null,
                 'alternate_phone' => $contact['alternate_phone'] ?? $application->user?->alternate_phone ?? null,
@@ -89,12 +91,13 @@ class StudentCreationService
                 'study_level' => StudyLevel::fromEntryMode($application->entry_mode),
                 'current_level' => $this->entryLevelFor($application),
                 'status' => 'active',
-                'nin_locked' => true,
+                'nin_locked' => $application->ninVerified(),
             ]);
 
             $wallet = Wallet::query()->create([
                 'student_id' => $student->id,
                 'balance' => 0,
+                'balance_usd' => 0,
                 'status' => 'active',
             ]);
 
@@ -307,10 +310,12 @@ class StudentCreationService
                 'gender' => $biodata['gender'] ?? null,
                 'marital_status' => $biodata['marital_status'] ?? null,
                 'religion' => $biodata['religion'] ?? null,
-                'country' => $biodata['country'] ?? null,
+                'country' => ($application->country ?: ($biodata['country'] ?? null)),
+                'billing_currency' => $application->billing_currency ?: \App\Support\BillingCurrency::fromCountry($application->country ?: ($biodata['country'] ?? null), $application->entry_mode),
                 'state' => $biodata['state'] ?? null,
                 'lga' => $biodata['lga'] ?? null,
                 'nin' => $biodata['nin'] ?? null,
+                'passport_number' => $application->passport_number ?: ($biodata['passport_number'] ?? null),
                 'photo_path' => $biodata['photo_path'] ?? null,
                 'phone' => $contact['phone'] ?? $biodata['phone'] ?? null,
                 'alternate_phone' => $contact['alternate_phone'] ?? $application->user?->alternate_phone ?? null,
@@ -334,6 +339,7 @@ class StudentCreationService
             Wallet::query()->create([
                 'student_id' => $student->id,
                 'balance' => 0,
+                'balance_usd' => 0,
                 'status' => 'active',
             ]);
 

@@ -69,14 +69,26 @@ class PaymentController extends Controller
         $data = $request->validate([
             'invoice_id' => 'nullable|exists:invoices,id',
             'type' => 'nullable|in:invoice,wallet_topup',
-            'amount' => 'nullable|numeric|min:100',
+            'amount' => 'nullable|numeric|min:0',
             'portal' => 'nullable|in:student,staff',
         ]);
         if (($data['type'] ?? 'invoice') === 'wallet_topup') {
+            $student = \App\Models\Student::query()->where('user_id', $request->user()->id)->first();
+            $currency = \App\Support\BillingCurrency::forStudent($student);
+            $minimum = \App\Support\BillingCurrency::isUsd($currency) ? 1 : 100;
+            if ((float) ($data['amount'] ?? 0) < $minimum) {
+                return response()->json([
+                    'message' => \App\Support\BillingCurrency::isUsd($currency)
+                        ? 'Enter at least $1.00 to fund your wallet.'
+                        : 'Enter at least ₦100 to fund your wallet.',
+                ], 422);
+            }
+
             return $this->gateways->initializeWalletTopup(
                 $request->user(),
                 (float) $data['amount'],
                 $data['portal'] ?? 'student',
+                $currency,
             );
         }
         $invoice = Invoice::query()->findOrFail($data['invoice_id']);

@@ -16,7 +16,7 @@ class NinVerification extends BaseModel
             'mapped_fields' => 'array',
             'raw_snapshot' => 'array',
             'verified_at' => 'datetime',
-            'nin' => 'encrypted',
+            'nin' => \App\Casts\ResilientEncrypted::class,
         ];
     }
 

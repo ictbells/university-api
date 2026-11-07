@@ -606,6 +606,7 @@ class HostelController extends Controller
             'is_active' => (bool) $hostel->is_active,
             'due_required' => (bool) $hostel->due_required,
             'due_amount' => $hostel->due_amount !== null ? (float) $hostel->due_amount : null,
+            'due_amount_usd' => $hostel->due_amount_usd !== null ? (float) $hostel->due_amount_usd : null,
             'academic_level_ids' => collect($levels)->pluck('id')->values()->all(),
             'academic_levels' => $levels,
             'total_beds' => $totalBeds,
@@ -687,6 +688,7 @@ class HostelController extends Controller
             'is_active' => 'boolean',
             'due_required' => 'boolean',
             'due_amount' => 'nullable|numeric|min:0',
+            'due_amount_usd' => 'nullable|numeric|min:0',
             'academic_level_ids' => ($creating ? 'nullable' : 'sometimes').'|array',
             'academic_level_ids.*' => 'integer|exists:academic_levels,id',
         ]);
@@ -695,8 +697,10 @@ class HostelController extends Controller
         if ($data['due_required']) {
             $request->validate(['due_amount' => 'required|numeric|min:0.01']);
             $data['due_amount'] = $request->input('due_amount');
+            $data['due_amount_usd'] = $request->input('due_amount_usd');
         } else {
             $data['due_amount'] = null;
+            $data['due_amount_usd'] = null;
         }
 
         return $data;

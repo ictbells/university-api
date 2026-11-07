@@ -56,7 +56,7 @@ class TranscriptRequestService
         ];
     }
 
-    public function quote(int $programId, string $transcriptType): array
+    public function quote(int $programId, string $transcriptType, ?Student $student = null): array
     {
         if (! TranscriptRequestSettings::enabled()) {
             throw new RuntimeException($this->unavailableReason($this->hasConfiguredFee()) ?: 'Official transcript requests are not available.');
@@ -68,10 +68,16 @@ class TranscriptRequestService
             throw new RuntimeException('Finance has not set a fee for this programme and transcript type.');
         }
 
+        $currency = $student ? \App\Support\BillingCurrency::forStudent($student) : \App\Support\BillingCurrency::NGN;
+        $amount = \App\Support\BillingCurrency::isUsd($currency)
+            ? \App\Support\BillingCurrency::feeItemAmount($fee, $currency)
+            : (float) $fee->amount;
+
         return [
             'fee' => [
                 'name' => $fee->name,
-                'amount' => (float) $fee->amount,
+                'amount' => $amount,
+                'currency' => $currency,
                 'category' => $fee->category,
                 'transcript_type' => $fee->transcript_type,
                 'program_id' => $fee->program_id,

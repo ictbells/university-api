@@ -28,7 +28,11 @@ class StudentFinanceStatus
      */
     public static function summarize(Student $student, ?Collection $invoices = null): array
     {
+        $currency = BillingCurrency::forStudent($student);
         $invoices ??= $student->invoices()->with(['payments'])->get();
+        $invoices = $invoices->filter(
+            fn (Invoice $invoice) => BillingCurrency::matches($invoice->currency, $currency)
+        );
         $active = $invoices->filter(
             fn (Invoice $invoice) => ! in_array((string) $invoice->status, ['cancelled', 'disabled'], true)
         );
@@ -96,6 +100,7 @@ class StudentFinanceStatus
             'clearance' => $cleared ? 'cleared' : 'outstanding',
             'invoice_count' => $invoices->count(),
             'open_count' => $openCount,
+            'billing_currency' => $currency,
         ];
     }
 }

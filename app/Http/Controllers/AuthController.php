@@ -102,31 +102,58 @@ class AuthController extends Controller
                     'email' => 'Applicant registration is not available. Contact admissions.',
                 ]);
             }
-            if ($this->prembly->ninIsLinked($data['nin'])) {
-                return $this->existingNinAccountResponse();
+            $foreignPostgraduate = ($data['country'] ?? null) === \App\Support\BillingCurrency::COUNTRY_NON_NIGERIA
+                && $intake->entry_mode === 'pg';
+            $mapped = null;
+            $ninPhone = '';
+            if (! $foreignPostgraduate) {
+                if ($this->prembly->ninIsLinked($data['nin'])) {
+                    return $this->existingNinAccountResponse();
+                }
+                try {
+                    $mapped = $this->prembly->lookupIdentity($data['nin']);
+                } catch (RuntimeException $e) {
+                    throw ValidationException::withMessages(['nin' => $e->getMessage()]);
+                }
+                $this->prembly->assertNinAvailable($data['nin']);
+                $ninPhone = $this->prembly->mappedPhone($mapped);
             }
-            try {
-                $mapped = $this->prembly->lookupIdentity($data['nin']);
-            } catch (RuntimeException $e) {
-                throw ValidationException::withMessages(['nin' => $e->getMessage()]);
-            }
-            $this->prembly->assertNinAvailable($data['nin']);
-
-            $ninPhone = $this->prembly->mappedPhone($mapped);
             $alternatePhone = PhoneNumber::normalize($data['alternate_phone'] ?? null);
+            $typedPhone = PhoneNumber::normalize($data['phone'] ?? null);
 
-            $user = DB::transaction(function () use ($data, $applicantRole, $mapped, $intake, $ninPhone, $alternatePhone) {
+            $user = DB::transaction(function () use ($data, $applicantRole, $mapped, $intake, $ninPhone, $alternatePhone, $typedPhone, $foreignPostgraduate) {
+                $name = $foreignPostgraduate
+                    ? trim(implode(' ', array_filter([$data['first_name'] ?? '', $data['middle_name'] ?? '', $data['last_name'] ?? ''])))
+                    : $this->prembly->displayName($mapped);
                 $user = User::query()->create([
-                    'name' => $this->prembly->displayName($mapped),
+                    'name' => $name,
                     'email' => $data['email'],
-                    'phone' => $ninPhone !== '' ? $ninPhone : null,
+                    'phone' => $foreignPostgraduate ? ($typedPhone !== '' ? $typedPhone : null) : ($ninPhone !== '' ? $ninPhone : null),
                     'alternate_phone' => $alternatePhone,
                     'password' => $data['password'],
                     'status' => 'active',
                 ]);
                 $user->roles()->sync([$applicantRole->id]);
-                $this->prembly->verify($user, null, $data['nin'], $mapped);
-                $application = $this->applicationStart->start($user, $intake, $data['jamb_registration'] ?? null);
+                if (! $foreignPostgraduate) {
+                    $this->prembly->verify($user, null, $data['nin'], $mapped);
+                }
+                $application = $this->applicationStart->start($user, $intake, $data['jamb_registration'] ?? null, null, $data['country'] ?? null);
+                if ($foreignPostgraduate) {
+                    $application->offsetUnset('credentials_emailed');
+                    $application->update(['passport_number' => $data['passport_number']]);
+                    $biodata = $application->steps()->where('step_key', 'biodata')->first();
+                    $biodata?->update([
+                        'status' => 'saved',
+                        'payload' => [
+                            'passport_number' => $data['passport_number'],
+                            'first_name' => $data['first_name'],
+                            'middle_name' => $data['middle_name'] ?? null,
+                            'last_name' => $data['last_name'],
+                            'date_of_birth' => $data['date_of_birth'],
+                            'gender' => $data['gender'],
+                        ],
+                    ]);
+                }
                 $this->storeContactPhonesOnApplication($application, $ninPhone !== '' ? $ninPhone : null, $alternatePhone);
 
                 return $user;
