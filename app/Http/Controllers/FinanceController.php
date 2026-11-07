@@ -2129,6 +2129,7 @@ class FinanceController extends Controller
         if (! $student) {
             return [
                 'schedule_set' => false,
+                'currency' => \App\Support\BillingCurrency::NGN,
                 'total_amount' => null,
                 'line_count' => 0,
                 'program' => null,
@@ -2163,6 +2164,7 @@ class FinanceController extends Controller
         if (! $student->program_id) {
             return [
                 'schedule_set' => false,
+                'currency' => \App\Support\BillingCurrency::forStudent($student),
                 'total_amount' => null,
                 'line_count' => 0,
                 'program' => null,

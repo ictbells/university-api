@@ -482,6 +482,7 @@ class TranscriptRequestService
             'paid_at' => $request->paid_at?->toIso8601String(),
             'ready_at' => $request->ready_at?->toIso8601String(),
             'amount' => $request->invoice ? (float) $request->invoice->amount : null,
+            'currency' => $request->invoice?->currency,
             'invoice_number' => $request->invoice?->number,
             'invoice_status' => $request->invoice?->status,
         ];
