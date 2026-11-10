@@ -225,7 +225,7 @@ class OfficeApprovalTest extends TestCase
         }
     }
 
-    public function test_nav_key_cannot_belong_to_two_departments(): void
+    public function test_nav_key_can_belong_to_two_departments(): void
     {
         $other = OfficeDepartment::query()->create([
             'name' => 'Registry',
@@ -233,8 +233,22 @@ class OfficeApprovalTest extends TestCase
             'is_active' => true,
         ]);
 
-        $this->expectException(ValidationException::class);
         app(OfficeNavOwnerResolver::class)->assertKeysUniqueToDepartment($other, ['hostel']);
+        $other->syncNavLinks([[
+            'key' => 'hostel',
+            'require_create' => true,
+            'require_update' => false,
+            'require_delete' => false,
+            'approval_chain' => 'department_head',
+        ]]);
+
+        $this->assertSame(2, \App\Models\OfficeNavLink::query()->where('nav_key', 'hostel')->count());
+
+        // Global ownership is ambiguous; approval still comes from the actor's office.
+        $this->assertNull(app(OfficeNavOwnerResolver::class)->ownerForNavKey('hostel'));
+        $owner = app(OfficeNavOwnerResolver::class)->ownerForNavKey('hostel', $this->subunitStaff);
+        $this->assertSame($this->department->id, $owner['department']->id);
+        $this->assertTrue($owner['require_create']);
     }
 
     public function test_mutations_execute_when_nav_link_does_not_require_approval(): void

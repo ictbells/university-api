@@ -56,7 +56,7 @@ class RegistrationListQuery
             $query->where('program_id', (int) $request->program_id);
         }
         if ($level = trim((string) $request->input('level', ''))) {
-            $query->where('current_level', $level);
+            ListSessionLevelFilter::constrainStudentsByLevel($query, $level);
         }
         if ($request->filled('course_reg_status') && ! in_array('course_reg_status', $except, true)) {
             $term = AcademicTerm::current();

@@ -2076,11 +2076,26 @@ class FinanceController extends Controller
             'levels' => AcademicLevel::query()
                 ->orderBy('study_level')
                 ->orderBy('sort_order')
-                ->get(['id', 'code', 'name'])
-                ->map(fn (AcademicLevel $level) => [
-                    'value' => $level->code,
-                    'label' => $level->name ?: ($level->code ? $level->code.'L' : 'Level'),
-                ])
+                ->get(['id', 'code', 'name', 'study_level'])
+                ->map(function (AcademicLevel $level) {
+                    $track = strtolower((string) $level->study_level);
+                    $code = trim((string) $level->code);
+                    $name = trim((string) $level->name);
+                    $isJupeb = $track === 'jupeb'
+                        || (bool) preg_match('/jupeb/i', $name)
+                        || (bool) preg_match('/jupeb/i', $code);
+
+                    return [
+                        'value' => $isJupeb
+                            ? ((bool) preg_match('/jupeb/i', $code) ? $code : ($name ?: $code ?: 'JUPEB'))
+                            : ($code ?: $name),
+                        'label' => $isJupeb
+                            ? ($name ?: $code ?: 'JUPEB')
+                            : ($name ?: ($code ? $code.'L' : 'Level')),
+                    ];
+                })
+                ->filter(fn (array $row) => ($row['value'] ?? '') !== '')
+                ->unique('value')
                 ->values(),
         ];
     }

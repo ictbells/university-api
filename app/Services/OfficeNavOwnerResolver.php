@@ -10,7 +10,6 @@ use App\Models\Staff;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
-use Illuminate\Validation\ValidationException;
 
 class OfficeNavOwnerResolver
 {
@@ -38,33 +37,15 @@ class OfficeNavOwnerResolver
         );
     }
 
+    /**
+     * Portal links may be assigned to more than one office department.
+     * Approval still resolves from the acting staff member's office tree.
+     *
+     * @param  list<string>  $keys
+     */
     public function assertKeysUniqueToDepartment(Model $model, array $keys): void
     {
-        $tree = $this->departmentAndUnit($model);
-        $departmentId = $tree['department']->id ?? null;
-        if (! $departmentId) {
-            return;
-        }
-
-        foreach ($keys as $key) {
-            $links = OfficeNavLink::query()
-                ->with('linkable')
-                ->where('nav_key', $key)
-                ->get();
-
-            foreach ($links as $link) {
-                if ($link->linkable_type === $model->getMorphClass() && (int) $link->linkable_id === (int) $model->getKey()) {
-                    continue;
-                }
-                $owner = $this->departmentAndUnit($link->linkable);
-                $ownerId = $owner['department']->id ?? null;
-                if ($ownerId && (int) $ownerId !== (int) $departmentId) {
-                    throw ValidationException::withMessages([
-                        'nav_keys' => ["\"{$key}\" is already linked to another office department."],
-                    ]);
-                }
-            }
-        }
+        // Intentionally empty: the same sidebar module can appear in several offices.
     }
 
     /**
@@ -146,6 +127,21 @@ class OfficeNavOwnerResolver
      */
     private function ownerFromLinks(Collection $links): ?array
     {
+        $byDepartment = [];
+        foreach ($links as $link) {
+            $resolved = $this->departmentAndUnit($link->linkable);
+            $department = $resolved['department'] ?? null;
+            if (! $department) {
+                continue;
+            }
+            $byDepartment[(int) $department->id][] = [$link, $resolved];
+        }
+
+        // Shared modules have no single global owner. Approval uses the actor's office tree.
+        if (count($byDepartment) !== 1) {
+            return null;
+        }
+
         $department = null;
         $unit = null;
         $requireCreate = false;
@@ -153,16 +149,7 @@ class OfficeNavOwnerResolver
         $requireDelete = false;
         $chains = [];
 
-        foreach ($links as $link) {
-            $resolved = $this->departmentAndUnit($link->linkable);
-            if (! ($resolved['department'] ?? null)) {
-                continue;
-            }
-            if ($department && (int) $department->id !== (int) $resolved['department']->id) {
-                throw ValidationException::withMessages([
-                    'nav_keys' => ["The module \"{$link->nav_key}\" is linked to more than one office department."],
-                ]);
-            }
+        foreach (reset($byDepartment) as [$link, $resolved]) {
             $department = $resolved['department'];
             if ($resolved['unit'] && ! $unit) {
                 $unit = $resolved['unit'];

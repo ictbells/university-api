@@ -398,10 +398,12 @@ class ResultsController extends Controller
         $search = trim((string) $request->input('search', ''));
         $query = Student::query()->with('program:id,name,code')->orderBy('matric_number');
         if ($level = ListSessionLevelFilter::levelCode($request)) {
-            $values = Grade::levelMatchValues($level);
-            if ($values !== []) {
-                $query->whereIn('current_level', $values);
-            }
+            ListSessionLevelFilter::constrainStudentsByLevel($query, $level);
+        }
+        if ($request->filled('department_id')) {
+            $query->whereHas('program', fn ($program) => $program->where('department_id', (int) $request->input('department_id')));
+        } elseif ($request->filled('faculty_id')) {
+            $query->whereHas('program.department', fn ($department) => $department->where('faculty_id', (int) $request->input('faculty_id')));
         }
         if ($search !== '') {
             $like = '%'.$search.'%';
