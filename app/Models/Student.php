@@ -69,6 +69,11 @@ class Student extends BaseModel
         return $this->hasMany(Enrollment::class);
     }
 
+    public function grades(): HasMany
+    {
+        return $this->hasMany(Grade::class);
+    }
+
     public function unitGraces(): HasMany
     {
         return $this->hasMany(UnitGrace::class);

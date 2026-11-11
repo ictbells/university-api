@@ -318,9 +318,22 @@ class CourseOfferingController extends Controller
     public function lecturers()
     {
         return Staff::query()
-            ->with('user:id,name,email')
+            ->with(['user:id,name,email', 'user.roles:id,slug,name'])
+            ->whereHas('user', fn ($q) => $q->where('status', 'active'))
             ->orderBy('id')
-            ->get(['id', 'user_id', 'staff_number', 'title']);
+            ->get(['id', 'user_id', 'staff_number', 'title', 'department_id'])
+            ->map(fn (Staff $staff) => [
+                'id' => $staff->id,
+                'user_id' => $staff->user_id,
+                'staff_number' => $staff->staff_number,
+                'title' => $staff->title,
+                'department_id' => $staff->department_id,
+                'name' => $staff->user?->name,
+                'email' => $staff->user?->email,
+                'is_lecturer' => $staff->user?->roles?->contains(fn ($role) => $role->slug === 'lecturer') ?? false,
+            ])
+            ->sortBy(fn (array $row) => [! $row['is_lecturer'], strtolower((string) ($row['name'] ?? ''))])
+            ->values();
     }
 
     private function selectedCourseIds(Request $request): array

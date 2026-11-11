@@ -397,6 +397,7 @@ class ResultsController extends Controller
         abort_unless($request->user()->hasPermission('results.read'), 403);
         $search = trim((string) $request->input('search', ''));
         $query = Student::query()->with('program:id,name,code')->orderBy('matric_number');
+        ResultOfficerScope::constrainStudents($query, $request->user());
         if ($level = ListSessionLevelFilter::levelCode($request)) {
             ListSessionLevelFilter::constrainStudentsByLevel($query, $level);
         }
@@ -421,12 +422,13 @@ class ResultsController extends Controller
     public function studentGrades(Request $request, Student $student)
     {
         abort_unless($request->user()->hasPermission('results.read'), 403);
+        ResultOfficerScope::assertStudentInScope($request->user(), $student);
 
-        $grades = Grade::query()
+        $gradesQuery = Grade::query()
             ->withResolved()
-            ->forStudent($student->id)
-            ->orderByDesc('id')
-            ->get();
+            ->forStudent($student->id);
+        ResultOfficerScope::constrainGrades($gradesQuery, $request->user());
+        $grades = $gradesQuery->orderByDesc('id')->get();
 
         $termId = $request->filled('academic_term_id') ? (int) $request->input('academic_term_id') : null;
         $termGrades = $termId

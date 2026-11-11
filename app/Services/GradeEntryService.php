@@ -33,6 +33,7 @@ class GradeEntryService
         [$studentId, $offeringId, $enrollment, $course] = $this->resolveTarget($data);
 
         $org = GradeWorkflowService::orgSnapshotFromCourse($course);
+        $org['course_offering_id'] = $offeringId;
         ResultOfficerScope::assertLaneAccess($actor, $org);
 
         $grade = Grade::query()

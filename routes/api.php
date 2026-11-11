@@ -276,6 +276,7 @@ Route::middleware(['auth:sanctum', 'staff.security'])->group(function () {
 
     Route::middleware('permission:users.manage')->group(function () {
         Route::get('/users', [UserController::class, 'index']);
+        Route::get('/users/meta/academic-departments', [UserController::class, 'academicDepartmentOptions']);
         Route::post('/users', [UserController::class, 'store']);
         Route::patch('/users/{user}', [UserController::class, 'update']);
         Route::delete('/users/{user}', [UserController::class, 'destroy']);

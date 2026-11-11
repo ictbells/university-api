@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.78  
+**Version:** 1.79  
 **Effective date:** November 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -269,12 +269,13 @@ Academic setup items use the resource keys `campuses`, `colleges`, `departments`
 
 Legacy `/admissions/*` URLs redirect to `/applications/*`.
 
-### 6.5 Assigning staff to an office
+### 6.5 Assigning staff to an office (and academic department)
 
 1. Go to **Administration → Users**.
 2. Create or edit a user.
-3. Set **office placement** (department, unit, or sub-unit). This is an administrative office (for example Admissions or Registry), not an academic faculty or programme.
-4. Save.
+3. Optionally set **Academic department** (school department under a college). This is **not** office placement. It drives Results scope for Department HOD, College Dean, and college/department exam officers via `staff.department_id`.
+4. Set **office placement** (department, unit, or sub-unit). This is an administrative office (for example Admissions or Registry), not an academic faculty or programme. Portal links come from this tree.
+5. Save.
 
 If placement points to a deleted or invalid office node, the system clears stale placement on login and the user will see **Home only** until reassigned.
 
@@ -317,7 +318,7 @@ Pending work returns HTTP **202** with status `pending_approval`. The staff port
 
 | Task | Steps |
 |------|-------|
-| Create staff user | Users → Add user; set name, email, password, roles, optional staff title and office placement. The password is emailed to their work address when the account is created (or when office approval completes). Mail failure is logged and does not block create. |
+| Create staff user | Users → Add user; set name, email, password, roles, optional staff title, **Academic department** (for Results HOD/Dean/exam-officer scope), and office placement (for portal links). The password is emailed to their work address when the account is created (or when office approval completes). Mail failure is logged and does not block create. |
 | Disable user | Edit user → set status to disabled (reason required) |
 | Reset password (admin) | Edit user → enter new password |
 | Assign roles | Edit user or use role assignment with audit reason |
@@ -526,7 +527,7 @@ The university keeps one **Course catalog** (all courses). Students do not regis
 #### Curriculum, offerings, and registration
 
 - **Programme courses** — Assign catalog courses to a programme by college, department, and admission category (UTME, Direct Entry, JUPEB, Transfer, Postgraduate). A programme that accepts several categories appears under each of them. This is the curriculum map; it is not the student registration list (`academic.programmes.manage`).
-- **Offerings** — Course offerings per semester (`academic.offerings.manage`). Filter by admission session and study level. Use **Publish programme courses** to create a section A (unlimited seats) for every mapped catalog course in the chosen semester; courses that already have an offering are skipped. Then add lecturers, extra sections, or capacity. Students register only from offerings in the **current** semester. The **Registered** column shows how many students are registered (dropped registrations are not counted). Each course row has a **Class list → Download** menu: **View students**, **Download Excel**, or **Download PDF** of the students registered on that course (matric, name, gender, programme, level, email, carry-over, registration date); clicking the **Registered** number also opens the list. **Download summary** (Excel or PDF) exports all listed offerings with registered counts and a total row, using the session, semester, and level filters on screen.
+- **Offerings** — Course offerings per semester (`academic.offerings.manage`). Filter by admission session and study level. Use **Publish programme courses** to create a section A (unlimited seats) for every mapped catalog course in the chosen semester; courses that already have an offering are skipped. Then assign a **Lecturer (portal account)** with the staff picker (`faculty_staff_id`) so that account can enter/upload drafts for that offering; optional free-text lecturer name is display-only and does **not** grant Results access. Add extra sections or capacity as needed. Students register only from offerings in the **current** semester. The **Registered** column shows how many students are registered (dropped registrations are not counted). Each course row has a **Class list → Download** menu: **View students**, **Download Excel**, or **Download PDF** of the students registered on that course (matric, name, gender, programme, level, email, carry-over, registration date); clicking the **Registered** number also opens the list. **Download summary** (Excel or PDF) exports all listed offerings with registered counts and a total row, using the session, semester, and level filters on screen.
 - **Course registration** — Staff view of student enrolments (`academic.enrollments.manage`). On the student portal **Course registration** page, students see every available offering with a unit checklist (General | Faculty | Departmental | Overall), tick their choice, and submit with **one Register**. They must have paid at least 25% tuition before Register/Drop succeed; the catalogue stays visible while they are blocked. Staff can still register below that threshold when they provide a reason. Search the student picker by session and level. **Print registered courses** opens a preview; students choose session and semester there to print an earlier registration. The form shows the level for that session, not the student's current level.
 - **Unit limits** — Credit-unit caps (`academic.enrollments.manage`). Filter by session and level.
 - **Registration extensions** — Review late-registration requests (`academic.extensions.review`). Filter by session and level.
@@ -540,16 +541,22 @@ Result entry follows a controlled workflow before students can see grades on the
 
 **Statuses:** `draft` → `submitted` (College) → `board_ready` (Committee of Deans) → `board_cleared` (Senate) → `released`. Returns use `correction_required`. Only `draft` and `correction_required` rows are editable. Students see only **released** grades; CGPA uses released rows only. After a **cross-college change of programme**, the transcript and CGPA drop old-programme courses at the new level and above (300L→200L keeps old 100L only) and then include the new programme. Carry-over detection also ignores unreleased grades.
 
-**Exam-officer roles** (seeded; assign the matching Academic portal links):
+**Exam-officer and academic results roles** (seeded; assign the matching Academic portal links):
 
-| Role | Upload lane | Org scope | Senate / Release |
-|------|-------------|---------|------------------|
-| Exam Officer (`exam-officer`) | All | Campus | Yes |
-| College Exam Officer (`faculty-exam-officer`) | College courses in their academic college | `staff.department_id` → college | No |
-| Department Exam Officer (`department-exam-officer`) | Departmental courses in their academic department | `staff.department_id` | No |
-| GS Exam Officer (`gs-exam-officer`) | General courses only | Campus general lane | No |
+| Role | Portal links | Data scope | Senate / Release |
+|------|--------------|------------|------------------|
+| Exam Officer (`exam-officer`) | Full Results set | Campus-wide | Yes |
+| College Exam Officer (`faculty-exam-officer`) | Result entry + College (as assigned) | College courses in their academic college (`staff.department_id` → college) | No |
+| Department Exam Officer (`department-exam-officer`) | Result entry + Department | Departmental courses in their academic department (`staff.department_id`) | No |
+| GS Exam Officer (`gs-exam-officer`) | Result entry / Upload Score | General courses only | No |
+| Lecturer (`lecturer`) | Result entry + Upload Score | Offerings where `course_offerings.faculty_staff_id` = their staff id (drafts only) | No |
+| Department HOD (`department-hod`) | Result entry + Department (+ optional Upload Score) | All grades with `department_id` = their academic department (any lane) | No |
+| College Dean (`college-dean`) | Result entry + College | All grades with `faculty_id` = their college (via academic department) | No |
+| Committee of Deans (`committee-of-deans`) | Committee of Deans | Campus-wide at the Committee step (`results.faculty_approve`) | No |
 
 Registrar and Super Admin remain campus-wide. Committee of Deans approval of **general-lane** rows is not limited to the officer’s college. Create/update/import/submit/approve/Senate/release still go through the **HOD office inbox** (`officeGate`) when that office requires approval.
+
+**Placement notes:** Set **Academic department** on Users for HOD / Dean / college & department exam officers. Assign lecturers on **Course offerings** via the staff picker (`faculty_staff_id`); free-text lecturer name alone does not grant Result entry access.
 
 **Hold until registered:** Staff may enter or import a draft by student + course offering **before** the student registers. The row is tagged held (`registration_held`) until an enrolled registration exists; submit, approve, release, and GPA skip held rows. When the student later registers, the existing grade is attached to the enrollment.
 
@@ -568,7 +575,7 @@ Grade create/update/import/status changes are written to the platform **Audit** 
 
 **Typical flow**
 
-1. Assign Results portal links under Department Setup (`results`, `results-students`, `results-department`, `results-approvals`, `results-board`, `results-release`, etc.) and grant the matching exam-officer role (or equivalent permissions). College, department, and GS officers should not receive Senate or Release links.
+1. Assign Results portal links under Department Setup (`results`, `results-students`, `results-department`, `results-approvals`, `results-board`, `results-release`, etc.) and grant the matching role (exam-officer, lecturer, department-hod, college-dean, committee-of-deans, or equivalent permissions). Lecturers get Result entry + Upload Score only; HOD gets Department; Dean gets College; Committee of Deans gets Approvals. College, department, GS, lecturer, HOD, and Dean should not receive Senate or Release links.
 2. Review **Grading scale** before first use.
 3. Enter or import drafts on Result entry / Upload Score (registration may follow later).
 4. On **College**, review drafts and submit to the Committee of Deans; print the college list as needed.
@@ -917,6 +924,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.75 | Oct 2026 | Platform team | Staff sign-in uses Bearer tokens without sending the browser cookie jar (no manual cookie clear); production forbids `SESSION_DRIVER=cookie` |
 | 1.76 | Oct 2026 | Platform team | Course catalog is a free pool (no college/department/programme on create/import); codes unique university-wide via `code_key`; map on Programme courses |
 | 1.77 | Oct 2026 | Platform team | Postgraduate physical clearance can optionally take a historic matric number for older graduates whose history is not migrated; blank still auto-assigns; bulk/UG unchanged |
+| 1.79 | Nov 2026 | Platform team | Results access roles: Lecturer (assigned offerings only), Department HOD, College Dean, and Committee of Deans. Documented role matrix in §8.6a; Academic department on Users (§6.5 / §7); Offerings staff picker `faculty_staff_id` for portal lecturers |
 | 1.78 | Nov 2026 | Platform team | Non-Nigeria postgraduate applicants are billed in USD for every charge (parallel USD prices, no conversion). Dollar card pay and wallet top-up use Wema; the dollar wallet is separate from naira. Finance reports and wallet liability stay split by currency; Payments has a Foreign currency export |
 | 1.70 | Sep 2026 | Platform team | Students see the exact amount and fee-line breakdown for the chosen tuition installment in a confirmation popup before the invoice is created; Cancel creates nothing |
 

@@ -3,10 +3,12 @@
 namespace App\Support;
 
 use App\Models\CourseOffering;
+use App\Models\Enrollment;
 use App\Models\Grade;
 use App\Models\Student;
 use App\Models\User;
 use App\Services\GradeWorkflowService;
+use App\Support\GradeStatus;
 use Illuminate\Database\Eloquent\Builder;
 
 final class ResultOfficerScope
@@ -19,14 +21,34 @@ final class ResultOfficerScope
 
     public const ROLE_GS = 'gs-exam-officer';
 
+    public const ROLE_LECTURER = 'lecturer';
+
+    public const ROLE_HOD = 'department-hod';
+
+    public const ROLE_DEAN = 'college-dean';
+
+    public const ROLE_COMMITTEE = 'committee-of-deans';
+
     /**
-     * @return array{global: bool, faculty_ids: list<int>, department_ids: list<int>, kind: string}
+     * @return array{
+     *   global: bool,
+     *   faculty_ids: list<int>,
+     *   department_ids: list<int>,
+     *   staff_id: ?int,
+     *   kind: string
+     * }
      */
     public static function for(User $actor): array
     {
         $kind = self::kind($actor);
-        if ($kind === 'global') {
-            return ['global' => true, 'faculty_ids' => [], 'department_ids' => [], 'kind' => 'global'];
+        if (in_array($kind, ['global', 'committee'], true)) {
+            return [
+                'global' => true,
+                'faculty_ids' => [],
+                'department_ids' => [],
+                'staff_id' => null,
+                'kind' => $kind === 'committee' ? 'committee' : 'global',
+            ];
         }
 
         $staff = $actor->relationLoaded('staff')
@@ -34,27 +56,47 @@ final class ResultOfficerScope
             : $actor->staff()->with('department')->first();
         $staff?->loadMissing('department');
 
+        $staffId = $staff?->id ? (int) $staff->id : null;
         $departmentId = $staff?->department_id ? (int) $staff->department_id : null;
         $facultyId = $staff?->department?->faculty_id ? (int) $staff->department->faculty_id : null;
 
-        if ($kind === 'faculty') {
+        if ($kind === 'lecturer') {
+            return [
+                'global' => false,
+                'faculty_ids' => [],
+                'department_ids' => [],
+                'staff_id' => $staffId,
+                'kind' => 'lecturer',
+            ];
+        }
+
+        if (in_array($kind, ['faculty', 'dean'], true)) {
             return [
                 'global' => false,
                 'faculty_ids' => $facultyId ? [$facultyId] : [],
                 'department_ids' => [],
-                'kind' => 'faculty',
+                'staff_id' => null,
+                'kind' => $kind,
             ];
         }
 
         if ($kind === 'gs') {
-            return ['global' => false, 'faculty_ids' => [], 'department_ids' => [], 'kind' => 'gs'];
+            return [
+                'global' => false,
+                'faculty_ids' => [],
+                'department_ids' => [],
+                'staff_id' => null,
+                'kind' => 'gs',
+            ];
         }
 
+        // department exam officer or HOD
         return [
             'global' => false,
             'faculty_ids' => [],
             'department_ids' => $departmentId ? [$departmentId] : [],
-            'kind' => 'department',
+            'staff_id' => null,
+            'kind' => $kind,
         ];
     }
 
@@ -65,8 +107,20 @@ final class ResultOfficerScope
         if (array_intersect($slugs, ['super-admin', 'registrar', self::ROLE_EXAM_OFFICER]) !== []) {
             return 'global';
         }
+        if (in_array(self::ROLE_COMMITTEE, $slugs, true)) {
+            return 'committee';
+        }
+        if (in_array(self::ROLE_LECTURER, $slugs, true)) {
+            return 'lecturer';
+        }
+        if (in_array(self::ROLE_DEAN, $slugs, true)) {
+            return 'dean';
+        }
         if (in_array(self::ROLE_FACULTY, $slugs, true)) {
             return 'faculty';
+        }
+        if (in_array(self::ROLE_HOD, $slugs, true)) {
+            return 'hod';
         }
         if (in_array(self::ROLE_GS, $slugs, true)) {
             return 'gs';
@@ -79,14 +133,39 @@ final class ResultOfficerScope
     }
 
     /**
-     * @param  array{upload_lane?: ?string, faculty_id?: ?int, department_id?: ?int}  $org
+     * @param  array{upload_lane?: ?string, faculty_id?: ?int, department_id?: ?int, course_offering_id?: ?int}  $org
      */
     public static function assertLaneAccess(User $actor, array $org): void
     {
         $kind = self::kind($actor);
         $lane = $org['upload_lane'] ?? null;
 
-        if ($kind === 'global') {
+        if (in_array($kind, ['global', 'committee'], true)) {
+            return;
+        }
+
+        if ($kind === 'lecturer') {
+            $offeringId = isset($org['course_offering_id']) ? (int) $org['course_offering_id'] : null;
+            if (! self::lecturerOwnsOffering($actor, $offeringId)) {
+                abort(403, 'Outside your assigned course offerings.');
+            }
+
+            return;
+        }
+
+        if ($kind === 'hod') {
+            if (! self::canAccessDepartment($actor, isset($org['department_id']) ? (int) $org['department_id'] : null)) {
+                abort(403, 'Outside department results scope.');
+            }
+
+            return;
+        }
+
+        if ($kind === 'dean') {
+            if (! self::canAccessFaculty($actor, isset($org['faculty_id']) ? (int) $org['faculty_id'] : null)) {
+                abort(403, 'Outside college results scope.');
+            }
+
             return;
         }
 
@@ -117,10 +196,17 @@ final class ResultOfficerScope
 
     public static function assertCanMutate(User $actor, Grade $grade): void
     {
+        $grade->loadMissing(['offering', 'enrollment.offering']);
+        $offeringId = (int) ($grade->course_offering_id
+            ?: $grade->offering?->id
+            ?: $grade->enrollment?->course_offering_id
+            ?: 0);
+
         self::assertLaneAccess($actor, [
             'upload_lane' => $grade->upload_lane,
             'faculty_id' => $grade->faculty_id ? (int) $grade->faculty_id : null,
             'department_id' => $grade->department_id ? (int) $grade->department_id : null,
+            'course_offering_id' => $offeringId > 0 ? $offeringId : null,
         ]);
     }
 
@@ -134,7 +220,10 @@ final class ResultOfficerScope
             return;
         }
 
-        $rows = Grade::query()->whereIn('id', $ids)->get(['id', 'faculty_id', 'department_id', 'upload_lane']);
+        $rows = Grade::query()
+            ->with(['offering:id,faculty_staff_id', 'enrollment:id,course_offering_id'])
+            ->whereIn('id', $ids)
+            ->get(['id', 'faculty_id', 'department_id', 'upload_lane', 'course_offering_id', 'enrollment_id']);
         foreach ($rows as $row) {
             if (! self::gradeInScope($row, $scope)) {
                 abort(403, "Grade #{$row->id} is outside your upload scope.");
@@ -148,7 +237,7 @@ final class ResultOfficerScope
     public static function assertFacultyApprove(User $actor, array $ids): void
     {
         $scope = self::for($actor);
-        if ($scope['global']) {
+        if ($scope['global'] || $scope['kind'] === 'committee') {
             return;
         }
 
@@ -170,12 +259,46 @@ final class ResultOfficerScope
             return $query;
         }
 
+        if ($scope['kind'] === 'lecturer') {
+            $staffId = (int) ($scope['staff_id'] ?? 0);
+            if ($staffId <= 0) {
+                return $query->whereRaw('1 = 0');
+            }
+
+            return $query->where(function (Builder $q) use ($staffId) {
+                $q->whereHas('offering', fn (Builder $offering) => $offering->where('faculty_staff_id', $staffId))
+                    ->orWhereHas(
+                        'enrollment.offering',
+                        fn (Builder $offering) => $offering->where('faculty_staff_id', $staffId),
+                    );
+            });
+        }
+
         return $query->where(function (Builder $q) use ($scope) {
             if ($scope['kind'] === 'gs') {
                 $q->where('upload_lane', GradeStatus::LANE_GENERAL);
 
                 return;
             }
+            if ($scope['kind'] === 'department') {
+                $ids = $scope['department_ids'] !== [] ? $scope['department_ids'] : [0];
+                $q->where('upload_lane', GradeStatus::LANE_DEPARTMENTAL)
+                    ->whereIn('department_id', $ids);
+
+                return;
+            }
+            if ($scope['kind'] === 'faculty') {
+                $ids = $scope['faculty_ids'] !== [] ? $scope['faculty_ids'] : [0];
+                $q->where(function (Builder $inner) use ($ids) {
+                    $inner->where(function (Builder $lane) use ($ids) {
+                        $lane->where('upload_lane', GradeStatus::LANE_FACULTY)
+                            ->whereIn('faculty_id', $ids);
+                    })->orWhere('upload_lane', GradeStatus::LANE_GENERAL);
+                });
+
+                return;
+            }
+            // hod / dean: any lane within department or college
             if ($scope['faculty_ids'] !== []) {
                 $q->orWhereIn('faculty_id', $scope['faculty_ids']);
             }
@@ -193,6 +316,27 @@ final class ResultOfficerScope
         $scope = self::for($actor);
         if ($scope['global']) {
             return $query;
+        }
+
+        if ($scope['kind'] === 'lecturer') {
+            $staffId = (int) ($scope['staff_id'] ?? 0);
+
+            return $staffId > 0
+                ? $query->where('faculty_staff_id', $staffId)
+                : $query->whereRaw('1 = 0');
+        }
+
+        if (in_array($scope['kind'], ['hod', 'dean'], true)) {
+            return $query->whereHas('course', function (Builder $q) use ($scope) {
+                if ($scope['kind'] === 'hod') {
+                    $ids = $scope['department_ids'] !== [] ? $scope['department_ids'] : [0];
+                    $q->whereIn('department_id', $ids);
+
+                    return;
+                }
+                $ids = $scope['faculty_ids'] !== [] ? $scope['faculty_ids'] : [0];
+                $q->whereHas('department', fn (Builder $d) => $d->whereIn('faculty_id', $ids));
+            });
         }
 
         return $query->whereHas('course', function (Builder $q) use ($scope) {
@@ -220,16 +364,48 @@ final class ResultOfficerScope
     {
         $offering->loadMissing('course.department');
         $org = GradeWorkflowService::orgSnapshotFromCourse($offering->course);
+        $org['course_offering_id'] = (int) $offering->id;
         self::assertLaneAccess($actor, $org);
     }
 
     /**
-     * @param  array{global: bool, faculty_ids: list<int>, department_ids: list<int>, kind: string}  $scope
+     * @param  array{
+     *   global: bool,
+     *   faculty_ids: list<int>,
+     *   department_ids: list<int>,
+     *   staff_id?: ?int,
+     *   kind: string
+     * }  $scope
      */
     private static function gradeInScope(Grade $row, array $scope): bool
     {
+        if ($scope['kind'] === 'lecturer') {
+            $staffId = (int) ($scope['staff_id'] ?? 0);
+            if ($staffId <= 0) {
+                return false;
+            }
+            $offeringStaffId = (int) ($row->offering?->faculty_staff_id
+                ?? CourseOffering::query()->whereKey(
+                    (int) ($row->course_offering_id ?: $row->enrollment?->course_offering_id ?: 0)
+                )->value('faculty_staff_id')
+                ?? 0);
+
+            return $offeringStaffId === $staffId;
+        }
         if ($scope['kind'] === 'gs') {
             return $row->upload_lane === GradeStatus::LANE_GENERAL;
+        }
+        if ($scope['kind'] === 'department') {
+            return $row->upload_lane === GradeStatus::LANE_DEPARTMENTAL
+                && in_array((int) $row->department_id, $scope['department_ids'], true);
+        }
+        if ($scope['kind'] === 'faculty') {
+            if ($row->upload_lane === GradeStatus::LANE_GENERAL) {
+                return true;
+            }
+
+            return $row->upload_lane === GradeStatus::LANE_FACULTY
+                && in_array((int) $row->faculty_id, $scope['faculty_ids'], true);
         }
         if ($scope['faculty_ids'] !== [] && in_array((int) $row->faculty_id, $scope['faculty_ids'], true)) {
             return true;
@@ -244,21 +420,65 @@ final class ResultOfficerScope
     public static function assertStudentInScope(User $actor, Student $student): void
     {
         $scope = self::for($actor);
-        if ($scope['global'] || $scope['kind'] === 'gs') {
+        if ($scope['kind'] !== 'lecturer') {
             return;
         }
 
-        $student->loadMissing('program.department');
-        $departmentId = (int) ($student->program?->department_id ?? 0);
-        $facultyId = (int) ($student->program?->department?->faculty_id ?? 0);
-        if ($scope['department_ids'] !== [] && in_array($departmentId, $scope['department_ids'], true)) {
-            return;
+        $staffId = (int) ($scope['staff_id'] ?? 0);
+        if ($staffId <= 0) {
+            abort(403, 'Outside your results scope.');
         }
-        if ($scope['faculty_ids'] !== [] && in_array($facultyId, $scope['faculty_ids'], true)) {
-            return;
+        $onOffering = Enrollment::query()
+            ->enrolled()
+            ->where('student_id', $student->id)
+            ->whereHas('offering', fn (Builder $offering) => $offering->where('faculty_staff_id', $staffId))
+            ->exists()
+            || Grade::query()
+                ->where(function (Builder $q) use ($student) {
+                    $q->where('student_id', $student->id)
+                        ->orWhereHas('enrollment', fn (Builder $e) => $e->where('student_id', $student->id));
+                })
+                ->where(function (Builder $q) use ($staffId) {
+                    $q->whereHas('offering', fn (Builder $offering) => $offering->where('faculty_staff_id', $staffId))
+                        ->orWhereHas(
+                            'enrollment.offering',
+                            fn (Builder $offering) => $offering->where('faculty_staff_id', $staffId),
+                        );
+                })
+                ->exists();
+        if (! $onOffering) {
+            abort(403, 'Outside your results scope.');
+        }
+    }
+
+    public static function constrainStudents(Builder $query, User $actor): Builder
+    {
+        $scope = self::for($actor);
+        if ($scope['kind'] !== 'lecturer') {
+            return $query;
         }
 
-        abort(403, 'Outside your results scope.');
+        $staffId = (int) ($scope['staff_id'] ?? 0);
+        if ($staffId <= 0) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->where(function (Builder $q) use ($staffId) {
+            $q->whereHas(
+                'enrollments',
+                fn (Builder $enrollment) => $enrollment->enrolled()
+                    ->whereHas('offering', fn (Builder $offering) => $offering->where('faculty_staff_id', $staffId)),
+            )->orWhereHas(
+                'grades',
+                function (Builder $grades) use ($staffId) {
+                    $grades->whereHas('offering', fn (Builder $offering) => $offering->where('faculty_staff_id', $staffId))
+                        ->orWhereHas(
+                            'enrollment.offering',
+                            fn (Builder $offering) => $offering->where('faculty_staff_id', $staffId),
+                        );
+                },
+            );
+        });
     }
 
     public static function canAccessFaculty(User $actor, ?int $facultyId): bool
@@ -285,5 +505,22 @@ final class ResultOfficerScope
         }
 
         return in_array($departmentId, $scope['department_ids'], true);
+    }
+
+    private static function lecturerOwnsOffering(User $actor, ?int $offeringId): bool
+    {
+        if (! $offeringId) {
+            return false;
+        }
+        $scope = self::for($actor);
+        $staffId = (int) ($scope['staff_id'] ?? 0);
+        if ($staffId <= 0) {
+            return false;
+        }
+
+        return CourseOffering::query()
+            ->whereKey($offeringId)
+            ->where('faculty_staff_id', $staffId)
+            ->exists();
     }
 }

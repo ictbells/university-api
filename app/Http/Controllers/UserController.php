@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Department;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\User;
@@ -21,6 +22,22 @@ class UserController extends Controller
     use Concerns\AuthorizesOfficeApprovals;
 
     public function __construct(private AuditWriter $audit, private StaffOfficePlacement $placement) {}
+
+    public function academicDepartmentOptions()
+    {
+        return Department::query()
+            ->with('faculty:id,name')
+            ->orderBy('name')
+            ->get(['id', 'name', 'faculty_id'])
+            ->map(fn (Department $department) => [
+                'id' => $department->id,
+                'name' => $department->name,
+                'faculty' => $department->faculty
+                    ? ['id' => $department->faculty->id, 'name' => $department->faculty->name]
+                    : null,
+            ])
+            ->values();
+    }
 
     public function index(Request $request)
     {
@@ -279,7 +296,7 @@ class UserController extends Controller
     {
         $hasOfficeInput = $request->boolean('clear_office_placement')
             || $request->hasAny(['office_department_id', 'office_unit_id', 'office_subunit_id']);
-        $hasStaffInput = $request->has('staff_title') || $hasOfficeInput || $request->filled('department_id');
+        $hasStaffInput = $request->has('staff_title') || $hasOfficeInput || $request->has('department_id');
         $needsStaffRow = $user->fresh(['roles'])?->isStaffPortalUser() && ! $user->staff()->exists();
 
         if (! $hasStaffInput && ! $needsStaffRow) {
