@@ -13,6 +13,7 @@ class ProgrammeFee extends BaseModel
         'amount_usd',
         'installment_tranche',
         'level_code',
+        'entry_mode',
         'semester',
         'is_active',
         'display_order',

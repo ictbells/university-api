@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.79  
+**Version:** 1.80  
 **Effective date:** November 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -636,7 +636,7 @@ The bursary sheet is four stacks of named lines (1st–4th 25%) with fixed naira
 
 1. **Fee categories** — mark school charges as programme-schedule (tuition, infrastructure, accommodation, BUSA, ICT, laboratory, and any other sheet heading). Reuse an existing category when the name already matches.
 2. **Fee items** — one catalog line per charge name (Tuition, ICT, …). Tag an installment share on the catalog item when that line is only ever one slice; otherwise leave it blank and set slices on Programme fees.
-3. **Programme fees** — for each spreadsheet column, pick one programme in that group, assign every non-dash cell with its naira override (and slice if the catalog item is untagged), then **Copy schedule** to the other programmes in the same college (use Select all in this department when the group is one department). When 200–500 pay the same amount, select those levels together instead of repeating the assignment. **All levels** is one shared line. Dashes stay unassigned. Blank or 0 amounts are skipped on invoices.
+3. **Programme fees** — for each spreadsheet column, pick one programme in that group, assign every non-dash cell with its naira override (and slice if the catalog item is untagged), then **Copy schedule** to the other programmes in the same college (use Select all in this department when the group is one department). When 200–500 pay the same amount, select those levels together instead of repeating the assignment. **All levels** is one shared line. **Entry mode** scopes the schedule: **All entry modes** is shared; choose **UTME**, **DE**, **Transfer**, and so on to create a separate schedule for that admission category (mode-specific lines replace the shared schedule for those students). The summary table **Entry modes** column shows which modes the programme accepts; fee lines are grouped by entry mode in **View details**. Dashes stay unassigned. Blank or 0 amounts are skipped on invoices.
 4. Skip **Full 100% (pay at once)** unless bursary wants a discounted lump sum. The sheet grand total is 1st + 2nd + 3rd + 4th 25%. Students who choose 50% or 75% still receive the next unpaid slices, not a pro-rata of that grand total.
 
 When a student clicks **Create tuition invoice** in Transaction history, a popup first shows the exact amount and fee lines for the chosen share. The invoice is only created when they confirm.
@@ -924,6 +924,7 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.75 | Oct 2026 | Platform team | Staff sign-in uses Bearer tokens without sending the browser cookie jar (no manual cookie clear); production forbids `SESSION_DRIVER=cookie` |
 | 1.76 | Oct 2026 | Platform team | Course catalog is a free pool (no college/department/programme on create/import); codes unique university-wide via `code_key`; map on Programme courses |
 | 1.77 | Oct 2026 | Platform team | Postgraduate physical clearance can optionally take a historic matric number for older graduates whose history is not migrated; blank still auto-assigns; bulk/UG unchanged |
+| 1.80 | Nov 2026 | Platform team | Programme fees can be scoped by admission entry mode (UTME / DE / Transfer / …); mode-specific schedules replace shared All-entry-mode lines for those students |
 | 1.79 | Nov 2026 | Platform team | Results access roles: Lecturer (assigned offerings only), Department HOD, College Dean, and Committee of Deans. Documented role matrix in §8.6a; Academic department on Users (§6.5 / §7); Offerings staff picker `faculty_staff_id` for portal lecturers |
 | 1.78 | Nov 2026 | Platform team | Non-Nigeria postgraduate applicants are billed in USD for every charge (parallel USD prices, no conversion). Dollar card pay and wallet top-up use Wema; the dollar wallet is separate from naira. Finance reports and wallet liability stay split by currency; Payments has a Foreign currency export |
 | 1.70 | Sep 2026 | Platform team | Students see the exact amount and fee-line breakdown for the chosen tuition installment in a confirmation popup before the invoice is created; Cancel creates nothing |

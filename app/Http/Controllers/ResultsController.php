@@ -11,6 +11,7 @@ use App\Models\Faculty;
 use App\Models\Grade;
 use App\Models\GradeBoundary;
 use App\Models\GradingScale;
+use App\Models\Program;
 use App\Models\Student;
 use App\Models\StudentTermRemark;
 use App\Models\StudentTermSanction;
@@ -65,7 +66,13 @@ class ResultsController extends Controller
     {
         abort_unless($request->user()->hasPermission('results.read'), 403);
 
+        $scope = ResultOfficerScope::for($request->user());
+
         return [
+            'scope' => [
+                'kind' => $scope['kind'],
+                'global' => (bool) $scope['global'],
+            ],
             'terms' => AcademicTerm::query()
                 ->with('session:id,label')
                 ->orderByDesc('is_current')
@@ -78,6 +85,10 @@ class ResultsController extends Controller
                 ->get(['id', 'name', 'code']),
             'faculties' => Faculty::query()->orderBy('name')->get(['id', 'name']),
             'departments' => Department::query()->orderBy('name')->get(['id', 'name', 'faculty_id']),
+            'programs' => Program::query()
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get(['id', 'name', 'code', 'department_id']),
         ];
     }
 
@@ -396,16 +407,52 @@ class ResultsController extends Controller
     {
         abort_unless($request->user()->hasPermission('results.read'), 403);
         $search = trim((string) $request->input('search', ''));
+        $actor = $request->user();
+        $scope = ResultOfficerScope::for($actor);
+        $isLecturer = $scope['kind'] === 'lecturer';
         $query = Student::query()->with('program:id,name,code')->orderBy('matric_number');
-        ResultOfficerScope::constrainStudents($query, $request->user());
+        ResultOfficerScope::constrainStudents($query, $actor);
         if ($level = ListSessionLevelFilter::levelCode($request)) {
             ListSessionLevelFilter::constrainStudentsByLevel($query, $level);
         }
-        if ($request->filled('department_id')) {
-            $query->whereHas('program', fn ($program) => $program->where('department_id', (int) $request->input('department_id')));
-        } elseif ($request->filled('faculty_id')) {
-            $query->whereHas('program.department', fn ($department) => $department->where('faculty_id', (int) $request->input('faculty_id')));
+
+        $courseId = $request->filled('course_id') ? (int) $request->input('course_id') : null;
+        $sessionId = ListSessionLevelFilter::sessionId($request);
+        if ($courseId || $sessionId) {
+            $staffId = $isLecturer ? (int) ($scope['staff_id'] ?? 0) : null;
+            $constrainOffering = function ($offering) use ($courseId, $sessionId, $staffId) {
+                if ($staffId && $staffId > 0) {
+                    $offering->where('faculty_staff_id', $staffId);
+                }
+                if ($courseId) {
+                    $offering->where('course_id', $courseId);
+                }
+                if ($sessionId) {
+                    $offering->whereHas('term', fn ($term) => $term->where('academic_session_id', $sessionId));
+                }
+            };
+            $query->where(function ($outer) use ($constrainOffering) {
+                $outer->whereHas(
+                    'enrollments',
+                    fn ($enrollment) => $enrollment->enrolled()->whereHas('offering', $constrainOffering),
+                )->orWhereHas('grades', function ($grades) use ($constrainOffering) {
+                    $grades->whereHas('offering', $constrainOffering)
+                        ->orWhereHas('enrollment.offering', $constrainOffering);
+                });
+            });
         }
+
+        if (! $isLecturer) {
+            if ($request->filled('program_id')) {
+                $query->where('program_id', (int) $request->input('program_id'));
+            }
+            if ($request->filled('department_id')) {
+                $query->whereHas('program', fn ($program) => $program->where('department_id', (int) $request->input('department_id')));
+            } elseif ($request->filled('faculty_id')) {
+                $query->whereHas('program.department', fn ($department) => $department->where('faculty_id', (int) $request->input('faculty_id')));
+            }
+        }
+
         if ($search !== '') {
             $like = '%'.$search.'%';
             $query->where(function ($q) use ($like) {
@@ -678,6 +725,9 @@ class ResultsController extends Controller
 
         if ($request->filled('academic_term_id')) {
             $query->where('academic_term_id', (int) $request->input('academic_term_id'));
+        }
+        if ($sessionId = ListSessionLevelFilter::sessionId($request)) {
+            $query->whereHas('term', fn ($term) => $term->where('academic_session_id', $sessionId));
         }
         if ($request->filled('search')) {
             $search = '%'.$request->input('search').'%';

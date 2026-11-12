@@ -2,10 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Models\AcademicSession;
+use App\Models\AcademicTerm;
+use App\Models\Application;
 use App\Models\Campus;
 use App\Models\Department;
 use App\Models\Faculty;
 use App\Models\FeeItem;
+use App\Models\Intake;
 use App\Models\OfficeApprovalRequest;
 use App\Models\ProgrammeFee;
 use App\Models\OfficeDepartment;
@@ -13,6 +17,7 @@ use App\Models\Permission;
 use App\Models\Program;
 use App\Models\Role;
 use App\Models\Staff;
+use App\Models\Student;
 use App\Models\User;
 use App\Support\PermissionCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -219,6 +224,78 @@ class ProgrammeFeeScheduleTest extends TestCase
         );
     }
 
+    public function test_bulk_assign_can_target_a_single_entry_mode(): void
+    {
+        [$staff, $program, $tuition] = $this->seedSchedule(assign: false);
+        $program->update(['entry_modes' => ['utme', 'de']]);
+        Sanctum::actingAs($staff);
+
+        $this->postJson('/api/programme-fees/bulk', [
+            'program_id' => $program->id,
+            'entry_mode' => 'utme',
+            'level_code' => 'all',
+            'semester' => 'both',
+            'items' => [
+                ['fee_item_id' => $tuition->id, 'amount' => 80000],
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.entry_mode', 'utme')
+            ->assertJsonPath('total_amount', 80000);
+
+        $this->postJson('/api/programme-fees/bulk', [
+            'program_id' => $program->id,
+            'entry_mode' => 'de',
+            'level_code' => 'all',
+            'semester' => 'both',
+            'items' => [
+                ['fee_item_id' => $tuition->id, 'amount' => 60000],
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
+
+        $utmeStudent = $this->makeStudentWithEntryMode($program, 'utme');
+        $deStudent = $this->makeStudentWithEntryMode($program, 'de');
+
+        $this->assertSame(80000.0, \App\Support\ProgrammeFeeResolver::totalForStudent($utmeStudent));
+        $this->assertSame(60000.0, \App\Support\ProgrammeFeeResolver::totalForStudent($deStudent));
+    }
+
+    public function test_mode_specific_schedule_replaces_shared_all_entry_mode_lines(): void
+    {
+        [$staff, $program, $tuition] = $this->seedSchedule(assign: false);
+        $program->update(['entry_modes' => ['utme', 'de']]);
+        Sanctum::actingAs($staff);
+
+        $this->postJson('/api/programme-fees/bulk', [
+            'program_id' => $program->id,
+            'entry_mode' => 'all',
+            'level_code' => 'all',
+            'semester' => 'both',
+            'items' => [
+                ['fee_item_id' => $tuition->id, 'amount' => 50000],
+            ],
+        ])->assertOk();
+
+        $this->postJson('/api/programme-fees/bulk', [
+            'program_id' => $program->id,
+            'entry_mode' => 'utme',
+            'level_code' => 'all',
+            'semester' => 'both',
+            'items' => [
+                ['fee_item_id' => $tuition->id, 'amount' => 90000],
+            ],
+        ])->assertOk();
+
+        $utmeStudent = $this->makeStudentWithEntryMode($program, 'utme');
+        $deStudent = $this->makeStudentWithEntryMode($program, 'de');
+
+        $this->assertSame(90000.0, \App\Support\ProgrammeFeeResolver::totalForStudent($utmeStudent));
+        $this->assertSame(50000.0, \App\Support\ProgrammeFeeResolver::totalForStudent($deStudent));
+    }
+
     public function test_copy_schedule_rejects_a_programme_in_another_college(): void
     {
         [$staff, $program] = $this->seedSchedule();
@@ -241,6 +318,50 @@ class ProgrammeFeeScheduleTest extends TestCase
             'from_program_id' => $program->id,
             'to_program_ids' => [$other->id],
         ])->assertStatus(422);
+    }
+
+    private function makeStudentWithEntryMode(Program $program, string $entryMode): Student
+    {
+        $session = AcademicSession::query()->firstOrCreate(
+            ['label' => '2024/2025'],
+            ['starts_on' => '2024-10-01', 'ends_on' => '2025-09-30'],
+        );
+        $term = AcademicTerm::query()->firstOrCreate(
+            ['academic_session_id' => $session->id, 'name' => 'First'],
+            ['session_label' => '2024/2025', 'is_current' => true],
+        );
+        $intake = Intake::query()->firstOrCreate(
+            ['name' => 'Fee test '.$entryMode, 'entry_mode' => $entryMode],
+            [
+                'academic_term_id' => $term->id,
+                'opens_on' => now()->subMonth(),
+                'closes_on' => now()->addMonth(),
+                'is_open' => true,
+            ],
+        );
+        $user = User::factory()->create(['status' => 'active']);
+        $application = Application::query()->create([
+            'application_number' => 'APP/'.uniqid(),
+            'user_id' => $user->id,
+            'intake_id' => $intake->id,
+            'program_id' => $program->id,
+            'entry_mode' => $entryMode,
+            'stage' => 'matriculated',
+        ]);
+        $student = Student::query()->create([
+            'user_id' => $user->id,
+            'application_id' => $application->id,
+            'program_id' => $program->id,
+            'first_name' => strtoupper($entryMode),
+            'last_name' => 'Student',
+            'matric_number' => 'BU/'.strtoupper($entryMode).'/'.uniqid(),
+            'current_level' => 100,
+            'study_level' => 'undergraduate',
+            'status' => 'active',
+        ]);
+        $application->update(['student_id' => $student->id]);
+
+        return $student->fresh(['application', 'program']);
     }
 
     /**

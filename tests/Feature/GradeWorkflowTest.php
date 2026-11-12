@@ -854,11 +854,13 @@ class GradeWorkflowTest extends TestCase
 
         $this->getJson('/api/academic/results/meta')
             ->assertOk()
+            ->assertJsonPath('scope.kind', 'global')
             ->assertJsonPath('terms.0.id', $this->term->id)
             ->assertJsonPath('terms.0.session.label', '2024/2025')
             ->assertJsonPath('levels.0.code', '100')
             ->assertJsonPath('faculties.0.name', 'Science')
-            ->assertJsonPath('departments.0.name', 'CS');
+            ->assertJsonPath('departments.0.name', 'CS')
+            ->assertJsonPath('programs.0.name', 'B.Sc CS');
 
         $this->getJson('/api/academic/terms')->assertForbidden();
         $this->getJson('/api/academic/levels')->assertForbidden();

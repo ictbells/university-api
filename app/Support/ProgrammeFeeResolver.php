@@ -68,9 +68,11 @@ class ProgrammeFeeResolver
         int $programId,
         string|array|null $levelCode = null,
         ?string $semester = null,
+        ?string $entryMode = null,
     ): Collection {
         $codes = self::normalizeLevelCodes($levelCode);
-        $cacheKey = $programId.'|'.implode(',', $codes).'|'.(string) $semester;
+        $mode = self::normalizeEntryMode($entryMode);
+        $cacheKey = $programId.'|'.implode(',', $codes).'|'.(string) $semester.'|'.(string) $mode;
         if (isset(self::$programCache[$cacheKey])) {
             return self::$programCache[$cacheKey];
         }
@@ -94,6 +96,8 @@ class ProgrammeFeeResolver
             )->values();
         }
 
+        $lines = self::filterByEntryMode($lines, $mode);
+
         return self::$programCache[$cacheKey] = $lines;
     }
 
@@ -108,7 +112,8 @@ class ProgrammeFeeResolver
         }
 
         $codes = StudentAcademicLevel::feeLevelCodes($student);
-        $lines = self::forProgram((int) $student->program_id, $codes, $semester);
+        $entryMode = self::studentEntryMode($student);
+        $lines = self::forProgram((int) $student->program_id, $codes, $semester, $entryMode);
 
         // When JUPEB (or any track) has a named academic level with its own fee rows,
         // prefer those over the shared numeric band (e.g. "100") so UG-style lines
@@ -126,6 +131,14 @@ class ProgrammeFeeResolver
         }
 
         return $lines;
+    }
+
+    public static function studentEntryMode(Student $student): ?string
+    {
+        $student->loadMissing('application');
+        $mode = strtolower(trim((string) ($student->application?->entry_mode ?? '')));
+
+        return $mode !== '' ? $mode : null;
     }
 
     /**
@@ -159,14 +172,16 @@ class ProgrammeFeeResolver
         int $programId,
         string|array|null $levelCode = null,
         ?string $semester = null,
+        ?string $entryMode = null,
     ): float {
-        return self::scheduleFullAmount(self::forProgram($programId, $levelCode, $semester));
+        return self::scheduleFullAmount(self::forProgram($programId, $levelCode, $semester, $entryMode));
     }
 
     public static function totalForStudent(Student $student, ?string $semester = null): float
     {
         $currency = BillingCurrency::forStudent($student);
-        $cacheKey = (int) $student->id.'|'.(string) $semester.'|'.(string) $student->program_id.'|'.(string) $student->current_level.'|'.$currency;
+        $entryMode = self::studentEntryMode($student) ?: '';
+        $cacheKey = (int) $student->id.'|'.(string) $semester.'|'.(string) $student->program_id.'|'.(string) $student->current_level.'|'.$currency.'|'.$entryMode;
         if (array_key_exists($cacheKey, self::$studentTotalCache)) {
             return self::$studentTotalCache[$cacheKey];
         }
@@ -208,6 +223,58 @@ class ProgrammeFeeResolver
     {
         return FeeSchedule::allowsInstallmentTranche((string) ($fee->feeItem?->category ?? ''))
             && $fee->effective_installment_tranche !== null;
+    }
+
+    /**
+     * @param  Collection<int, ProgrammeFee>  $lines
+     * @return Collection<int, ProgrammeFee>
+     */
+    private static function filterByEntryMode(Collection $lines, ?string $mode): Collection
+    {
+        if ($mode === null || $mode === '') {
+            return $lines->values();
+        }
+
+        if ($mode === 'all') {
+            return $lines->filter(
+                static fn (ProgrammeFee $fee) => self::lineEntryMode($fee) === 'all'
+            )->values();
+        }
+
+        $matching = $lines->filter(function (ProgrammeFee $fee) use ($mode) {
+            $lineMode = self::lineEntryMode($fee);
+
+            return $lineMode === 'all' || $lineMode === $mode;
+        })->values();
+
+        $specific = $matching->filter(
+            static fn (ProgrammeFee $fee) => self::lineEntryMode($fee) === $mode
+        );
+        if ($specific->isNotEmpty()) {
+            return $specific->values();
+        }
+
+        return $matching;
+    }
+
+    private static function lineEntryMode(ProgrammeFee $fee): string
+    {
+        $mode = strtolower(trim((string) ($fee->entry_mode ?? 'all')));
+
+        return $mode !== '' ? $mode : 'all';
+    }
+
+    private static function normalizeEntryMode(?string $entryMode): ?string
+    {
+        if ($entryMode === null) {
+            return null;
+        }
+        $mode = strtolower(trim($entryMode));
+        if ($mode === '') {
+            return null;
+        }
+
+        return $mode;
     }
 
     /**

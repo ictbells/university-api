@@ -211,8 +211,22 @@ class ResultAccessScopeTest extends TestCase
         $ids = collect($offerings)->pluck('id')->all();
         $this->assertEquals([$this->csOffering->id], $ids);
 
+        $this->getJson('/api/academic/results/meta')
+            ->assertOk()
+            ->assertJsonPath('scope.kind', 'lecturer');
+
         $students = $this->getJson('/api/academic/results/students?search=BU/2020/001')->assertOk()->json('data');
         $this->assertCount(1, $students);
+
+        $byCourse = $this->getJson('/api/academic/results/students?course_id='.$this->csOffering->course_id)
+            ->assertOk()
+            ->json('data');
+        $this->assertCount(1, $byCourse);
+
+        $otherCourse = $this->getJson('/api/academic/results/students?course_id='.$this->artsOffering->course_id)
+            ->assertOk()
+            ->json('data');
+        $this->assertCount(0, $otherCourse);
 
         $otherStudent = Student::query()->create([
             'user_id' => User::factory()->create(['status' => 'active'])->id,

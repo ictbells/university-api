@@ -9,6 +9,7 @@ use App\Models\FeeItem;
 use App\Models\Program;
 use App\Models\ProgrammeFee;
 use App\Services\AuditWriter;
+use App\Support\AdmissionEntryRules;
 use App\Support\FeeSchedule;
 use App\Support\ProgrammeFeeResolver;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -37,6 +38,14 @@ class ProgrammeFeeController extends Controller
                 $builder->where('level_code', 'all')->orWhere('level_code', $level);
             });
         }
+        if ($request->filled('entry_mode') && $request->entry_mode !== 'all') {
+            $mode = strtolower(trim((string) $request->entry_mode));
+            $query->where(function ($builder) use ($mode) {
+                $builder->where('entry_mode', 'all')->orWhere('entry_mode', $mode);
+            });
+        } elseif ($request->filled('entry_mode') && $request->entry_mode === 'all') {
+            $query->where('entry_mode', 'all');
+        }
         if ($request->filled('semester') && $request->semester !== 'both') {
             $semester = (string) $request->semester;
             $query->where(function ($builder) use ($semester) {
@@ -56,6 +65,7 @@ class ProgrammeFeeController extends Controller
                 (int) $request->program_id,
                 $request->filled('level_code') ? (string) $request->level_code : null,
                 $request->filled('semester') ? (string) $request->semester : null,
+                $request->filled('entry_mode') ? (string) $request->entry_mode : null,
             );
         }
 
@@ -152,6 +162,12 @@ class ProgrammeFeeController extends Controller
                     ])
                     ->filter(fn (array $row) => $row['value'] !== '')
                     ->values(),
+                'entry_modes' => collect(['all', ...AdmissionEntryRules::ENTRY_MODE_ORDER])
+                    ->map(fn (string $mode) => [
+                        'value' => $mode,
+                        'label' => $mode === 'all' ? 'All entry modes' : AdmissionEntryRules::entryModeLabel($mode),
+                    ])
+                    ->values(),
             ],
         ];
     }
@@ -160,15 +176,12 @@ class ProgrammeFeeController extends Controller
     {
         abort_unless($request->user()->hasPermission('finance.invoices.manage'), 403);
 
-        $level = $request->filled('level_code') ? (string) $request->level_code : null;
-        $semester = $request->filled('semester') ? (string) $request->semester : null;
-        $fees = ProgrammeFeeResolver::forProgram($program->id, $level, $semester);
-
-        return [
-            'program' => $program->only(['id', 'name', 'code', 'tuition_amount']),
-            'data' => $fees->map(fn (ProgrammeFee $fee) => $this->serialize($fee))->values(),
-            'total_amount' => ProgrammeFeeResolver::scheduleFullAmount($fees),
-        ];
+        return $this->schedulePayload(
+            $program,
+            $request->filled('level_code') ? (string) $request->level_code : null,
+            $request->filled('semester') ? (string) $request->semester : null,
+            $request->filled('entry_mode') ? (string) $request->entry_mode : null,
+        );
     }
 
     public function store(Request $request)
@@ -182,11 +195,13 @@ class ProgrammeFeeController extends Controller
                 'program_id' => $data['program_id'],
                 'fee_item_id' => $data['fee_item_id'],
                 'level_code' => $data['level_code'] ?? 'all',
+                'entry_mode' => $data['entry_mode'] ?? 'all',
                 'semester' => $data['semester'] ?? 'both',
                 'installment_tranche' => $data['installment_tranche'] ?? null,
             ];
             $values = array_diff_key($data, $keys);
             $fee = $this->upsertProgrammeFee($keys, $values);
+            ProgrammeFeeResolver::flushCache();
             $this->syncProgramTuitionCache((int) $fee->program_id);
             $this->audit->record('programme_fee.created', 'Programme fee assigned', 'fees', 'programme_fee', $fee->id, null, $fee);
 
@@ -208,6 +223,7 @@ class ProgrammeFeeController extends Controller
             function () use ($programmeFee, $data) {
                 $before = $programmeFee->toArray();
                 $programmeFee->update($data);
+                ProgrammeFeeResolver::flushCache();
                 $this->syncProgramTuitionCache((int) $programmeFee->program_id);
                 $this->audit->record('programme_fee.updated', 'Programme fee updated', 'fees', 'programme_fee', $programmeFee->id, $before, $programmeFee);
 
@@ -229,6 +245,7 @@ class ProgrammeFeeController extends Controller
                 $before = $programmeFee->toArray();
                 $programId = (int) $programmeFee->program_id;
                 $programmeFee->delete();
+                ProgrammeFeeResolver::flushCache();
                 $this->syncProgramTuitionCache($programId);
                 $this->audit->record('programme_fee.deleted', 'Programme fee removed', 'fees', 'programme_fee', $programmeFee->id, $before, null);
 
@@ -246,6 +263,9 @@ class ProgrammeFeeController extends Controller
             'level_code' => 'nullable|string|max:20',
             'level_codes' => 'nullable|array',
             'level_codes.*' => 'string|max:20',
+            'entry_mode' => ['nullable', 'string', Rule::in($this->entryModeValues())],
+            'entry_modes' => 'nullable|array',
+            'entry_modes.*' => ['string', Rule::in($this->entryModeValues())],
             'semester' => ['nullable', Rule::in(FeeSchedule::SEMESTERS)],
             'items' => 'required|array|min:1',
             'items.*.fee_item_id' => 'required|integer|exists:fee_items,id',
@@ -256,45 +276,99 @@ class ProgrammeFeeController extends Controller
             'items.*.is_active' => 'nullable|boolean',
         ]);
 
-        return $this->officeGate('finance.bulk_programme_fees', null, $data, 'Bulk save programme fees', function () use ($request, $data) {
+        return $this->officeGate('finance.bulk_programme_fees', null, $data, 'Bulk save programme fees', function () use ($data) {
             $programId = (int) $data['program_id'];
             $levelCodes = $this->bulkLevelCodes($data);
+            $entryModes = $this->bulkEntryModes($data);
             $semester = $data['semester'] ?? 'both';
             $created = [];
 
-            DB::transaction(function () use ($data, $programId, $levelCodes, $semester, &$created) {
-                foreach ($levelCodes as $levelCode) {
-                    foreach ($data['items'] as $index => $item) {
-                        $feeItem = FeeItem::query()->findOrFail($item['fee_item_id']);
-                        if (! FeeSchedule::isScheduleCategory((string) $feeItem->category)) {
-                            abort(422, "Fee “{$feeItem->name}” cannot be assigned to a programme schedule.");
-                        }
+            DB::transaction(function () use ($data, $programId, $levelCodes, $entryModes, $semester, &$created) {
+                foreach ($entryModes as $entryMode) {
+                    foreach ($levelCodes as $levelCode) {
+                        foreach ($data['items'] as $index => $item) {
+                            $feeItem = FeeItem::query()->findOrFail($item['fee_item_id']);
+                            if (! FeeSchedule::isScheduleCategory((string) $feeItem->category)) {
+                                abort(422, "Fee “{$feeItem->name}” cannot be assigned to a programme schedule.");
+                            }
 
-                        $row = $this->upsertProgrammeFee(
-                            [
-                                'program_id' => $programId,
-                                'fee_item_id' => $feeItem->id,
-                                'level_code' => $levelCode,
-                                'semester' => $semester,
-                                'installment_tranche' => $item['installment_tranche'] ?? null,
-                            ],
-                            [
-                                'amount' => array_key_exists('amount', $item) ? $item['amount'] : null,
-                                'amount_usd' => array_key_exists('amount_usd', $item) ? $item['amount_usd'] : null,
-                                'display_order' => $item['display_order'] ?? ($index + 1),
-                                'is_active' => array_key_exists('is_active', $item) ? (bool) $item['is_active'] : true,
-                            ]
-                        );
-                        $created[] = $row->id;
+                            $row = $this->upsertProgrammeFee(
+                                [
+                                    'program_id' => $programId,
+                                    'fee_item_id' => $feeItem->id,
+                                    'level_code' => $levelCode,
+                                    'entry_mode' => $entryMode,
+                                    'semester' => $semester,
+                                    'installment_tranche' => $item['installment_tranche'] ?? null,
+                                ],
+                                [
+                                    'amount' => array_key_exists('amount', $item) ? $item['amount'] : null,
+                                    'amount_usd' => array_key_exists('amount_usd', $item) ? $item['amount_usd'] : null,
+                                    'display_order' => $item['display_order'] ?? ($index + 1),
+                                    'is_active' => array_key_exists('is_active', $item) ? (bool) $item['is_active'] : true,
+                                ]
+                            );
+                            $created[] = $row->id;
+                        }
                     }
                 }
             });
 
+            ProgrammeFeeResolver::flushCache();
             $this->syncProgramTuitionCache($programId);
             $this->audit->record('programme_fee.bulk', 'Programme fees bulk assigned', 'fees', 'program', $programId, null, ['ids' => $created]);
 
-            return $this->byProgram($request, Program::query()->findOrFail($programId));
+            return $this->schedulePayload(Program::query()->findOrFail($programId));
         });
+    }
+
+    /**
+     * @return array{program: array<string, mixed>, data: \Illuminate\Support\Collection<int, array<string, mixed>>, total_amount: float}
+     */
+    private function schedulePayload(
+        Program $program,
+        ?string $level = null,
+        ?string $semester = null,
+        ?string $entryMode = null,
+    ): array {
+        $fees = $entryMode
+            ? ProgrammeFeeResolver::forProgram($program->id, $level, $semester, $entryMode)
+            : ProgrammeFee::query()
+                ->with('feeItem')
+                ->where('program_id', $program->id)
+                ->where('is_active', true)
+                ->whereHas('feeItem', fn ($fee) => $fee->where('is_active', true))
+                ->when($level, function ($query) use ($level) {
+                    $query->where(function ($builder) use ($level) {
+                        $builder->where('level_code', 'all')->orWhere('level_code', $level);
+                    });
+                })
+                ->when($semester && $semester !== 'both', function ($query) use ($semester) {
+                    $query->where(function ($builder) use ($semester) {
+                        $builder->where('semester', $semester)->orWhere('semester', 'both');
+                    });
+                })
+                ->orderBy('display_order')
+                ->orderBy('id')
+                ->get();
+
+        $serialized = $fees->map(fn (ProgrammeFee $fee) => $this->serialize($fee))->values();
+        $modesPresent = $serialized
+            ->map(fn (array $row) => (string) ($row['entry_mode'] ?? 'all'))
+            ->unique()
+            ->values();
+        $total = $entryMode || $modesPresent->count() <= 1
+            ? ProgrammeFeeResolver::scheduleFullAmount($fees)
+            : ProgrammeFeeResolver::totalForProgram($program->id, $level, $semester, 'all');
+
+        return [
+            'program' => [
+                ...$program->only(['id', 'name', 'code', 'tuition_amount']),
+                'entry_modes' => $program->entryModeList(),
+            ],
+            'data' => $serialized,
+            'total_amount' => $total,
+        ];
     }
 
     public function copySchedule(Request $request)
@@ -364,6 +438,7 @@ class ProgrammeFeeController extends Controller
                                     'program_id' => $toId,
                                     'fee_item_id' => $line->fee_item_id,
                                     'level_code' => $line->level_code ?: 'all',
+                                    'entry_mode' => $line->entry_mode ?: 'all',
                                     'semester' => $line->semester ?: 'both',
                                     'installment_tranche' => $line->installment_tranche,
                                 ],
@@ -380,6 +455,7 @@ class ProgrammeFeeController extends Controller
                     }
                 });
 
+                ProgrammeFeeResolver::flushCache();
                 $this->audit->record('programme_fee.copied', 'Programme fee schedule copied', 'fees', 'program', $fromId, null, [
                     'from_program_id' => $fromId,
                     'to_program_ids' => $toIds,
@@ -465,6 +541,48 @@ class ProgrammeFeeController extends Controller
     }
 
     /**
+     * @param  array<string, mixed>  $data
+     * @return list<string>
+     */
+    private function bulkEntryModes(array $data): array
+    {
+        $modes = [];
+        if (! empty($data['entry_modes']) && is_array($data['entry_modes'])) {
+            $modes = $data['entry_modes'];
+        } elseif (! empty($data['entry_mode'])) {
+            $modes = [$data['entry_mode']];
+        }
+
+        $normalized = [];
+        foreach ($modes as $mode) {
+            $value = strtolower(trim((string) $mode));
+            if ($value === '') {
+                continue;
+            }
+            $normalized[$value] = $value;
+        }
+
+        $values = array_values($normalized);
+        if ($values === []) {
+            return ['all'];
+        }
+
+        if (in_array('all', $values, true) && count($values) > 1) {
+            return array_values(array_filter($values, fn (string $mode) => $mode !== 'all'));
+        }
+
+        return $values;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function entryModeValues(): array
+    {
+        return ['all', ...AdmissionEntryRules::ENTRY_MODE_ORDER];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function validated(Request $request, bool $partial = false): array
@@ -477,6 +595,7 @@ class ProgrammeFeeController extends Controller
             'amount_usd' => 'nullable|numeric|min:0',
             'installment_tranche' => ['nullable', 'integer', Rule::in(FeeSchedule::INSTALLMENT_TRANCHES)],
             'level_code' => 'nullable|string|max:20',
+            'entry_mode' => ['nullable', 'string', Rule::in($this->entryModeValues())],
             'semester' => ['nullable', Rule::in(FeeSchedule::SEMESTERS)],
             'is_active' => 'boolean',
             'display_order' => 'nullable|integer|min:0',
@@ -493,6 +612,12 @@ class ProgrammeFeeController extends Controller
             $data['level_code'] = $data['level_code'] ?: 'all';
         } elseif (! $partial) {
             $data['level_code'] = 'all';
+        }
+
+        if (array_key_exists('entry_mode', $data)) {
+            $data['entry_mode'] = strtolower(trim((string) ($data['entry_mode'] ?: 'all'))) ?: 'all';
+        } elseif (! $partial) {
+            $data['entry_mode'] = 'all';
         }
 
         if (array_key_exists('semester', $data)) {
@@ -512,7 +637,11 @@ class ProgrammeFeeController extends Controller
 
     private function syncProgramTuitionCache(int $programId): void
     {
-        $total = ProgrammeFeeResolver::totalForProgram($programId);
+        // Prefer shared (all entry modes) schedule for the programme cache; fall back to unfiltered total.
+        $total = ProgrammeFeeResolver::totalForProgram($programId, null, null, 'all');
+        if ($total <= 0) {
+            $total = ProgrammeFeeResolver::totalForProgram($programId);
+        }
         Program::query()->whereKey($programId)->update([
             'tuition_amount' => $total > 0 ? $total : null,
         ]);
@@ -539,6 +668,10 @@ class ProgrammeFeeController extends Controller
             'effective_installment_tranche' => $fee->effective_installment_tranche,
             'effective_installment_tranche_label' => FeeSchedule::installmentTrancheLabel($fee->effective_installment_tranche),
             'level_code' => $fee->level_code,
+            'entry_mode' => $fee->entry_mode ?: 'all',
+            'entry_mode_label' => ($fee->entry_mode ?: 'all') === 'all'
+                ? 'All entry modes'
+                : AdmissionEntryRules::entryModeLabel((string) $fee->entry_mode),
             'semester' => $fee->semester,
             'is_active' => $fee->is_active,
             'display_order' => $fee->display_order,
