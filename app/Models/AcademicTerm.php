@@ -86,5 +86,20 @@ class AcademicTerm extends BaseModel
                 }
             }
         });
+
+        static::saved(function (AcademicTerm $term) {
+            // Create path leaves wasChanged() empty after insert; always clear when
+            // current-term flags move, including brand-new current terms.
+            if ($term->is_current
+                || $term->wasRecentlyCreated
+                || $term->wasChanged('is_current')
+                || $term->wasChanged('academic_session_id')) {
+                \App\Support\TuitionProgress::flushCache();
+            }
+        });
+
+        static::deleted(function () {
+            \App\Support\TuitionProgress::flushCache();
+        });
     }
 }
