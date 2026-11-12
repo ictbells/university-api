@@ -786,18 +786,94 @@ class CourseRegistrationService
 
     public function rosterStatusFor(Student $student, ?AcademicTerm $term = null): array
     {
-        $term ??= $this->currentTerm();
-        if (! $term) {
-            return ['status' => 'not_started', 'enrolled_units' => 0, 'extension_status' => null];
-        }
-        $enrolled = $this->enrolledRows($student, $term);
-        $units = $this->unitsByBucket($enrolled);
+        return $this->rosterStatusesFor([$student], $term)[(int) $student->id]
+            ?? ['status' => 'not_started', 'enrolled_units' => 0, 'extension_status' => null];
+    }
 
-        return [
-            'status' => $this->rosterStatus($units, $this->resolvedLimits($student, $term)),
-            'enrolled_units' => $units['overall'],
-            'extension_status' => $this->activeExtension($student, $term)?->status,
-        ];
+    /**
+     * Batch roster status for registration / clearance lists.
+     *
+     * @param  iterable<int, Student>  $students
+     * @return array<int, array{status: string, enrolled_units: int, extension_status: ?string}>
+     */
+    public function rosterStatusesFor(iterable $students, ?AcademicTerm $term = null): array
+    {
+        $students = collect($students)->values();
+        $term ??= $this->currentTerm();
+        $empty = ['status' => 'not_started', 'enrolled_units' => 0, 'extension_status' => null];
+        if ($students->isEmpty()) {
+            return [];
+        }
+        if (! $term) {
+            return $students->mapWithKeys(fn (Student $student) => [(int) $student->id => $empty])->all();
+        }
+
+        $studentIds = $students->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $enrollments = Enrollment::query()
+            ->with(['offering.course'])
+            ->whereIn('student_id', $studentIds)
+            ->enrolled()
+            ->whereHas('offering', fn ($query) => $query->where('academic_term_id', $term->id))
+            ->get()
+            ->groupBy(fn (Enrollment $row) => (int) $row->student_id);
+
+        $programIds = $students->pluck('program_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
+        $limitsByProgram = $programIds === []
+            ? collect()
+            : UnitLimit::query()
+                ->whereIn('program_id', $programIds)
+                ->where(function ($query) use ($term) {
+                    $query->whereNull('academic_term_id')->orWhere('academic_term_id', $term->id);
+                })
+                ->get()
+                ->groupBy(fn (UnitLimit $limit) => (int) $limit->program_id);
+
+        $gracesByStudent = UnitGrace::query()
+            ->whereIn('student_id', $studentIds)
+            ->where('academic_term_id', $term->id)
+            ->get()
+            ->groupBy(fn (UnitGrace $grace) => (int) $grace->student_id);
+
+        $extensions = RegistrationExtension::query()
+            ->whereIn('student_id', $studentIds)
+            ->where('academic_term_id', $term->id)
+            ->whereIn('status', RegistrationExtension::ACTIVE)
+            ->orderByDesc('id')
+            ->get()
+            ->groupBy(fn (RegistrationExtension $row) => (int) $row->student_id);
+
+        $expiredIds = [];
+        $result = [];
+        foreach ($students as $student) {
+            $studentId = (int) $student->id;
+            $enrolled = $enrollments->get($studentId, collect());
+            $units = $this->unitsByBucket($enrolled);
+            $limits = $this->resolvedLimitsFromRows(
+                $student,
+                $limitsByProgram->get((int) $student->program_id, collect()),
+                $gracesByStudent->get($studentId, collect()),
+            );
+
+            $extension = $extensions->get($studentId)?->first();
+            if ($extension && $extension->status === 'paid' && $extension->expires_at && $extension->expires_at->lessThan(now())) {
+                $expiredIds[] = (int) $extension->id;
+                $extension = null;
+            }
+
+            $result[$studentId] = [
+                'status' => $this->rosterStatus($units, $limits),
+                'enrolled_units' => $units['overall'],
+                'extension_status' => $extension?->status,
+            ];
+        }
+
+        if ($expiredIds !== []) {
+            RegistrationExtension::query()
+                ->whereIn('id', array_values(array_unique($expiredIds)))
+                ->update(['status' => 'expired']);
+        }
+
+        return $result;
     }
 
     public function studentLevel(Student $student): ?AcademicLevel
@@ -822,6 +898,30 @@ class CourseRegistrationService
             })
             ->get();
 
+        $graces = UnitGrace::query()
+            ->where('student_id', $student->id)
+            ->where('academic_term_id', $term->id)
+            ->get();
+
+        return $this->resolvedLimitsFromRows($student, $rows, $graces);
+    }
+
+    /**
+     * @param  Collection<int, UnitLimit>  $rows
+     * @param  Collection<int, UnitGrace>  $graces
+     * @return array<string, array{min: ?int, max: ?int, grace: int}>
+     */
+    private function resolvedLimitsFromRows(Student $student, Collection $rows, Collection $graces): array
+    {
+        $level = $this->studentLevel($student);
+        $rows = $rows->filter(function (UnitLimit $limit) use ($level) {
+            if ($limit->academic_level_id === null) {
+                return true;
+            }
+
+            return $level && (int) $limit->academic_level_id === (int) $level->id;
+        });
+
         $picked = [];
         foreach (self::BUCKETS as $bucket) {
             $row = $rows->where('bucket', $bucket)->sortByDesc(function (UnitLimit $limit) {
@@ -834,7 +934,7 @@ class CourseRegistrationService
             ];
         }
 
-        foreach (UnitGrace::query()->where('student_id', $student->id)->where('academic_term_id', $term->id)->get() as $grace) {
+        foreach ($graces as $grace) {
             $bucket = $grace->bucket ?: 'overall';
             if (! isset($picked[$bucket])) {
                 continue;

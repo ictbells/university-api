@@ -10,6 +10,7 @@ use App\Services\RegistrationExportService;
 use App\Support\RegistrationListQuery;
 use App\Support\TuitionProgress;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 
 class RegistrationController extends Controller
 {
@@ -25,7 +26,7 @@ class RegistrationController extends Controller
         $perPage = min(100, max(10, (int) $request->input('per_page', 25)));
         $paginator = RegistrationListQuery::fromRequest($request)->paginate($perPage);
         $term = AcademicTerm::current();
-        $paginator->getCollection()->transform(fn (Student $student) => $this->decorate($student, $term));
+        $paginator->setCollection($this->decorateMany($paginator->getCollection(), $term));
         $payload = $paginator->toArray();
         $payload['summary'] = RegistrationListQuery::summary($request);
 
@@ -111,12 +112,12 @@ class RegistrationController extends Controller
                     (clone $query)->reorder()
                         ->orderBy('students.id')
                         ->chunkById(500, function ($chunk) use ($emit, &$written, $maxRows, $term) {
-                            foreach ($chunk as $student) {
+                            foreach ($this->decorateMany($chunk, $term) as $student) {
                                 if ($written >= $maxRows) {
                                     return false;
                                 }
                                 $written++;
-                                $emit($this->exports->mapRow($this->decorate($student, $term)));
+                                $emit($this->exports->mapRow($student));
                             }
 
                             return $written < $maxRows;
@@ -124,8 +125,7 @@ class RegistrationController extends Controller
                 });
             }
 
-            $students = $query->limit($maxRows)->get()
-                ->map(fn (Student $student) => $this->decorate($student, $term));
+            $students = $this->decorateMany($query->limit($maxRows)->get(), $term);
 
             return $this->exports->export(
                 $format,
@@ -148,15 +148,33 @@ class RegistrationController extends Controller
         }
     }
 
-    private function decorate(Student $student, ?AcademicTerm $term): Student
+    /**
+     * @param  iterable<int, Student>  $students
+     * @return Collection<int, Student>
+     */
+    private function decorateMany(iterable $students, ?AcademicTerm $term): Collection
     {
-        $roster = $this->registration->rosterStatusFor($student, $term);
-        $student->setAttribute('tuition_percent', TuitionProgress::currentSessionPercent($student));
-        $student->setAttribute('course_reg_status', $roster['status']);
-        $student->setAttribute('enrolled_units', $roster['enrolled_units']);
-        $student->setAttribute('extension_status', $roster['extension_status']);
-        $student->setAttribute('studentship_current', \App\Support\Studentship::isCurrent($student));
+        $students = collect($students)->values();
+        if ($students->isEmpty()) {
+            return $students;
+        }
 
-        return $student;
+        $rosters = $this->registration->rosterStatusesFor($students, $term);
+        $tuition = TuitionProgress::currentSessionPercentsFor($students);
+
+        return $students->map(function (Student $student) use ($rosters, $tuition) {
+            $roster = $rosters[(int) $student->id] ?? [
+                'status' => 'not_started',
+                'enrolled_units' => 0,
+                'extension_status' => null,
+            ];
+            $student->setAttribute('tuition_percent', $tuition[(int) $student->id] ?? 0.0);
+            $student->setAttribute('course_reg_status', $roster['status']);
+            $student->setAttribute('enrolled_units', $roster['enrolled_units']);
+            $student->setAttribute('extension_status', $roster['extension_status']);
+            $student->setAttribute('studentship_current', \App\Support\Studentship::isCurrent($student));
+
+            return $student;
+        });
     }
 }

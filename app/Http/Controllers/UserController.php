@@ -71,11 +71,7 @@ class UserController extends Controller
             ->orderBy('name')
             ->paginate(30)
             ->withQueryString();
-        $users->getCollection()->transform(function (User $user) {
-            $this->placement->enrich($user);
-
-            return $user;
-        });
+        $this->placement->enrichMany($users->getCollection());
 
         return $users;
     }

@@ -233,11 +233,16 @@ class Program extends BaseModel
 
     public static function jupebCentresAreConfigured(): bool
     {
-        if (! Schema::hasColumn('faculties', 'is_jupeb_centre')) {
-            return false;
+        static $cached = null;
+        if ($cached !== null) {
+            return $cached;
         }
 
-        return Faculty::query()->where('is_jupeb_centre', true)->exists();
+        if (! Schema::hasColumn('faculties', 'is_jupeb_centre')) {
+            return $cached = false;
+        }
+
+        return $cached = Faculty::query()->where('is_jupeb_centre', true)->exists();
     }
 
     protected static function booted(): void

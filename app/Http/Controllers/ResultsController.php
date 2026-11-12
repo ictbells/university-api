@@ -7,6 +7,7 @@ use App\Models\AcademicTerm;
 use App\Models\AuditLog;
 use App\Models\CourseOffering;
 use App\Models\Department;
+use App\Models\Enrollment;
 use App\Models\Faculty;
 use App\Models\Grade;
 use App\Models\GradeBoundary;
@@ -416,9 +417,17 @@ class ResultsController extends Controller
             ListSessionLevelFilter::constrainStudentsByLevel($query, $level);
         }
 
+        $offeringId = $request->filled('course_offering_id') ? (int) $request->input('course_offering_id') : null;
         $courseId = $request->filled('course_id') ? (int) $request->input('course_id') : null;
         $sessionId = ListSessionLevelFilter::sessionId($request);
-        if ($courseId || $sessionId) {
+        if ($offeringId) {
+            $offering = CourseOffering::query()->findOrFail($offeringId);
+            ResultOfficerScope::assertOfferingAccess($actor, $offering);
+            $query->whereHas(
+                'enrollments',
+                fn ($enrollment) => $enrollment->enrolled()->where('course_offering_id', $offeringId),
+            );
+        } elseif ($courseId || $sessionId) {
             $staffId = $isLecturer ? (int) ($scope['staff_id'] ?? 0) : null;
             $constrainOffering = function ($offering) use ($courseId, $sessionId, $staffId) {
                 if ($staffId && $staffId > 0) {
@@ -431,15 +440,11 @@ class ResultsController extends Controller
                     $offering->whereHas('term', fn ($term) => $term->where('academic_session_id', $sessionId));
                 }
             };
-            $query->where(function ($outer) use ($constrainOffering) {
-                $outer->whereHas(
-                    'enrollments',
-                    fn ($enrollment) => $enrollment->enrolled()->whereHas('offering', $constrainOffering),
-                )->orWhereHas('grades', function ($grades) use ($constrainOffering) {
-                    $grades->whereHas('offering', $constrainOffering)
-                        ->orWhereHas('enrollment.offering', $constrainOffering);
-                });
-            });
+            // Class roster only: enrolled on a matching offering (exclude held grades without registration).
+            $query->whereHas(
+                'enrollments',
+                fn ($enrollment) => $enrollment->enrolled()->whereHas('offering', $constrainOffering),
+            );
         }
 
         if (! $isLecturer) {
@@ -510,9 +515,22 @@ class ResultsController extends Controller
             ->limit(50)
             ->get();
 
+        $enrolledOfferingIds = Enrollment::query()
+            ->enrolled()
+            ->where('student_id', $student->id)
+            ->when(
+                $termId,
+                fn ($q) => $q->whereHas('offering', fn ($offering) => $offering->where('academic_term_id', $termId)),
+            )
+            ->pluck('course_offering_id')
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all();
+
         return [
             'student' => $student->only(['id', 'first_name', 'last_name', 'matric_number', 'current_level']),
             'grades' => $grades,
+            'enrolled_offering_ids' => $enrolledOfferingIds,
             'gpa' => GpaCalculator::compute($termGrades, false),
             'cgpa' => GpaCalculator::summary(
                 ProgrammeChangeGpaPolicy::forCgpa(GpaCalculator::eligibleRows($grades, false), $student),

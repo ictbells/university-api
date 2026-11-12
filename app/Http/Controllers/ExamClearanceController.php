@@ -61,15 +61,13 @@ class ExamClearanceController extends Controller
         }
 
         $page = $query->paginate(min(100, max(10, (int) $request->input('per_page', 25))));
-        $page->getCollection()->transform(function (Student $student) {
-            return $this->clearance->summarize($student);
-        });
+        $summaries = collect($this->clearance->summarizeMany($page->getCollection()));
 
         $filter = $request->input('status');
         if (in_array($filter, ['cleared', 'not_cleared'], true)) {
-            $filtered = $page->getCollection()->filter(fn (array $row) => $row['status'] === $filter)->values();
-            $page->setCollection($filtered);
+            $summaries = $summaries->filter(fn (array $row) => $row['status'] === $filter)->values();
         }
+        $page->setCollection($summaries);
 
         return response()->json($page);
     }

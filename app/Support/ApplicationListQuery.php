@@ -28,7 +28,9 @@ class ApplicationListQuery
             'acceptanceFeeInvoice',
             'latestReview',
             'steps',
+            'documents',
             'refereeInvites',
+            'student',
         ]);
 
         if ($request->filled('stage') && ! in_array('stage', $except, true)) {

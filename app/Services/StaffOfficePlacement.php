@@ -7,6 +7,7 @@ use App\Models\OfficeSubunit;
 use App\Models\OfficeUnit;
 use App\Models\Staff;
 use App\Models\User;
+use Illuminate\Support\Collection;
 
 class StaffOfficePlacement
 {
@@ -22,6 +23,70 @@ class StaffOfficePlacement
         $staff->setAttribute('is_office_hod', OfficeDepartment::query()->where('head_staff_id', $staff->id)->exists());
         $staff->setAttribute('is_office_unit_head', OfficeUnit::query()->where('head_staff_id', $staff->id)->exists());
         $user->setRelation('staff', $staff);
+    }
+
+    /**
+     * Batch enrichment for staff user lists (avoids per-row office lookups).
+     *
+     * @param  iterable<int, User>  $users
+     */
+    public function enrichMany(iterable $users): void
+    {
+        $users = $users instanceof Collection ? $users : collect($users);
+        $staffModels = $users->map(fn (User $user) => $user->staff)->filter();
+        if ($staffModels->isEmpty()) {
+            return;
+        }
+
+        $staffIds = $staffModels->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $hodSet = array_flip(
+            OfficeDepartment::query()->whereIn('head_staff_id', $staffIds)->pluck('head_staff_id')->all()
+        );
+        $unitHeadSet = array_flip(
+            OfficeUnit::query()->whereIn('head_staff_id', $staffIds)->pluck('head_staff_id')->all()
+        );
+
+        $subunitIds = $staffModels->pluck('office_subunit_id')->filter()->unique()->values()->all();
+        $unitIds = $staffModels->pluck('office_unit_id')->filter()->unique()->values()->all();
+        $departmentIds = $staffModels->pluck('office_department_id')->filter()->unique()->values()->all();
+
+        $subunits = $subunitIds === []
+            ? collect()
+            : OfficeSubunit::query()->with('unit.department')->whereIn('id', $subunitIds)->get()->keyBy('id');
+        $units = $unitIds === []
+            ? collect()
+            : OfficeUnit::query()->with('department')->whereIn('id', $unitIds)->get()->keyBy('id');
+        $departments = $departmentIds === []
+            ? collect()
+            : OfficeDepartment::query()->whereIn('id', $departmentIds)->get()->keyBy('id');
+
+        foreach ($users as $user) {
+            $staff = $user->staff;
+            if (! $staff) {
+                continue;
+            }
+
+            $label = null;
+            if ($staff->office_subunit_id && ($sub = $subunits->get($staff->office_subunit_id))) {
+                $label = sprintf(
+                    '%s › %s › %s',
+                    $sub->unit?->department?->name ?? '—',
+                    $sub->unit?->name ?? '—',
+                    $sub->name,
+                );
+            } elseif ($staff->office_unit_id && ($unit = $units->get($staff->office_unit_id))) {
+                $label = sprintf('%s › %s', $unit->department?->name ?? '—', $unit->name);
+            } elseif ($staff->office_department_id && ($dept = $departments->get($staff->office_department_id))) {
+                $label = $dept->name;
+            }
+
+            $hasPlacementIds = (bool) ($staff->office_department_id || $staff->office_unit_id || $staff->office_subunit_id);
+            $staff->setAttribute('office_placement', $label);
+            $staff->setAttribute('office_placement_stale', $hasPlacementIds && $label === null);
+            $staff->setAttribute('is_office_hod', isset($hodSet[$staff->id]));
+            $staff->setAttribute('is_office_unit_head', isset($unitHeadSet[$staff->id]));
+            $user->setRelation('staff', $staff);
+        }
     }
 
     public function clean(Staff $staff): Staff

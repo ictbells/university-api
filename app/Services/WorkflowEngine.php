@@ -21,24 +21,33 @@ class WorkflowEngine
     public function templateFor(Program|Application|null $source): ?WorkflowTemplate
     {
         if ($source instanceof Application && $source->entry_mode === 'transfer') {
-            return WorkflowTemplate::query()->where('code', WorkflowCatalog::UG_TRANSFER)->with('stages')->first()
-                ?: WorkflowTemplate::query()->where('code', WorkflowCatalog::UG_STANDARD)->with('stages')->first();
+            return $this->templateByCode(WorkflowCatalog::UG_TRANSFER)
+                ?: $this->templateByCode(WorkflowCatalog::UG_STANDARD);
         }
 
         $program = $source instanceof Application
             ? ($source->program ?: Program::query()->find($source->program_id))
             : $source;
         if (! $program) {
-            return WorkflowTemplate::query()->where('code', WorkflowCatalog::UG_STANDARD)->with('stages')->first();
+            return $this->templateByCode(WorkflowCatalog::UG_STANDARD);
         }
         $program->loadMissing('workflowTemplate.stages');
         if ($program->workflowTemplate) {
             return $program->workflowTemplate;
         }
         WorkflowCatalog::seed();
-        $code = WorkflowCatalog::defaultCodeFor($program);
 
-        return WorkflowTemplate::query()->where('code', $code)->with('stages')->first();
+        return $this->templateByCode(WorkflowCatalog::defaultCodeFor($program));
+    }
+
+    private function templateByCode(string $code): ?WorkflowTemplate
+    {
+        static $cache = [];
+        if (array_key_exists($code, $cache)) {
+            return $cache[$code];
+        }
+
+        return $cache[$code] = WorkflowTemplate::query()->where('code', $code)->with('stages')->first();
     }
 
     /**

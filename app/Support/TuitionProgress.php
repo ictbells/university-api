@@ -11,9 +11,16 @@ class TuitionProgress
 {
     public static function currentSessionId(): ?int
     {
-        $id = AcademicTerm::query()->where('is_current', true)->value('academic_session_id');
+        static $cached = false;
+        static $id = null;
+        if ($cached) {
+            return $id;
+        }
+        $cached = true;
+        $raw = AcademicTerm::query()->where('is_current', true)->value('academic_session_id');
+        $id = $raw ? (int) $raw : null;
 
-        return $id ? (int) $id : null;
+        return $id;
     }
 
     /**
@@ -25,29 +32,152 @@ class TuitionProgress
      */
     public static function currentSessionPercent(Student $student): float
     {
-        $level = StudentAcademicLevel::primaryFeeLevelCode($student);
+        return self::currentSessionPercentsFor([$student])[(int) $student->id] ?? 0.0;
+    }
+
+    /**
+     * @param  iterable<int, Student>  $students
+     * @return array<int, float>
+     */
+    public static function currentSessionPercentsFor(iterable $students): array
+    {
+        $students = collect($students)->values();
+        if ($students->isEmpty()) {
+            return [];
+        }
+
         $currentId = self::currentSessionId();
+        $studentIds = $students->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $userIds = $students->pluck('user_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
+
+        $invoices = Invoice::query()
+            ->where('category', 'tuition')
+            ->whereIn('status', ['paid', 'partial'])
+            ->where(function ($builder) use ($studentIds, $userIds) {
+                $builder->whereIn('student_id', $studentIds);
+                if ($userIds !== []) {
+                    $builder->orWhere(function ($byUser) use ($userIds) {
+                        $byUser->whereIn('user_id', $userIds)
+                            ->where(function ($sid) {
+                                $sid->whereNull('student_id')->orWhere('student_id', 0);
+                            });
+                    });
+                }
+            })
+            ->with('items')
+            ->orderByDesc('id')
+            ->get();
+
+        $byStudent = [];
+        foreach ($studentIds as $studentId) {
+            $byStudent[$studentId] = collect();
+        }
+        $studentsByUser = $students->keyBy(fn (Student $student) => (int) ($student->user_id ?: 0));
+
+        foreach ($invoices as $invoice) {
+            $studentId = (int) ($invoice->student_id ?: 0);
+            if ($studentId > 0 && isset($byStudent[$studentId])) {
+                $byStudent[$studentId]->push($invoice);
+
+                continue;
+            }
+            $userId = (int) ($invoice->user_id ?: 0);
+            if ($userId > 0 && ($student = $studentsByUser->get($userId))) {
+                $byStudent[(int) $student->id]->push($invoice);
+            }
+        }
+
+        $result = [];
+        foreach ($students as $student) {
+            $result[(int) $student->id] = self::percentFromInvoiceCollection(
+                $student,
+                $byStudent[(int) $student->id] ?? collect(),
+                $currentId,
+            );
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, Invoice>  $invoices
+     */
+    private static function percentFromInvoiceCollection(Student $student, $invoices, ?int $currentId): float
+    {
+        $level = StudentAcademicLevel::primaryFeeLevelCode($student);
 
         if ($currentId) {
-            $paid = self::percentPaid($student, $currentId, includeLegacy: true, levelCode: $level);
+            $paid = self::bestPercentInCollection($student, $invoices, $currentId, true, $level);
             if ($paid > 0) {
                 return $paid;
             }
         }
 
-        $latestPaidSessionId = self::latestPaidTuitionSessionId($student);
+        $latestPaidSessionId = $invoices
+            ->first(fn (Invoice $invoice) => (int) ($invoice->academic_session_id ?: 0) > 0)
+            ?->academic_session_id;
+        $latestPaidSessionId = $latestPaidSessionId ? (int) $latestPaidSessionId : null;
+
         if ($latestPaidSessionId && $latestPaidSessionId !== $currentId) {
-            $paid = self::percentPaid($student, $latestPaidSessionId, includeLegacy: true, levelCode: $level);
+            $paid = self::bestPercentInCollection($student, $invoices, $latestPaidSessionId, true, $level);
             if ($paid > 0) {
                 return $paid;
             }
         }
 
         if (! $currentId) {
-            return self::percentPaid($student, null, includeLegacy: true, levelCode: $level);
+            return self::bestPercentInCollection($student, $invoices, null, true, $level);
         }
 
         return 0.0;
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, Invoice>  $invoices
+     */
+    private static function bestPercentInCollection(
+        Student $student,
+        $invoices,
+        ?int $sessionId,
+        bool $includeLegacy,
+        ?string $levelCode,
+    ): float {
+        $codes = [];
+        if ($levelCode !== null && $levelCode !== '') {
+            $codes = StudentAcademicLevel::feeLevelCodes($student);
+            $codes[] = $levelCode;
+            $unique = [];
+            foreach ($codes as $code) {
+                $code = trim((string) $code);
+                if ($code === '') {
+                    continue;
+                }
+                $unique[strtolower($code)] = $code;
+            }
+            $codes = array_values($unique);
+        }
+        $codeLookup = array_change_key_case(array_flip($codes), CASE_LOWER);
+
+        $best = 0.0;
+        foreach ($invoices as $invoice) {
+            if ($sessionId) {
+                $invoiceSession = $invoice->academic_session_id ? (int) $invoice->academic_session_id : null;
+                if ($invoiceSession !== $sessionId && ! ($includeLegacy && $invoiceSession === null)) {
+                    continue;
+                }
+            }
+
+            if ($codes !== []) {
+                $invoiceLevel = trim((string) ($invoice->level_code ?? ''));
+                if ($invoiceLevel !== '' && strtolower($invoiceLevel) !== 'all' && ! isset($codeLookup[strtolower($invoiceLevel)])) {
+                    continue;
+                }
+            }
+
+            $best = max($best, self::invoicePercent($invoice));
+        }
+
+        return round($best, 2);
     }
 
     public static function percentPaid(Student $student, ?int $sessionId = null, bool $includeLegacy = false, ?string $levelCode = null): float

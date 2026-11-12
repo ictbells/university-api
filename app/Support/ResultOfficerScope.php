@@ -469,22 +469,12 @@ final class ResultOfficerScope
             return $query->whereRaw('1 = 0');
         }
 
-        return $query->where(function (Builder $q) use ($staffId) {
-            $q->whereHas(
-                'enrollments',
-                fn (Builder $enrollment) => $enrollment->enrolled()
-                    ->whereHas('offering', fn (Builder $offering) => $offering->forStaff($staffId)),
-            )->orWhereHas(
-                'grades',
-                function (Builder $grades) use ($staffId) {
-                    $grades->whereHas('offering', fn (Builder $offering) => $offering->forStaff($staffId))
-                        ->orWhereHas(
-                            'enrollment.offering',
-                            fn (Builder $offering) => $offering->forStaff($staffId),
-                        );
-                },
-            );
-        });
+        // Result entry roster = enrolled class list only (not held/import grades without registration).
+        return $query->whereHas(
+            'enrollments',
+            fn (Builder $enrollment) => $enrollment->enrolled()
+                ->whereHas('offering', fn (Builder $offering) => $offering->forStaff($staffId)),
+        );
     }
 
     public static function canAccessFaculty(User $actor, ?int $facultyId): bool

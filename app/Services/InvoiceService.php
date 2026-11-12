@@ -495,29 +495,44 @@ class InvoiceService
     private function catalogFeeForEntryMode(string $category, ?string $entryMode, string $currency = BillingCurrency::NGN): ?FeeItem
     {
         $column = BillingCurrency::isUsd($currency) ? 'amount_usd' : 'amount';
-        $base = FeeItem::query()
+        $items = $this->activeFeeCatalog()
             ->where('category', $category)
-            ->where('is_active', true)
-            ->orderBy('display_order')
-            ->orderBy('id');
+            ->sortBy([
+                ['display_order', 'asc'],
+                ['id', 'asc'],
+            ])
+            ->values();
 
         if ($entryMode) {
-            $match = (clone $base)->where('entry_mode', $entryMode)->first();
+            $match = $items->first(fn (FeeItem $item) => (string) $item->entry_mode === (string) $entryMode);
             if ($match && (float) $match->{$column} > 0) {
                 return $match;
             }
         }
 
-        $generic = (clone $base)
-            ->where(function ($query) {
-                $query->whereNull('entry_mode')->orWhere('entry_mode', '');
-            })
-            ->first();
+        $generic = $items->first(fn (FeeItem $item) => $item->entry_mode === null || $item->entry_mode === '');
         if ($generic && (float) $generic->{$column} > 0) {
             return $generic;
         }
 
         return null;
+    }
+
+    /**
+     * @return \Illuminate\Support\Collection<int, FeeItem>
+     */
+    private function activeFeeCatalog()
+    {
+        static $catalog = null;
+        if ($catalog !== null) {
+            return $catalog;
+        }
+
+        return $catalog = FeeItem::query()
+            ->where('is_active', true)
+            ->orderBy('display_order')
+            ->orderBy('id')
+            ->get();
     }
 
     private function resolveCurrency(?int $applicationId, ?int $studentId): string

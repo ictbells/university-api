@@ -242,6 +242,62 @@ class ResultAccessScopeTest extends TestCase
         $hidden = $this->getJson('/api/academic/results/students?search=BU/2020/999')->assertOk()->json('data');
         $this->assertCount(0, $hidden);
         $this->assertSame('BU/2020/999', $otherStudent->matric_number);
+
+        $byOffering = $this->getJson('/api/academic/results/students?course_offering_id='.$this->csOffering->id)
+            ->assertOk()
+            ->json('data');
+        $this->assertCount(1, $byOffering);
+
+        // Held grade without enrolment must not appear on the result-entry roster.
+        $this->csOffering->loadMissing('course.department');
+        Grade::query()->create([
+            'student_id' => $otherStudent->id,
+            'course_offering_id' => $this->csOffering->id,
+            'sitting' => 'main',
+            'score' => 55,
+            'letter' => 'C',
+            'points' => 3,
+            'status' => GradeStatus::DRAFT,
+            'upload_lane' => GradeStatus::LANE_DEPARTMENTAL,
+            'faculty_id' => $this->csOffering->course?->department?->faculty_id,
+            'department_id' => $this->csOffering->course?->department_id,
+        ]);
+        $heldOnly = $this->getJson('/api/academic/results/students?course_offering_id='.$this->csOffering->id)
+            ->assertOk()
+            ->json('data');
+        $this->assertCount(1, $heldOnly);
+        $this->assertSame($this->student->id, $heldOnly[0]['id']);
+
+        // Student enrolled only on another lecturer offering must not appear for this offering.
+        $secondCourse = Course::query()->create([
+            'department_id' => $this->csDepartment->id,
+            'code' => 'CSC201',
+            'title' => 'Data structures',
+            'units' => 3,
+            'course_type' => 'departmental',
+            'status' => 'core',
+        ]);
+        $secondOffering = CourseOffering::query()->create([
+            'course_id' => $secondCourse->id,
+            'academic_term_id' => $this->term->id,
+            'section' => 'A',
+            'capacity' => 50,
+        ]);
+        $secondOffering->syncLecturers([$staffId]);
+        Enrollment::query()->create([
+            'student_id' => $otherStudent->id,
+            'course_offering_id' => $secondOffering->id,
+            'status' => 'enrolled',
+            'registered_at' => now(),
+        ]);
+        $wrongOffering = $this->getJson('/api/academic/results/students?course_offering_id='.$this->csOffering->id)
+            ->assertOk()
+            ->json('data');
+        $this->assertCount(1, $wrongOffering);
+        $this->assertSame($this->student->id, $wrongOffering[0]['id']);
+
+        $this->getJson('/api/academic/results/students?course_offering_id='.$this->artsOffering->id)
+            ->assertForbidden();
     }
 
     public function test_co_lecturer_on_same_offering_can_enter_results(): void
