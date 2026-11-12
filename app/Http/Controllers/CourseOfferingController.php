@@ -179,6 +179,7 @@ class CourseOfferingController extends Controller
 
     public function store(Request $request)
     {
+        $this->assertCanMutateOfferings($request);
         $courseIds = $this->selectedCourseIds($request);
         $request->merge([
             'course_ids' => $courseIds,
@@ -258,6 +259,7 @@ class CourseOfferingController extends Controller
 
     public function publishFromCurriculum(Request $request)
     {
+        $this->assertCanMutateOfferings($request);
         $data = $request->validate([
             'academic_term_id' => 'required|exists:academic_terms,id',
             'program_id' => 'nullable|exists:programs,id',
@@ -296,6 +298,7 @@ class CourseOfferingController extends Controller
 
     public function update(Request $request, CourseOffering $offering)
     {
+        $this->assertCanMutateOfferings($request);
         $before = $offering->toArray();
         $data = $request->validate([
             'course_id' => 'sometimes|exists:courses,id',
@@ -342,8 +345,9 @@ class CourseOfferingController extends Controller
         );
     }
 
-    public function destroy(CourseOffering $offering)
+    public function destroy(Request $request, CourseOffering $offering)
     {
+        $this->assertCanMutateOfferings($request);
         if ($offering->enrollments()->enrolled()->exists()) {
             return response()->json(['message' => 'Remove enrolled students before deleting this offering.'], 422);
         }
@@ -390,6 +394,13 @@ class CourseOfferingController extends Controller
         });
 
         return array_values(array_unique(array_filter($ids)));
+    }
+
+    private function assertCanMutateOfferings(Request $request): void
+    {
+        if (ResultOfficerScope::kind($request->user()) === 'lecturer') {
+            abort(403, 'Lecturers can view assigned offerings only.');
+        }
     }
 
     /**

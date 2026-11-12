@@ -271,6 +271,19 @@ class ResultAccessScopeTest extends TestCase
             [$this->csOffering->course_id],
             collect($courses)->pluck('id')->all(),
         );
+
+        $this->postJson('/api/academic/offerings', [
+            'course_id' => $this->csOffering->course_id,
+            'academic_term_id' => $this->term->id,
+            'section' => 'B',
+        ])->assertForbidden();
+
+        $this->patchJson('/api/academic/offerings/'.$this->csOffering->id, [
+            'capacity' => 40,
+        ])->assertForbidden();
+
+        $this->deleteJson('/api/academic/offerings/'.$this->csOffering->id)
+            ->assertForbidden();
     }
 
     public function test_hod_sees_department_grades_across_lanes_not_other_departments(): void
