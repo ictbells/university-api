@@ -17,7 +17,16 @@ use RuntimeException;
 
 class WorkflowEngine
 {
+    /** @var array<string, WorkflowTemplate|null> */
+    private static array $templateCache = [];
+
     public function __construct(private InvoiceService $invoices) {}
+
+    public static function flushCache(): void
+    {
+        self::$templateCache = [];
+    }
+
     public function templateFor(Program|Application|null $source): ?WorkflowTemplate
     {
         if ($source instanceof Application && $source->entry_mode === 'transfer') {
@@ -42,12 +51,11 @@ class WorkflowEngine
 
     private function templateByCode(string $code): ?WorkflowTemplate
     {
-        static $cache = [];
-        if (array_key_exists($code, $cache)) {
-            return $cache[$code];
+        if (array_key_exists($code, self::$templateCache)) {
+            return self::$templateCache[$code];
         }
 
-        return $cache[$code] = WorkflowTemplate::query()->where('code', $code)->with('stages')->first();
+        return self::$templateCache[$code] = WorkflowTemplate::query()->where('code', $code)->with('stages')->first();
     }
 
     /**

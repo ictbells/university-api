@@ -2,9 +2,13 @@
 
 namespace Tests;
 
+use App\Models\Program;
+use App\Services\InvoiceService;
+use App\Services\WorkflowEngine;
 use App\Support\ProgrammeFeeResolver;
 use App\Support\ReceiptPayer;
 use App\Support\StudentAcademicLevel;
+use App\Support\TuitionProgress;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 
 abstract class TestCase extends BaseTestCase
@@ -15,6 +19,10 @@ abstract class TestCase extends BaseTestCase
         ProgrammeFeeResolver::flushCache();
         StudentAcademicLevel::flushCache();
         ReceiptPayer::flushCache();
+        InvoiceService::flushCache();
+        WorkflowEngine::flushCache();
+        Program::flushCache();
+        TuitionProgress::flushCache();
         $this->isolateMatricSequence();
     }
 

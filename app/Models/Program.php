@@ -231,18 +231,24 @@ class Program extends BaseModel
         })->values();
     }
 
+    private static ?bool $jupebCentresConfigured = null;
+
+    public static function flushCache(): void
+    {
+        self::$jupebCentresConfigured = null;
+    }
+
     public static function jupebCentresAreConfigured(): bool
     {
-        static $cached = null;
-        if ($cached !== null) {
-            return $cached;
+        if (self::$jupebCentresConfigured !== null) {
+            return self::$jupebCentresConfigured;
         }
 
         if (! Schema::hasColumn('faculties', 'is_jupeb_centre')) {
-            return $cached = false;
+            return self::$jupebCentresConfigured = false;
         }
 
-        return $cached = Faculty::query()->where('is_jupeb_centre', true)->exists();
+        return self::$jupebCentresConfigured = Faculty::query()->where('is_jupeb_centre', true)->exists();
     }
 
     protected static function booted(): void

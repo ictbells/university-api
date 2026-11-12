@@ -9,18 +9,26 @@ use Illuminate\Database\Eloquent\Builder;
 
 class TuitionProgress
 {
+    private static bool $currentSessionResolved = false;
+
+    private static ?int $currentSessionId = null;
+
+    public static function flushCache(): void
+    {
+        self::$currentSessionResolved = false;
+        self::$currentSessionId = null;
+    }
+
     public static function currentSessionId(): ?int
     {
-        static $cached = false;
-        static $id = null;
-        if ($cached) {
-            return $id;
+        if (self::$currentSessionResolved) {
+            return self::$currentSessionId;
         }
-        $cached = true;
+        self::$currentSessionResolved = true;
         $raw = AcademicTerm::query()->where('is_current', true)->value('academic_session_id');
-        $id = $raw ? (int) $raw : null;
+        self::$currentSessionId = $raw ? (int) $raw : null;
 
-        return $id;
+        return self::$currentSessionId;
     }
 
     /**

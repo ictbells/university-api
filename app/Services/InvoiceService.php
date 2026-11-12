@@ -518,17 +518,24 @@ class InvoiceService
         return null;
     }
 
+    /** @var \Illuminate\Support\Collection<int, FeeItem>|null */
+    private static $activeFeeCatalog = null;
+
+    public static function flushCache(): void
+    {
+        self::$activeFeeCatalog = null;
+    }
+
     /**
      * @return \Illuminate\Support\Collection<int, FeeItem>
      */
     private function activeFeeCatalog()
     {
-        static $catalog = null;
-        if ($catalog !== null) {
-            return $catalog;
+        if (self::$activeFeeCatalog !== null) {
+            return self::$activeFeeCatalog;
         }
 
-        return $catalog = FeeItem::query()
+        return self::$activeFeeCatalog = FeeItem::query()
             ->where('is_active', true)
             ->orderBy('display_order')
             ->orderBy('id')
