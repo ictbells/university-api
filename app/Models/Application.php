@@ -318,6 +318,11 @@ class Application extends BaseModel
         return $this->belongsTo(Program::class);
     }
 
+    public function specialisation(): BelongsTo
+    {
+        return $this->belongsTo(ProgrammeSpecialisation::class, 'specialisation_id');
+    }
+
     public function applicationFeeInvoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class, 'application_fee_invoice_id');

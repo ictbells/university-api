@@ -65,7 +65,7 @@ class ResultAccessScopeTest extends TestCase
         ]);
         $this->office->syncNavKeys([
             'results', 'results-students', 'results-import', 'results-department',
-            'results-college', 'results-approvals',
+            'results-college', 'results-approvals', 'offerings', 'courses',
         ]);
 
         $campus = Campus::query()->create(['name' => 'Main', 'is_active' => true]);
@@ -179,7 +179,7 @@ class ResultAccessScopeTest extends TestCase
             'results.read', 'results.write', 'results.import',
         ]);
         $staffId = (int) $lecturer->staff->id;
-        $this->csOffering->update(['faculty_staff_id' => $staffId]);
+        $this->csOffering->syncLecturers([$staffId]);
 
         Sanctum::actingAs($lecturer);
 
@@ -242,6 +242,35 @@ class ResultAccessScopeTest extends TestCase
         $hidden = $this->getJson('/api/academic/results/students?search=BU/2020/999')->assertOk()->json('data');
         $this->assertCount(0, $hidden);
         $this->assertSame('BU/2020/999', $otherStudent->matric_number);
+    }
+
+    public function test_co_lecturer_on_same_offering_can_enter_results(): void
+    {
+        $primary = $this->makeScopedOfficer('lecturer', null, [
+            'results.read', 'results.write', 'results.import',
+            'academic.offerings.manage', 'academic.courses.manage',
+        ]);
+        $co = $this->makeScopedOfficer('lecturer', null, [
+            'results.read', 'results.write', 'results.import',
+            'academic.offerings.manage', 'academic.courses.manage',
+        ]);
+        $this->csOffering->syncLecturers([(int) $primary->staff->id, (int) $co->staff->id]);
+
+        Sanctum::actingAs($co);
+        $this->postJson('/api/academic/results/grades', [
+            'student_id' => $this->student->id,
+            'course_offering_id' => $this->csOffering->id,
+            'score' => 68,
+        ])->assertOk()->assertJsonPath('status', GradeStatus::DRAFT);
+
+        $offerings = $this->getJson('/api/academic/offerings')->assertOk()->json();
+        $this->assertEquals([$this->csOffering->id], collect($offerings)->pluck('id')->all());
+
+        $courses = $this->getJson('/api/academic/courses')->assertOk()->json();
+        $this->assertEquals(
+            [$this->csOffering->course_id],
+            collect($courses)->pluck('id')->all(),
+        );
     }
 
     public function test_hod_sees_department_grades_across_lanes_not_other_departments(): void

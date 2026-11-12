@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AcademicLevel;
 use App\Models\AcademicTerm;
 use App\Models\Course;
+use App\Models\CourseOffering;
 use App\Models\Program;
 use App\Models\Setting;
 use App\Models\Staff;
@@ -16,9 +17,11 @@ use App\Support\InstitutionLogo;
 use App\Support\ListSessionLevelFilter;
 use App\Support\ProgrammeEligibility;
 use App\Support\ReceiptInstitution;
+use App\Support\ResultOfficerScope;
 use App\Support\StudyLevel;
 use App\Support\WorkflowCatalog;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -71,27 +74,46 @@ class AcademicController extends Controller
             'course_ids' => 'nullable|array',
             'course_ids.*' => 'exists:courses,id',
             'is_research_degree' => 'boolean',
+            'specialisation_required' => 'boolean',
+            'specialisations' => 'nullable|array',
+            'specialisations.*.id' => 'nullable|integer|exists:programme_specialisations,id',
+            'specialisations.*.name' => 'nullable|string|max:255',
+            'specialisations.*.code' => 'nullable|string|max:40',
+            'specialisations.*.is_active' => 'boolean',
+            'specialisations.*.display_order' => 'nullable|integer|min:0',
             'eligibility' => 'nullable|array',
             'workflow_template_id' => 'nullable|exists:workflow_templates,id',
             'is_active' => 'boolean',
         ]);
         $courseIds = $data['course_ids'] ?? null;
-        unset($data['course_ids']);
+        $specialisations = array_key_exists('specialisations', $data) ? ($data['specialisations'] ?? []) : null;
+        unset($data['course_ids'], $data['specialisations']);
         $data = StudyLevel::applyToProgramPayload($data);
         $data['is_research_degree'] = (bool) ($data['is_research_degree'] ?? false);
+        $data['specialisation_required'] = (bool) ($data['specialisation_required'] ?? false);
         $data['is_active'] = array_key_exists('is_active', $data) ? (bool) $data['is_active'] : true;
         if (empty($data['workflow_template_id'])) {
             $data['workflow_template_id'] = WorkflowCatalog::ensureDefaultId(new Program($data));
         }
-        return $this->officeGate('academic.store_program', null, $data + ['course_ids' => $courseIds], 'Create programme', function () use ($data, $courseIds) {
-            $program = Program::query()->create($data);
-            if ($courseIds !== null) {
-                $this->syncProgramCourseIds($program, $courseIds);
-            }
-            $this->audit->record('program.created', 'Programme created', 'academic', 'program', $program->id, null, $program);
+        return $this->officeGate(
+            'academic.store_program',
+            null,
+            $data + ['course_ids' => $courseIds, 'specialisations' => $specialisations],
+            'Create programme',
+            function () use ($data, $courseIds, $specialisations) {
+                return DB::transaction(function () use ($data, $courseIds, $specialisations) {
+                    $program = Program::query()->create($data);
+                    if ($courseIds !== null) {
+                        $this->syncProgramCourseIds($program, $courseIds);
+                    }
+                    $this->syncProgrammeSpecialisations($program, $specialisations);
+                    $this->assertSpecialisationRequiredCatalog($program, (bool) $program->specialisation_required);
+                    $this->audit->record('program.created', 'Programme created', 'academic', 'program', $program->id, null, $program);
 
-            return $program->load(['department.faculty', 'courses', 'workflowTemplate.stages']);
-        });
+                    return $program->load(['department.faculty', 'courses', 'workflowTemplate.stages', 'specialisations']);
+                });
+            },
+        );
     }
 
     public function updateProgram(Request $request, Program $program)
@@ -111,11 +133,23 @@ class AcademicController extends Controller
             'course_ids' => 'nullable|array',
             'course_ids.*' => 'exists:courses,id',
             'is_research_degree' => 'boolean',
+            'specialisation_required' => 'boolean',
+            'specialisations' => 'nullable|array',
+            'specialisations.*.id' => 'nullable|integer|exists:programme_specialisations,id',
+            'specialisations.*.name' => 'nullable|string|max:255',
+            'specialisations.*.code' => 'nullable|string|max:40',
+            'specialisations.*.is_active' => 'boolean',
+            'specialisations.*.display_order' => 'nullable|integer|min:0',
             'eligibility' => 'nullable|array',
             'workflow_template_id' => 'nullable|exists:workflow_templates,id',
         ]);
+        $specialisations = array_key_exists('specialisations', $data) ? ($data['specialisations'] ?? []) : null;
+        unset($data['specialisations']);
         if (array_key_exists('entry_modes', $data) || array_key_exists('study_level', $data)) {
             $data = StudyLevel::applyToProgramPayload($data, $program);
+        }
+        if (array_key_exists('specialisation_required', $data)) {
+            $data['specialisation_required'] = (bool) $data['specialisation_required'];
         }
         $nextWorkflowId = array_key_exists('workflow_template_id', $data)
             ? $data['workflow_template_id']
@@ -126,16 +160,29 @@ class AcademicController extends Controller
                 $data,
             )));
         }
-        return $this->officeGate('academic.update_program', $program, ['program_id' => $program->id, ...$data], 'Update programme', function () use ($program, $data, $before) {
-            if (array_key_exists('course_ids', $data)) {
-                $this->syncProgramCourseIds($program, $data['course_ids'] ?? []);
-                unset($data['course_ids']);
-            }
-            $program->update($data);
-            $this->audit->record('program.updated', 'Programme updated', 'academic', 'program', $program->id, $before, $program);
+        return $this->officeGate(
+            'academic.update_program',
+            $program,
+            ['program_id' => $program->id, ...$data, 'specialisations' => $specialisations],
+            'Update programme',
+            function () use ($program, $data, $before, $specialisations) {
+                return DB::transaction(function () use ($program, $data, $before, $specialisations) {
+                    if (array_key_exists('course_ids', $data)) {
+                        $this->syncProgramCourseIds($program, $data['course_ids'] ?? []);
+                        unset($data['course_ids']);
+                    }
+                    $program->update($data);
+                    $this->syncProgrammeSpecialisations($program, $specialisations);
+                    $required = array_key_exists('specialisation_required', $data)
+                        ? (bool) $data['specialisation_required']
+                        : (bool) $program->specialisation_required;
+                    $this->assertSpecialisationRequiredCatalog($program->fresh() ?? $program, $required);
+                    $this->audit->record('program.updated', 'Programme updated', 'academic', 'program', $program->id, $before, $program);
 
-            return $program->load(['department.faculty', 'courses', 'workflowTemplate.stages']);
-        });
+                    return $program->load(['department.faculty', 'courses', 'workflowTemplate.stages', 'specialisations']);
+                });
+            },
+        );
     }
 
     public function syncProgramCourses(Request $request, Program $program)
@@ -202,6 +249,15 @@ class AcademicController extends Controller
             ->orderByRaw("CASE COALESCE(course_type, 'departmental') WHEN 'general' THEN 1 WHEN 'faculty' THEN 2 ELSE 3 END")
             ->orderBy('code');
         ListSessionLevelFilter::applyLevelToCoursePrograms($query, $request);
+
+        $scope = ResultOfficerScope::for($request->user());
+        if ($scope['kind'] === 'lecturer') {
+            $staffId = (int) ($scope['staff_id'] ?? 0);
+            $courseIds = $staffId > 0
+                ? CourseOffering::query()->forStaff($staffId)->pluck('course_id')->unique()->filter()->all()
+                : [];
+            $query->whereIn('id', $courseIds !== [] ? $courseIds : [0]);
+        }
 
         return $query->get();
     }
@@ -362,6 +418,63 @@ class AcademicController extends Controller
      *
      * @param  list<int|string>  $courseIds
      */
+    /**
+     * @param  list<array<string, mixed>>|null  $rows
+     */
+    private function syncProgrammeSpecialisations(Program $program, ?array $rows): void
+    {
+        if ($rows === null) {
+            return;
+        }
+
+        $keepIds = [];
+        foreach (array_values($rows) as $index => $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $name = trim((string) ($row['name'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            $attrs = [
+                'name' => $name,
+                'code' => filled($row['code'] ?? null) ? trim((string) $row['code']) : null,
+                'is_active' => array_key_exists('is_active', $row) ? (bool) $row['is_active'] : true,
+                'display_order' => isset($row['display_order']) ? (int) $row['display_order'] : ($index + 1),
+            ];
+            $id = isset($row['id']) ? (int) $row['id'] : 0;
+            $existing = $id > 0
+                ? $program->specialisations()->whereKey($id)->first()
+                : null;
+            if ($existing) {
+                $existing->update($attrs);
+                $keepIds[] = $existing->id;
+                continue;
+            }
+            $created = $program->specialisations()->create($attrs);
+            $keepIds[] = $created->id;
+        }
+
+        $query = $program->specialisations();
+        if ($keepIds !== []) {
+            $query->whereNotIn('id', $keepIds);
+        }
+        $query->get()->each->delete();
+    }
+
+    private function assertSpecialisationRequiredCatalog(Program $program, bool $required): void
+    {
+        if (! $required) {
+            return;
+        }
+        $active = $program->specialisations()->where('is_active', true)->count();
+        if ($active < 1) {
+            throw ValidationException::withMessages([
+                'specialisations' => 'Add at least one active area of specialisation when specialisation is required.',
+            ]);
+        }
+    }
+
     private function syncProgramCourseIds(Program $program, array $courseIds): void
     {
         $courseIds = $this->normalizeIds($courseIds);

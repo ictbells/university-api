@@ -35,7 +35,7 @@ class CourseOfferingLecturerNameTest extends TestCase
             'section' => 'A',
             'capacity' => 80,
         ])
-            ->assertCreated()
+            ->assertSuccessful()
             ->assertJsonPath('lecturer_name', 'Dr. Ada Okonkwo')
             ->assertJsonPath('lecturer_display_name', 'Dr. Ada Okonkwo')
             ->assertJsonPath('faculty_staff_id', null);
@@ -48,12 +48,41 @@ class CourseOfferingLecturerNameTest extends TestCase
         $offering = CourseOffering::query()->create([
             'course_id' => $course->id,
             'academic_term_id' => $term->id,
-            'faculty_staff_id' => $lecturerStaff->id,
             'section' => 'A',
             'capacity' => 50,
         ]);
+        $offering->syncLecturers([$lecturerStaff->id]);
 
-        $this->assertSame('Staff Lecturer', $offering->fresh('lecturer.user')->lecturer_display_name);
+        $this->assertSame('Staff Lecturer', $offering->fresh(['lecturers.user', 'lecturer.user'])->lecturer_display_name);
+    }
+
+    public function test_offering_accepts_multiple_lecturers(): void
+    {
+        [$user, $course, $term, $lecturerStaff] = $this->seedOfferingContext();
+        $secondUser = User::factory()->create(['name' => 'Co Lecturer', 'status' => 'active']);
+        $secondStaff = Staff::query()->create([
+            'user_id' => $secondUser->id,
+            'staff_number' => 'ST-LEC-2',
+        ]);
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/academic/offerings', [
+            'course_id' => $course->id,
+            'academic_term_id' => $term->id,
+            'faculty_staff_ids' => [$lecturerStaff->id, $secondStaff->id],
+            'section' => 'A',
+        ])
+            ->assertSuccessful()
+            ->assertJsonPath('faculty_staff_id', $lecturerStaff->id)
+            ->assertJsonCount(2, 'faculty_staff_ids');
+
+        $offering = CourseOffering::query()->first();
+        $this->assertEqualsCanonicalizing(
+            [$lecturerStaff->id, $secondStaff->id],
+            $offering->lecturers()->pluck('staff.id')->map(fn ($id) => (int) $id)->all(),
+        );
+        $this->assertStringContainsString('Staff Lecturer', (string) $offering->fresh('lecturers.user')->lecturer_display_name);
+        $this->assertStringContainsString('Co Lecturer', (string) $offering->fresh('lecturers.user')->lecturer_display_name);
     }
 
     public function test_store_accepts_multiple_course_ids(): void
@@ -110,7 +139,7 @@ class CourseOfferingLecturerNameTest extends TestCase
             'academic_term_id' => $term->id,
             'section' => 'A',
         ])
-            ->assertCreated()
+            ->assertSuccessful()
             ->assertJsonPath('capacity', null);
 
         $offering = CourseOffering::query()->first();

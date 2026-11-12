@@ -90,7 +90,7 @@ class CourseOfferingController extends Controller
 
     public function students(CourseOffering $offering)
     {
-        $offering->load(['course', 'term.session', 'lecturer.user']);
+        $offering->load(['course', 'term.session', 'lecturer.user', 'lecturers.user:id,name']);
 
         return [
             'offering' => [
@@ -108,7 +108,7 @@ class CourseOfferingController extends Controller
     public function studentsExport(Request $request, CourseOffering $offering, CourseOfferingExportService $exporter)
     {
         $data = $request->validate(['format' => 'required|in:excel,pdf']);
-        $offering->load(['course', 'term.session', 'lecturer.user']);
+        $offering->load(['course', 'term.session', 'lecturer.user', 'lecturers.user:id,name']);
 
         return $exporter->roster($data['format'], $offering, $this->rosterRows($offering));
     }
@@ -149,10 +149,19 @@ class CourseOfferingController extends Controller
     private function filteredQuery(Request $request): Builder
     {
         $query = CourseOffering::query()
-            ->with(['course.department', 'course.programs:id,name,code', 'term.session', 'lecturer.user'])
+            ->with([
+                'course.department',
+                'course.programs:id,name,code',
+                'term.session',
+                'lecturer.user',
+                'lecturers.user:id,name',
+            ])
             ->withCount(['enrollments as enrolled_count' => fn ($q) => $q->enrolled()]);
 
-        if ($request->boolean('upload_lane_only')) {
+        $scope = ResultOfficerScope::for($request->user());
+        // Lecturers always see only offerings assigned to them. Other officers
+        // optionally filter by upload lane (results screens).
+        if ($scope['kind'] === 'lecturer' || $request->boolean('upload_lane_only')) {
             ResultOfficerScope::constrainOfferings($query, $request->user());
         }
 
@@ -181,11 +190,15 @@ class CourseOfferingController extends Controller
             'course_ids.*' => 'integer|distinct|exists:courses,id',
             'academic_term_id' => 'required|exists:academic_terms,id',
             'faculty_staff_id' => 'nullable|exists:staff,id',
+            'faculty_staff_ids' => 'nullable|array',
+            'faculty_staff_ids.*' => 'integer|distinct|exists:staff,id',
             'lecturer_name' => 'nullable|string|max:190',
             'section' => 'nullable|string|max:20',
             'capacity' => 'nullable|integer|min:1|max:1000',
         ]);
-        unset($data['course_id'], $data['course_ids']);
+        $lecturerIds = $this->resolveLecturerIds($data);
+        unset($data['course_id'], $data['course_ids'], $data['faculty_staff_ids']);
+        $data['faculty_staff_id'] = $lecturerIds[0] ?? null;
         $data['section'] = $data['section'] ?? 'A';
         $data['lecturer_name'] = $this->normalizedLecturerName($data['lecturer_name'] ?? null);
         $data['capacity'] = $this->normalizedCapacity($data['capacity'] ?? null);
@@ -210,16 +223,23 @@ class CourseOfferingController extends Controller
         return $this->officeGate(
             'academic.store_offering',
             null,
-            [...$data, 'course_ids' => $courseIds],
+            [...$data, 'course_ids' => $courseIds, 'faculty_staff_ids' => $lecturerIds],
             $summary,
-            function () use ($data, $courseIds) {
-                $offerings = DB::transaction(function () use ($data, $courseIds) {
+            function () use ($data, $courseIds, $lecturerIds) {
+                $offerings = DB::transaction(function () use ($data, $courseIds, $lecturerIds) {
                     $created = [];
                     foreach ($courseIds as $courseId) {
-                        $created[] = CourseOffering::query()->create([
+                        $offering = CourseOffering::query()->create([
                             ...$data,
                             'course_id' => $courseId,
-                        ])->load(['course.department', 'term', 'lecturer.user']);
+                        ]);
+                        $offering->syncLecturers($lecturerIds);
+                        $created[] = $offering->fresh([
+                            'course.department',
+                            'term',
+                            'lecturer.user',
+                            'lecturers.user:id,name',
+                        ]);
                     }
 
                     return $created;
@@ -281,10 +301,18 @@ class CourseOfferingController extends Controller
             'course_id' => 'sometimes|exists:courses,id',
             'academic_term_id' => 'sometimes|exists:academic_terms,id',
             'faculty_staff_id' => 'nullable|exists:staff,id',
+            'faculty_staff_ids' => 'nullable|array',
+            'faculty_staff_ids.*' => 'integer|distinct|exists:staff,id',
             'lecturer_name' => 'nullable|string|max:190',
             'section' => 'nullable|string|max:20',
             'capacity' => 'nullable|integer|min:1|max:1000',
         ]);
+        $syncLecturers = array_key_exists('faculty_staff_ids', $data) || array_key_exists('faculty_staff_id', $data);
+        $lecturerIds = $syncLecturers ? $this->resolveLecturerIds($data) : null;
+        unset($data['faculty_staff_ids']);
+        if ($lecturerIds !== null) {
+            $data['faculty_staff_id'] = $lecturerIds[0] ?? null;
+        }
         if (array_key_exists('lecturer_name', $data)) {
             $data['lecturer_name'] = $this->normalizedLecturerName($data['lecturer_name']);
         }
@@ -292,12 +320,26 @@ class CourseOfferingController extends Controller
             $data['capacity'] = $this->normalizedCapacity($data['capacity']);
         }
 
-        return $this->officeGate('academic.update_offering', $offering, ['offering_id' => $offering->id, ...$data], 'Update course offering', function () use ($offering, $data, $before) {
-            $offering->update($data);
-            $this->audit->record('offering.updated', 'Course offering updated', 'academic', 'course_offering', $offering->id, $before, $offering);
+        return $this->officeGate(
+            'academic.update_offering',
+            $offering,
+            ['offering_id' => $offering->id, ...$data, 'faculty_staff_ids' => $lecturerIds],
+            'Update course offering',
+            function () use ($offering, $data, $before, $lecturerIds) {
+                $offering->update($data);
+                if ($lecturerIds !== null) {
+                    $offering->syncLecturers($lecturerIds);
+                }
+                $this->audit->record('offering.updated', 'Course offering updated', 'academic', 'course_offering', $offering->id, $before, $offering);
 
-            return $offering->fresh(['course.department', 'term', 'lecturer.user']);
-        });
+                return $offering->fresh([
+                    'course.department',
+                    'term',
+                    'lecturer.user',
+                    'lecturers.user:id,name',
+                ]);
+            },
+        );
     }
 
     public function destroy(CourseOffering $offering)
@@ -348,6 +390,24 @@ class CourseOfferingController extends Controller
         });
 
         return array_values(array_unique(array_filter($ids)));
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return list<int>
+     */
+    private function resolveLecturerIds(array $data): array
+    {
+        $ids = [];
+        if (array_key_exists('faculty_staff_ids', $data) && is_array($data['faculty_staff_ids'])) {
+            foreach ($data['faculty_staff_ids'] as $id) {
+                $ids[] = (int) $id;
+            }
+        } elseif (array_key_exists('faculty_staff_id', $data) && filled($data['faculty_staff_id'])) {
+            $ids[] = (int) $data['faculty_staff_id'];
+        }
+
+        return array_values(array_unique(array_filter($ids, fn ($id) => $id > 0)));
     }
 
     private function normalizedLecturerName(mixed $value): ?string

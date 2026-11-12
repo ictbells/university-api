@@ -221,7 +221,11 @@ final class ResultOfficerScope
         }
 
         $rows = Grade::query()
-            ->with(['offering:id,faculty_staff_id', 'enrollment:id,course_offering_id'])
+            ->with([
+                'offering:id,faculty_staff_id',
+                'offering.lecturers:id',
+                'enrollment:id,course_offering_id',
+            ])
             ->whereIn('id', $ids)
             ->get(['id', 'faculty_id', 'department_id', 'upload_lane', 'course_offering_id', 'enrollment_id']);
         foreach ($rows as $row) {
@@ -266,10 +270,10 @@ final class ResultOfficerScope
             }
 
             return $query->where(function (Builder $q) use ($staffId) {
-                $q->whereHas('offering', fn (Builder $offering) => $offering->where('faculty_staff_id', $staffId))
+                $q->whereHas('offering', fn (Builder $offering) => $offering->forStaff($staffId))
                     ->orWhereHas(
                         'enrollment.offering',
-                        fn (Builder $offering) => $offering->where('faculty_staff_id', $staffId),
+                        fn (Builder $offering) => $offering->forStaff($staffId),
                     );
             });
         }
@@ -322,7 +326,7 @@ final class ResultOfficerScope
             $staffId = (int) ($scope['staff_id'] ?? 0);
 
             return $staffId > 0
-                ? $query->where('faculty_staff_id', $staffId)
+                ? $query->forStaff($staffId)
                 : $query->whereRaw('1 = 0');
         }
 
@@ -384,13 +388,15 @@ final class ResultOfficerScope
             if ($staffId <= 0) {
                 return false;
             }
-            $offeringStaffId = (int) ($row->offering?->faculty_staff_id
-                ?? CourseOffering::query()->whereKey(
-                    (int) ($row->course_offering_id ?: $row->enrollment?->course_offering_id ?: 0)
-                )->value('faculty_staff_id')
-                ?? 0);
+            $offering = $row->offering;
+            if (! $offering) {
+                $offeringId = (int) ($row->course_offering_id ?: $row->enrollment?->course_offering_id ?: 0);
+                $offering = $offeringId > 0
+                    ? CourseOffering::query()->with('lecturers:id')->find($offeringId)
+                    : null;
+            }
 
-            return $offeringStaffId === $staffId;
+            return $offering?->isAssignedToStaff($staffId) === true;
         }
         if ($scope['kind'] === 'gs') {
             return $row->upload_lane === GradeStatus::LANE_GENERAL;
@@ -431,7 +437,7 @@ final class ResultOfficerScope
         $onOffering = Enrollment::query()
             ->enrolled()
             ->where('student_id', $student->id)
-            ->whereHas('offering', fn (Builder $offering) => $offering->where('faculty_staff_id', $staffId))
+            ->whereHas('offering', fn (Builder $offering) => $offering->forStaff($staffId))
             ->exists()
             || Grade::query()
                 ->where(function (Builder $q) use ($student) {
@@ -439,10 +445,10 @@ final class ResultOfficerScope
                         ->orWhereHas('enrollment', fn (Builder $e) => $e->where('student_id', $student->id));
                 })
                 ->where(function (Builder $q) use ($staffId) {
-                    $q->whereHas('offering', fn (Builder $offering) => $offering->where('faculty_staff_id', $staffId))
+                    $q->whereHas('offering', fn (Builder $offering) => $offering->forStaff($staffId))
                         ->orWhereHas(
                             'enrollment.offering',
-                            fn (Builder $offering) => $offering->where('faculty_staff_id', $staffId),
+                            fn (Builder $offering) => $offering->forStaff($staffId),
                         );
                 })
                 ->exists();
@@ -467,14 +473,14 @@ final class ResultOfficerScope
             $q->whereHas(
                 'enrollments',
                 fn (Builder $enrollment) => $enrollment->enrolled()
-                    ->whereHas('offering', fn (Builder $offering) => $offering->where('faculty_staff_id', $staffId)),
+                    ->whereHas('offering', fn (Builder $offering) => $offering->forStaff($staffId)),
             )->orWhereHas(
                 'grades',
                 function (Builder $grades) use ($staffId) {
-                    $grades->whereHas('offering', fn (Builder $offering) => $offering->where('faculty_staff_id', $staffId))
+                    $grades->whereHas('offering', fn (Builder $offering) => $offering->forStaff($staffId))
                         ->orWhereHas(
                             'enrollment.offering',
-                            fn (Builder $offering) => $offering->where('faculty_staff_id', $staffId),
+                            fn (Builder $offering) => $offering->forStaff($staffId),
                         );
                 },
             );
@@ -520,7 +526,7 @@ final class ResultOfficerScope
 
         return CourseOffering::query()
             ->whereKey($offeringId)
-            ->where('faculty_staff_id', $staffId)
+            ->forStaff($staffId)
             ->exists();
     }
 }

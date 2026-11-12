@@ -266,6 +266,7 @@ class ApplicationController extends Controller
             'first_choice_college_id' => 'nullable|integer',
             'first_choice_department_id' => 'nullable|integer',
             'first_choice_program_id' => 'required|integer|exists:programs,id',
+            'specialisation_id' => 'nullable|integer|exists:programme_specialisations,id',
             'second_choice_college_id' => 'nullable|integer',
             'second_choice_department_id' => 'nullable|integer',
             'second_choice_program_id' => 'nullable|integer|exists:programs,id',
@@ -596,6 +597,7 @@ class ApplicationController extends Controller
             $payload = $request->validate([
                 'payload.first_choice_program_id' => 'required|integer|min:1|exists:programs,id',
                 'payload.second_choice_program_id' => 'nullable|integer|exists:programs,id|different:payload.first_choice_program_id',
+                'payload.specialisation_id' => 'nullable|integer|exists:programme_specialisations,id',
             ])['payload'] + $payload;
             $payload['program_id'] = (int) $payload['first_choice_program_id'];
             if (! AdmissionEntryRules::allowsSecondProgramme((string) $application->entry_mode)) {
@@ -617,8 +619,9 @@ class ApplicationController extends Controller
             if (! empty($payload['second_choice_program_id'])) {
                 $choices['second_choice_program_id'] = 'second choice';
             }
+            $firstProgram = null;
             foreach ($choices as $key => $label) {
-                $program = Program::query()->with('department.faculty')->find($payload[$key]);
+                $program = Program::query()->with(['department.faculty', 'specialisations'])->find($payload[$key]);
                 if ($application->entry_mode === 'jupeb' && $program?->isJupebTrack() && Program::jupebCentresAreConfigured() && ! $program->isOfferedAtJupebCentre()) {
                     return response()->json([
                         'message' => 'JUPEB applicants can only choose a programme offered at a JUPEB centre.',
@@ -633,7 +636,18 @@ class ApplicationController extends Controller
                 $payload[$prefix.'_program_id'] = $program->id;
                 $payload[$prefix.'_department_id'] = $program->department_id;
                 $payload[$prefix.'_college_id'] = $program->department?->faculty_id;
+                if ($key === 'first_choice_program_id') {
+                    $firstProgram = $program;
+                }
             }
+            $specialisationId = null;
+            if (($application->entry_mode ?? '') === 'pg' && $firstProgram) {
+                $specialisationId = $firstProgram->resolveApplicantSpecialisationId(
+                    $payload['specialisation_id'] ?? null,
+                    'payload.specialisation_id',
+                );
+            }
+            $payload['specialisation_id'] = $specialisationId;
         }
         if ($data['step_key'] === 'direct_entry') {
             $payload = ApplicationFormSteps::validateDirectEntry($request, $payload);
@@ -662,11 +676,15 @@ class ApplicationController extends Controller
         $before = $step->payload;
         $step->update(['payload' => $payload, 'status' => 'saved']);
         if ($formWindow) {
-            $application->update([
+            $updates = [
                 'stage' => 'form_in_progress',
                 'current_step' => $data['step_key'],
                 'program_id' => $payload['program_id'] ?? $application->program_id,
-            ]);
+            ];
+            if ($data['step_key'] === 'programme_selection') {
+                $updates['specialisation_id'] = $payload['specialisation_id'] ?? null;
+            }
+            $application->update($updates);
         }
         $this->audit->record('application.step_saved', 'Saved '.$data['step_key'], 'admissions', 'application', $application->id, $before, $payload);
 
@@ -1100,7 +1118,17 @@ class ApplicationController extends Controller
      */
     private function decorateFile(Application $application)
     {
-        $application->loadMissing(['program.workflowTemplate.stages', 'steps', 'refereeInvites', 'documents', 'latestReview', 'academicSession', 'intake.term']);
+        $application->loadMissing([
+            'program.workflowTemplate.stages',
+            'program.specialisations',
+            'specialisation',
+            'steps',
+            'refereeInvites',
+            'documents',
+            'latestReview',
+            'academicSession',
+            'intake.term',
+        ]);
         $application->setAttribute('eligibility', ProgrammeEligibility::forApplication($application));
         $application->setAttribute('workflow', $this->workflows->snapshot($application));
         $application->setAttribute('referee_invites', $this->referees->statusFor($application));

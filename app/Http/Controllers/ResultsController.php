@@ -422,7 +422,7 @@ class ResultsController extends Controller
             $staffId = $isLecturer ? (int) ($scope['staff_id'] ?? 0) : null;
             $constrainOffering = function ($offering) use ($courseId, $sessionId, $staffId) {
                 if ($staffId && $staffId > 0) {
-                    $offering->where('faculty_staff_id', $staffId);
+                    $offering->forStaff($staffId);
                 }
                 if ($courseId) {
                     $offering->where('course_id', $courseId);
@@ -719,7 +719,7 @@ class ResultsController extends Controller
         );
 
         $query = CourseOffering::query()
-            ->with(['course.department', 'term'])
+            ->with(['course.department', 'term', 'lecturers.user:id,name', 'lecturer.user:id,name'])
             ->withCount(['enrollments as enrolled_count' => fn ($q) => $q->enrolled()]);
         ResultOfficerScope::constrainOfferings($query, $request->user());
 

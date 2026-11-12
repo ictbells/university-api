@@ -9,13 +9,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\ValidationException;
 
 class Program extends BaseModel
 {
     protected $fillable = [
         'department_id', 'name', 'code', 'award_type', 'study_level', 'entry_modes',
         'duration_years', 'tuition_amount', 'is_active', 'is_research_degree',
-        'eligibility', 'workflow_template_id',
+        'specialisation_required', 'eligibility', 'workflow_template_id',
     ];
 
     protected function casts(): array
@@ -25,6 +26,7 @@ class Program extends BaseModel
             'eligibility' => 'array',
             'is_active' => 'boolean',
             'is_research_degree' => 'boolean',
+            'specialisation_required' => 'boolean',
             'tuition_amount' => 'decimal:2',
         ];
     }
@@ -54,6 +56,50 @@ class Program extends BaseModel
     public function programmeFees(): HasMany
     {
         return $this->hasMany(ProgrammeFee::class);
+    }
+
+    public function specialisations(): HasMany
+    {
+        return $this->hasMany(ProgrammeSpecialisation::class)
+            ->orderBy('display_order')
+            ->orderBy('name');
+    }
+
+    public function activeSpecialisations(): HasMany
+    {
+        return $this->specialisations()->where('is_active', true);
+    }
+
+    /**
+     * Resolve an applicant/staff specialisation choice for this programme.
+     *
+     * @throws ValidationException
+     */
+    public function resolveApplicantSpecialisationId(mixed $rawId, string $field = 'specialisation_id'): ?int
+    {
+        $active = $this->relationLoaded('specialisations')
+            ? $this->specialisations->where('is_active', true)->values()
+            : $this->specialisations()->where('is_active', true)->orderBy('display_order')->orderBy('name')->get();
+
+        $id = filled($rawId) ? (int) $rawId : null;
+        if (! $id) {
+            if ($this->specialisation_required && $active->isNotEmpty()) {
+                throw ValidationException::withMessages([
+                    $field => 'Select an area of specialisation for this programme.',
+                ]);
+            }
+
+            return null;
+        }
+
+        $match = $active->firstWhere('id', $id);
+        if (! $match) {
+            throw ValidationException::withMessages([
+                $field => 'The selected area of specialisation is not available for this programme.',
+            ]);
+        }
+
+        return (int) $match->id;
     }
 
     /**
@@ -145,7 +191,11 @@ class Program extends BaseModel
         )));
 
         $programs = static::query()
-            ->with(['department.faculty', 'workflowTemplate.stages'])
+            ->with([
+                'department.faculty',
+                'workflowTemplate.stages',
+                'specialisations' => fn ($query) => $query->where('is_active', true),
+            ])
             ->where('is_active', true)
             ->orderBy('name')
             ->get();

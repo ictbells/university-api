@@ -39,7 +39,7 @@ class AcademicSetupController extends Controller
             'campuses' => Campus::query()->with('faculties.departments')->orderBy('name')->get(),
             'terms' => AcademicTerm::query()->with('session')->orderByDesc('is_current')->orderByDesc('id')->get(),
             'sessions' => AcademicSession::query()->with('semesters')->orderByDesc('id')->get(),
-            'programs' => Program::query()->with(['department.faculty', 'workflowTemplate'])->orderBy('name')->get(),
+            'programs' => Program::query()->with(['department.faculty', 'workflowTemplate', 'specialisations'])->orderBy('name')->get(),
             'courses' => Course::query()->with('department')->orderBy('code')->get(),
             'levels' => AcademicLevel::query()->orderBy('study_level')->orderBy('sort_order')->get(),
             'olevel_subjects' => OlevelSubject::query()->orderBy('name')->get(),
@@ -123,7 +123,12 @@ class AcademicSetupController extends Controller
     public function programs()
     {
         return Program::query()
-            ->with(['department.faculty', 'courses' => fn ($query) => $query->orderBy('code'), 'workflowTemplate.stages'])
+            ->with([
+                'department.faculty',
+                'courses' => fn ($query) => $query->orderBy('code'),
+                'workflowTemplate.stages',
+                'specialisations',
+            ])
             ->withCount('students')
             ->orderBy('name')
             ->get();

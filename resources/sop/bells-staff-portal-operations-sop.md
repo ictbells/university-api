@@ -1,7 +1,7 @@
 # Bells University Staff Portal — Standard Operating Procedure
 
 **Document ID:** SOP-STAFF-PORTAL-001  
-**Version:** 1.80  
+**Version:** 1.82  
 **Effective date:** November 2026  
 **Audience:** ICT administrators, registrars, office heads, and authorised staff  
 **Classification:** Internal use only
@@ -434,7 +434,7 @@ Studentship is not ended by session close. The registrar confirms graduation, th
 | Page | Purpose | Permission |
 |------|---------|------------|
 | Application sessions | Open/close intakes by entry mode and admission session. Application and acceptance amounts are set in the fee catalog | `academic.intakes.manage` |
-| Programmes | Programmes, entry modes, eligibility, workflow template; bulk spreadsheet import | `academic.programmes.manage` |
+| Programmes | Programmes, entry modes, eligibility, PG areas of specialisation (optional or required), workflow template; bulk spreadsheet import | `academic.programmes.manage` |
 | O'level | O'level subject catalogue; bulk spreadsheet import | `academic.olevel.manage` |
 | Candidate data | Upload JAMB candidate lists used at student signup | `admissions.import` |
 | Import applicants | Create applicant accounts and applications from another portal | `admissions.import` |
@@ -465,6 +465,7 @@ Leave the field blank unless the programme needs a different path. If none is se
 - Transfer applicants can still follow the transfer workflow by **entry mode** even if the programme’s stored template is Undergraduate / JUPEB.
 - Pair **Research postgraduate** with **Research degree** when the applicant form must collect research proposal and supervisor preferences.
 - Bulk programme import assigns the default template from study level / entry modes / research flag; it does not accept a workflow column in the spreadsheet.
+- For **PG** programmes, staff can add **areas of specialisation** on the programme form and set **Specialisation required**. When required, the applicant must pick one after choosing the programme; when not required, the list is optional. Research degrees still use free-text proposed area / supervisor fields separately.
 
 #### Admission session vs application session
 
@@ -527,7 +528,7 @@ The university keeps one **Course catalog** (all courses). Students do not regis
 #### Curriculum, offerings, and registration
 
 - **Programme courses** — Assign catalog courses to a programme by college, department, and admission category (UTME, Direct Entry, JUPEB, Transfer, Postgraduate). A programme that accepts several categories appears under each of them. This is the curriculum map; it is not the student registration list (`academic.programmes.manage`).
-- **Offerings** — Course offerings per semester (`academic.offerings.manage`). Filter by admission session and study level. Use **Publish programme courses** to create a section A (unlimited seats) for every mapped catalog course in the chosen semester; courses that already have an offering are skipped. Then assign a **Lecturer (portal account)** with the staff picker (`faculty_staff_id`) so that account can enter/upload drafts for that offering; optional free-text lecturer name is display-only and does **not** grant Results access. Add extra sections or capacity as needed. Students register only from offerings in the **current** semester. The **Registered** column shows how many students are registered (dropped registrations are not counted). Each course row has a **Class list → Download** menu: **View students**, **Download Excel**, or **Download PDF** of the students registered on that course (matric, name, gender, programme, level, email, carry-over, registration date); clicking the **Registered** number also opens the list. **Download summary** (Excel or PDF) exports all listed offerings with registered counts and a total row, using the session, semester, and level filters on screen.
+- **Offerings** — Course offerings per semester (`academic.offerings.manage`). Filter by admission session and study level. Use **Publish programme courses** to create a section A (unlimited seats) for every mapped catalog course in the chosen semester; courses that already have an offering are skipped. Then assign one or more **Lecturers (portal accounts)** with the multi-select staff picker (`faculty_staff_ids`) so each assigned account can enter/upload drafts for that offering; optional free-text lecturer name is display-only and does **not** grant Results access. Lecturers who open Offerings see only offerings assigned to them (and only those courses in the course picker). Add extra sections or capacity as needed. Students register only from offerings in the **current** semester. The **Registered** column shows how many students are registered (dropped registrations are not counted). Each course row has a **Class list → Download** menu: **View students**, **Download Excel**, or **Download PDF** of the students registered on that course (matric, name, gender, programme, level, email, carry-over, registration date); clicking the **Registered** number also opens the list. **Download summary** (Excel or PDF) exports all listed offerings with registered counts and a total row, using the session, semester, and level filters on screen.
 - **Course registration** — Staff view of student enrolments (`academic.enrollments.manage`). On the student portal **Course registration** page, students see every available offering with a unit checklist (General | Faculty | Departmental | Overall), tick their choice, and submit with **one Register**. They must have paid at least 25% tuition before Register/Drop succeed; the catalogue stays visible while they are blocked. Staff can still register below that threshold when they provide a reason. Search the student picker by session and level. **Print registered courses** opens a preview; students choose session and semester there to print an earlier registration. The form shows the level for that session, not the student's current level.
 - **Unit limits** — Credit-unit caps (`academic.enrollments.manage`). Filter by session and level.
 - **Registration extensions** — Review late-registration requests (`academic.extensions.review`). Filter by session and level.
@@ -549,14 +550,14 @@ Result entry follows a controlled workflow before students can see grades on the
 | College Exam Officer (`faculty-exam-officer`) | Result entry + College (as assigned) | College courses in their academic college (`staff.department_id` → college) | No |
 | Department Exam Officer (`department-exam-officer`) | Result entry + Department | Departmental courses in their academic department (`staff.department_id`) | No |
 | GS Exam Officer (`gs-exam-officer`) | Result entry / Upload Score | General courses only | No |
-| Lecturer (`lecturer`) | Result entry + Upload Score | Offerings where `course_offerings.faculty_staff_id` = their staff id (drafts only) | No |
+| Lecturer (`lecturer`) | Result entry + Upload Score | Offerings where their staff id is in `course_offering_staff` (or legacy `faculty_staff_id`) — drafts only; co-lecturers share the same offering | No |
 | Department HOD (`department-hod`) | Result entry + Department (+ optional Upload Score) | All grades with `department_id` = their academic department (any lane) | No |
 | College Dean (`college-dean`) | Result entry + College | All grades with `faculty_id` = their college (via academic department) | No |
 | Committee of Deans (`committee-of-deans`) | Committee of Deans | Campus-wide at the Committee step (`results.faculty_approve`) | No |
 
 Registrar and Super Admin remain campus-wide. Committee of Deans approval of **general-lane** rows is not limited to the officer’s college. Create/update/import/submit/approve/Senate/release still go through the **HOD office inbox** (`officeGate`) when that office requires approval.
 
-**Placement notes:** Set **Academic department** on Users for HOD / Dean / college & department exam officers. Assign lecturers on **Course offerings** via the staff picker (`faculty_staff_id`); free-text lecturer name alone does not grant Result entry access.
+**Placement notes:** Set **Academic department** on Users for HOD / Dean / college & department exam officers. Assign one or more lecturers on **Course offerings** via the multi-select staff picker (`faculty_staff_ids`); free-text lecturer name alone does not grant Result entry access.
 
 **Hold until registered:** Staff may enter or import a draft by student + course offering **before** the student registers. The row is tagged held (`registration_held`) until an enrolled registration exists; submit, approve, release, and GPA skip held rows. When the student later registers, the existing grade is attached to the enrollment.
 
@@ -925,6 +926,8 @@ Use the audit trail for compliance reviews and incident investigation.
 | 1.76 | Oct 2026 | Platform team | Course catalog is a free pool (no college/department/programme on create/import); codes unique university-wide via `code_key`; map on Programme courses |
 | 1.77 | Oct 2026 | Platform team | Postgraduate physical clearance can optionally take a historic matric number for older graduates whose history is not migrated; blank still auto-assigns; bulk/UG unchanged |
 | 1.80 | Nov 2026 | Platform team | Programme fees can be scoped by admission entry mode (UTME / DE / Transfer / …); mode-specific schedules replace shared All-entry-mode lines for those students |
+| 1.81 | Nov 2026 | Platform team | PG programmes can define areas of specialisation; staff set whether selection is required; applicants choose after programme on the form |
+| 1.82 | Nov 2026 | Platform team | Course offerings support multiple lecturers; lecturers see only assigned offerings/courses; Results entry/import scopes to any assigned co-lecturer |
 | 1.79 | Nov 2026 | Platform team | Results access roles: Lecturer (assigned offerings only), Department HOD, College Dean, and Committee of Deans. Documented role matrix in §8.6a; Academic department on Users (§6.5 / §7); Offerings staff picker `faculty_staff_id` for portal lecturers |
 | 1.78 | Nov 2026 | Platform team | Non-Nigeria postgraduate applicants are billed in USD for every charge (parallel USD prices, no conversion). Dollar card pay and wallet top-up use Wema; the dollar wallet is separate from naira. Finance reports and wallet liability stay split by currency; Payments has a Foreign currency export |
 | 1.70 | Sep 2026 | Platform team | Students see the exact amount and fee-line breakdown for the chosen tuition installment in a confirmation popup before the invoice is created; Cancel creates nothing |

@@ -96,11 +96,14 @@ class ApplicationStaffUpdateService
                 ...$this->alternatePhoneAttributes($data),
             ]);
 
+            $specialisationId = $this->resolveSpecialisationId($application, $data, $nextProgramId);
             $application->update([
                 'jamb_registration' => $jamb,
                 'jamb_status' => $jambStatus,
                 'program_id' => $nextProgramId,
+                'specialisation_id' => $specialisationId,
             ]);
+            $data['specialisation_id'] = $specialisationId;
 
             $this->writeSteps($application, $data, $jamb, $ninChanged);
             $this->syncStudentProfile($student, $data, $nextProgramId, $ninChanged);
@@ -147,6 +150,8 @@ class ApplicationStaffUpdateService
         $application = $application->fresh()->load([
             'user',
             'program.department.faculty',
+            'program.specialisations',
+            'specialisation',
             'intake.term',
             'steps',
             'documents',
@@ -428,11 +433,28 @@ class ApplicationStaffUpdateService
             'first_choice_college_id' => $firstProgram?->department?->faculty_id,
             'first_choice_department_id' => $firstProgram?->department_id,
             'first_choice_program_id' => $firstProgram?->id,
+            'specialisation_id' => $data['specialisation_id'] ?? null,
             'second_choice_college_id' => $secondProgram?->department?->faculty_id,
             'second_choice_department_id' => $secondProgram?->department_id,
             'second_choice_program_id' => $secondProgram?->id,
             'program_id' => $firstProgram?->id,
         ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function resolveSpecialisationId(Application $application, array $data, ?int $programId): ?int
+    {
+        if (($application->entry_mode ?? '') !== 'pg' || ! $programId) {
+            return null;
+        }
+        $program = Program::query()->with('specialisations')->find($programId);
+        if (! $program) {
+            return null;
+        }
+
+        return $program->resolveApplicantSpecialisationId($data['specialisation_id'] ?? null);
     }
 
     /**
